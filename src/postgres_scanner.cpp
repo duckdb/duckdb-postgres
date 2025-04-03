@@ -251,15 +251,14 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 	}
 	if (bind_data->table_name.empty()) {
 		D_ASSERT(!bind_data->sql.empty());
-		lstate.sql = StringUtil::Format(
-		    R"(COPY (SELECT %s FROM (%s) AS __unnamed_subquery %s) TO STDOUT (FORMAT "binary");)",
-		    col_names, bind_data->sql, filter);
+		lstate.sql =
+		    StringUtil::Format(R"(COPY (SELECT %s FROM (%s) AS __unnamed_subquery %s) TO STDOUT (FORMAT "binary");)",
+		                       col_names, bind_data->sql, filter);
 
 	} else {
-		lstate.sql = StringUtil::Format(
-		    R"(COPY (SELECT %s FROM %s.%s %s) TO STDOUT (FORMAT "binary");)",
-		    col_names, KeywordHelper::WriteQuoted(bind_data->schema_name, '"'),
-		    KeywordHelper::WriteQuoted(bind_data->table_name, '"'), filter);
+		lstate.sql = StringUtil::Format(R"(COPY (SELECT %s FROM %s.%s %s) TO STDOUT (FORMAT "binary");)", col_names,
+		                                KeywordHelper::WriteQuoted(bind_data->schema_name, '"'),
+		                                KeywordHelper::WriteQuoted(bind_data->table_name, '"'), filter);
 	}
 	lstate.exec = false;
 	lstate.done = false;
@@ -291,11 +290,14 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 	auto pg_catalog = bind_data.GetCatalog();
 	if (pg_catalog) {
 		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
-		auto &con = transaction.GetConnection();
+		auto &con =
+		    bind_data.use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
 		result->SetConnection(con.GetConnection());
 	} else {
 		auto con = PostgresConnection::Open(bind_data.dsn);
-		PostgresScanConnect(con, string());
+		if (bind_data.use_transaction) {
+			PostgresScanConnect(con, string());
+		}
 		result->SetConnection(std::move(con));
 	}
 	if (bind_data.requires_materialization) {

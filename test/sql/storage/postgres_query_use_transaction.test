@@ -1,0 +1,57 @@
+# name: test/sql/storage/postgres_query_use_transaction.test
+# description: Test use_transaction flag in postgres_query
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+query I
+CALL postgres_query('s', 'SELECT 1')
+----
+1
+
+query I
+CALL postgres_query('s', 'SELECT 1', use_transaction=true)
+----
+1
+
+query I
+CALL postgres_query('s', 'SELECT 1', use_transaction=false)
+----
+1
+
+statement ok
+BEGIN;
+
+query I
+CALL postgres_query('s', 'SELECT 1')
+----
+1
+
+statement error
+CALL postgres_query('s', 'SELECT 1', use_transaction=false)
+----
+Invalid Error: Execution without a Transaction is not possible if a Transaction already started
+
+statement ok
+ROLLBACK
+
+query I
+CALL postgres_query('s', 'SELECT 1', use_transaction=false)
+----
+1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES, READ_ONLY)
+
+statement error
+CALL postgres_query('s2', 'SELECT 1', use_transaction=false)
+----
+Invalid Error: Execution without a Transaction is not possible in Read Only Mode

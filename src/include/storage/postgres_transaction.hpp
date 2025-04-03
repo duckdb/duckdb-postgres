@@ -28,9 +28,12 @@ public:
 	void Commit();
 	void Rollback();
 
+	PostgresConnection &GetConnectionWithoutTransaction();
 	PostgresConnection &GetConnection();
+
 	string GetDSN();
 	unique_ptr<PostgresResult> Query(const string &query);
+	unique_ptr<PostgresResult> QueryWithoutTransaction(const string &query);
 	vector<unique_ptr<PostgresResult>> ExecuteQueries(const string &queries);
 	static PostgresTransaction &Get(ClientContext &context, Catalog &catalog);
 

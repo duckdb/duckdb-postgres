@@ -1,0 +1,59 @@
+# name: test/sql/storage/postgres_execute_use_transaction.test
+# description: Test use_transaction flag in postgres_execute
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement error
+CALL postgres_execute('s', 'VACUUM')
+----
+Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+
+statement error
+CALL postgres_execute('s', 'VACUUM', use_transaction=true)
+----
+Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+
+statement error
+CALL postgres_execute('s', 'VACUUM', use_transaction=true)
+----
+Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+
+statement ok
+CALL postgres_execute('s', 'VACUUM', use_transaction=false)
+
+statement ok
+BEGIN;
+
+statement ok
+CALL postgres_execute('s', 'SELECT 1')
+
+statement error
+CALL postgres_execute('s', 'VACUUM', use_transaction=false)
+----
+Invalid Error: Execution without a Transaction is not possible if a Transaction already started
+
+statement ok
+ROLLBACK
+
+statement ok
+CALL postgres_execute('s', 'VACUUM', use_transaction=false)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES, READ_ONLY)
+
+statement error
+CALL postgres_execute('s2', 'VACUUM', use_transaction=false)
+----
+Invalid Error: Execution without a Transaction is not possible in Read Only Mode

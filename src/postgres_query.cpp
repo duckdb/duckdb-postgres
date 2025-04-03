@@ -38,7 +38,16 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		StringUtil::RTrim(sql);
 	}
 
-	auto &con = transaction.GetConnection();
+	bool use_transaction = true;
+	for (auto &kv : input.named_parameters) {
+		if (kv.first == "use_transaction") {
+			use_transaction = BooleanValue::Get(kv.second);
+		}
+	}
+	result->use_transaction = use_transaction;
+
+	auto &con = use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
+
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
 	auto prepared = PQprepare(conn, "", sql.c_str(), 0, nullptr);
@@ -87,6 +96,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 
 PostgresQueryFunction::PostgresQueryFunction()
     : TableFunction("postgres_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
+	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
 	PostgresScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;
