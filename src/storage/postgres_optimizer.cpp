@@ -3,14 +3,78 @@
 #include "storage/postgres_transaction.hpp"
 #include "storage/postgres_optimizer.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_limit.hpp"
 #include "storage/postgres_catalog.hpp"
 #include "postgres_scanner.hpp"
+
 
 namespace duckdb {
 
 struct PostgresOperators {
 	reference_map_t<PostgresCatalog, vector<reference<LogicalGet>>> scans;
 };
+
+static void OptimizePostgresScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
+	if (op->type == LogicalOperatorType::LOGICAL_LIMIT) {
+		auto &limit = op->Cast<LogicalLimit>();
+		reference<LogicalOperator> child = *op->children[0];
+
+		while (child.get().type == LogicalOperatorType::LOGICAL_PROJECTION) {
+			child = *child.get().children[0];
+		}
+
+		if (child.get().type != LogicalOperatorType::LOGICAL_GET) {
+			OptimizePostgresScanLimitPushdown(op->children[0]);
+			return;
+		}
+
+		auto &get = child.get().Cast<LogicalGet>();
+		if (!PostgresCatalog::IsPostgresScan(get.function.name)) {
+			OptimizePostgresScanLimitPushdown(op->children[0]);
+			return;
+		}
+
+		switch (limit.limit_val.Type()) {
+		case LimitNodeType::CONSTANT_VALUE:
+		case LimitNodeType::UNSET:
+			break;
+		default:
+			// not a constant or unset limit
+			OptimizePostgresScanLimitPushdown(op->children[0]);
+			return;
+		}
+		switch (limit.offset_val.Type()) {
+		case LimitNodeType::CONSTANT_VALUE:
+		case LimitNodeType::UNSET:
+			break;
+		default:
+			// not a constant or unset offset
+			OptimizePostgresScanLimitPushdown(op->children[0]);
+			return;
+		}
+
+		auto &bind_data = get.bind_data->Cast<PostgresBindData>();
+
+		string generated_limit_clause = "";
+		if (limit.limit_val.Type() != LimitNodeType::UNSET) {
+			generated_limit_clause += " LIMIT " + to_string(limit.limit_val.GetConstantValue());
+		}
+		if (limit.offset_val.Type() != LimitNodeType::UNSET) {
+			generated_limit_clause += " OFFSET " + to_string(limit.offset_val.GetConstantValue());
+		}
+
+		if (!generated_limit_clause.empty()) {
+			bind_data.limit = generated_limit_clause;
+
+			op = std::move(op->children[0]);
+			return;
+		}
+	}
+
+	for (auto &child : op->children) {
+		OptimizePostgresScanLimitPushdown(child);
+	}
+}
 
 void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) {
 	if (op.type == LogicalOperatorType::LOGICAL_GET) {
@@ -35,6 +99,8 @@ void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) {
 }
 
 void PostgresOptimizer::Optimize(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
+	// look at query plan and check if we can find LIMIT/OFFSET to pushdown
+	OptimizePostgresScanLimitPushdown(plan);
 	// look at the query plan and check if we can enable streaming query scans
 	PostgresOperators operators;
 	GatherPostgresScans(*plan, operators);
