@@ -1,0 +1,40 @@
+# name: test/sql/debug.test
+# description: Test running postgres_query
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'host=localhost dbname=postgres user=postgres' AS pg (TYPE POSTGRES)
+
+statement ok
+SET pg_use_binary_copy=false;
+
+query I
+select userid from pg.test limit 1;
+----
+1
+
+query II
+select * from pg.test;
+----
+1	a
+2	b
+3	foo
+
+statement ok
+SET pg_use_legacy_text_protocol=true;
+
+query I
+select userid from pg.test limit 1;
+----
+1
+
+query II
+select * from pg.test;
+----
+1	a
+2	b
+3	foo

@@ -11,6 +11,7 @@
 #include "duckdb.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "postgres_conversion.hpp"
+#include "postgres_connection.hpp"
 
 namespace duckdb {
 

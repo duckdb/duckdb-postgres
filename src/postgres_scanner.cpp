@@ -2,6 +2,7 @@
 
 #include <libpq-fe.h>
 
+#include "duckdb/common/unique_ptr.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
@@ -10,6 +11,7 @@
 #include "postgres_scanner.hpp"
 #include "postgres_result.hpp"
 #include "postgres_binary_reader.hpp"
+#include "postgres_text_reader.hpp"
 #include "storage/postgres_catalog.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "storage/postgres_table_set.hpp"
@@ -33,6 +35,10 @@ struct PostgresLocalState : public LocalTableFunctionState {
 	PostgresPoolConnection pool_connection;
 
 	void ScanChunk(ClientContext &context, const PostgresBindData &bind_data, PostgresGlobalState &gstate,
+	               DataChunk &output);
+	void ScanChunkWithBinaryReader(ClientContext &context, const PostgresBindData &bind_data, PostgresGlobalState &gstate,
+	               DataChunk &output);
+	void ScanChunkWithTextReader(ClientContext &context, const PostgresBindData &bind_data, PostgresGlobalState &gstate,
 	               DataChunk &output);
 };
 
@@ -248,8 +254,14 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 			filter += " AND ";
 		}
 		filter += filter_string;
-	}
-	if (bind_data->table_name.empty()) {
+	};
+	Value use_text_protocol;
+	if (context.TryGetCurrentSetting("pg_use_legacy_text_protocol", use_text_protocol) and BooleanValue::Get(use_text_protocol)) {
+		lstate.sql = StringUtil::Format(
+			R"(SELECT %s FROM %s.%s %s%s;)",
+			col_names, KeywordHelper::WriteQuoted(bind_data->schema_name, '"'),
+			KeywordHelper::WriteQuoted(bind_data->table_name, '"'), filter, bind_data->limit);
+	} else if (bind_data->table_name.empty()) {
 		D_ASSERT(!bind_data->sql.empty());
 		lstate.sql = StringUtil::Format(
 		    R"(COPY (SELECT %s FROM (%s) AS __unnamed_subquery %s%s) TO STDOUT (FORMAT "binary");)",
@@ -417,7 +429,7 @@ static unique_ptr<LocalTableFunctionState> PostgresInitLocalState(ExecutionConte
 	return GetLocalState(context.client, input, gstate);
 }
 
-void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindData &bind_data,
+void PostgresLocalState::ScanChunkWithBinaryReader(ClientContext &context, const PostgresBindData &bind_data,
                                    PostgresGlobalState &gstate, DataChunk &output) {
 	idx_t output_offset = 0;
 	PostgresBinaryReader reader(connection);
@@ -470,6 +482,52 @@ void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindDat
 		reader.Reset();
 		output_offset++;
 	}
+}
+
+void PostgresLocalState::ScanChunkWithTextReader(ClientContext &context, const PostgresBindData &bind_data,
+                                   PostgresGlobalState &gstate, DataChunk &output) {
+	idx_t output_offset = 0;
+	PostgresTextReader reader(connection);
+	while (true) {
+		if (!exec) {
+			reader.ReadTextFrom(sql);
+			exec = true;
+		}
+	
+		output.SetCardinality(output_offset);
+		if (output_offset == STANDARD_VECTOR_SIZE) {
+			return;
+		}
+
+		if (!reader.Ready()) {
+			reader.Reset();
+			done = true;
+			return;
+		}
+
+		for (idx_t output_idx = 0; output_idx < output.ColumnCount(); output_idx++) {
+			auto col_idx = column_ids[output_idx];
+			auto &out_vec = output.data[output_idx];
+			reader.ReadValue(bind_data.types[col_idx], bind_data.postgres_types[col_idx], out_vec, output_offset);
+			reader.NextField();
+		}
+		reader.NextRow();
+		output_offset++;
+	}
+}
+
+void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindData &bind_data,
+                                   PostgresGlobalState &gstate, DataChunk &output) {
+	Value use_text_protocol;
+	if (context.TryGetCurrentSetting("pg_use_legacy_text_protocol", use_text_protocol)) {
+		if (BooleanValue::Get(use_text_protocol)) {
+			ScanChunkWithTextReader(context, bind_data, gstate, output);
+		} else {
+		ScanChunkWithBinaryReader(context, bind_data, gstate, output);
+		}
+	} else {
+		ScanChunkWithBinaryReader(context, bind_data, gstate, output);
+	};
 }
 
 static void PostgresScan(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
