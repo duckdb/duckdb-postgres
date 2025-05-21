@@ -16,6 +16,7 @@ namespace duckdb {
 class PostgresBinaryWriter;
 class PostgresTextWriter;
 struct PostgresBinaryReader;
+struct PostgresTextReader;
 class PostgresSchemaEntry;
 class PostgresTableEntry;
 class PostgresStatement;
@@ -62,6 +63,7 @@ public:
 	void FinishCopyTo(PostgresCopyState &state);
 
 	void BeginCopyFrom(PostgresBinaryReader &reader, const string &query);
+	void ReadTextFrom(PostgresTextReader &reader, const string &query);
 
 	bool IsOpen();
 	void Close();

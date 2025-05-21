@@ -28,6 +28,7 @@ rm -rf /tmp/postgresscannertmp
 
 psql -d postgresscanner < test/all_pg_types.sql
 psql -d postgresscanner < test/decimals.sql
+psql -d postgresscanner < test/legacy_text_protocol.sql
 psql -d postgresscanner < test/other.sql
 
 
