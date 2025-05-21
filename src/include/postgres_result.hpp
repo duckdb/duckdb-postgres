@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "libpq-fe.h"
 #include "postgres_utils.hpp"
 
 namespace duckdb {

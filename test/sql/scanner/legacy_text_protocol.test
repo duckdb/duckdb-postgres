@@ -1,0 +1,25 @@
+# name: test/sql/scanner/legacy_text_protocol.test
+# description: Use legacy TEXT protocol to be compatible with Redshift database
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+CALL postgres_attach('dbname=postgresscanner');
+
+statement ok
+SET pg_use_legacy_text_protocol=true;
+
+query I
+select c1 from legacy_text_protocol limit 1;
+----
+1
+
+query II
+select * from legacy_text_protocol;
+----
+1	a
+2	b
+3	foo
