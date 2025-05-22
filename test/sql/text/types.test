@@ -1,0 +1,40 @@
+# name: test/sql/scanner/types.test
+# description: Test various different types
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+CALL postgres_attach('dbname=postgresscanner');
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+set pg_use_legacy_text_protocol=true;
+
+statement ok
+USE s;
+
+loop i 0 2
+
+query IIIIIIII
+select * from pg_numtypes;
+----
+False	0	0	0	0.000000	0.000000	0.0	0.0
+False	-42	-42	-42	-42.009998	-42.010000	-42.0	-42.0
+True	42	42	42	42.009998	42.010000	42.0	42.0
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+
+query IIIII
+select * from pg_datetypes;
+----
+2021-03-01	12:45:01	12:45:01+05:45	2021-03-01 12:45:01	2021-03-01 07:00:01+00
+NULL	NULL	NULL	NULL	NULL
+
+statement ok
+USE memory
+
+endloop
