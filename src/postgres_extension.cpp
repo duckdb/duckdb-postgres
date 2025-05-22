@@ -181,6 +181,8 @@ static void LoadInternal(DatabaseInstance &db) {
 	                          LogicalType::VARCHAR, Value(), SetPostgresNullByteReplacement);
 	config.AddExtensionOption("pg_debug_show_queries", "DEBUG SETTING: print all queries sent to Postgres to stdout",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false), SetPostgresDebugQueryPrint);
+	config.AddExtensionOption("pg_use_legacy_text_protocol", "Whether or not to use legacy TEXT protocol to read data. Set this to yes will ignore pg_use_binary_copy",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;
