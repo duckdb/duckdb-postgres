@@ -1,7 +1,9 @@
 #include "duckdb.hpp"
 
+#include <csignal>
 #include <libpq-fe.h>
 
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/unique_ptr.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/common/shared_ptr.hpp"
@@ -505,7 +507,13 @@ void PostgresLocalState::ScanChunkWithTextReader(ClientContext &context, const P
 	for (idx_t output_idx = 0; output_idx < output.ColumnCount(); output_idx++) {
 		auto col_idx = column_ids[output_idx];
 		auto &out_vec = output.data[output_idx];
-		reader.LoadResultTo(col_idx, out_vec);
+		if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
+			PostgresType ctid_type;
+			ctid_type.info = PostgresTypeAnnotation::CTID;
+			reader.LoadResultTo(LogicalType::BIGINT, ctid_type, out_vec, col_idx);
+		} else {
+			reader.LoadResultTo(bind_data.types[col_idx], bind_data.postgres_types[col_idx], out_vec, col_idx);
+		}
 	}
 	reader.Reset();
 	done = true;

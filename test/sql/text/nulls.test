@@ -1,0 +1,21 @@
+# name: test/sql/scanner/nulls.test
+# description: NULLs in different configurations
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+CALL postgres_attach('dbname=postgresscanner');
+
+statement ok
+set pg_use_legacy_text_protocol=true;
+
+query IIIIIIIIII
+select * from nulltest;
+----
+1	2	3	4	5	6	7	8	9	10	
+1	NULL	3	4	NULL	6	7	8	NULL	10	
+NULL	NULL	3	4	5	6	7	NULL	NULL	NULL	
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL

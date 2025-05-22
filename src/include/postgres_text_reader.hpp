@@ -9,11 +9,13 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/types.hpp"
 #include "duckdb/common/types/vector.hpp"
 #include "libpq-fe.h"
 #include "postgres_conversion.hpp"
 #include "postgres_connection.hpp"
+#include "postgres_utils.hpp"
 #include <cstring>
 
 namespace duckdb {
@@ -45,8 +47,9 @@ struct PostgresTextReader {
 		}
 	}
 	
-	void ReadColumn(idx_t col_idx) {
+	void ReadColumn(const PostgresType &pg_type, idx_t col_idx) {
 		col_vec.Resize(0, RowCount());
+		col_vec.Initialize(true);
 		for (idx_t row_idx = 0; row_idx < RowCount(); row_idx++) {
 			if (PQgetisnull(result, row_idx, col_idx)) {
 				FlatVector::SetNull(col_vec, row_idx, true);
@@ -54,12 +57,35 @@ struct PostgresTextReader {
 			}
 			char *value = PQgetvalue(result, row_idx, col_idx);
 			int value_len = PQgetlength(result, row_idx, col_idx);
-			FlatVector::GetData<string_t>(col_vec)[row_idx] = StringVector::AddStringOrBlob(col_vec, value, value_len);
+			FlatVector::SetNull(col_vec, row_idx, false);
+			switch (pg_type.info) {
+				case PostgresTypeAnnotation::FIXED_LENGTH_CHAR: {
+					// CHAR column - remove trailing spaces
+					while (value_len > 0 && value[value_len - 1] == ' ') {
+						value_len--;
+					}
+					FlatVector::GetData<string_t>(col_vec)[row_idx] = StringVector::AddStringOrBlob(col_vec, value, value_len);
+					break;
+				}
+
+				default: 
+					FlatVector::GetData<string_t>(col_vec)[row_idx] = StringVector::AddStringOrBlob(col_vec, value, value_len);
+					break;
+			} 
+
 		}
 	}
 	
-	void LoadResultTo (idx_t &col_idx, Vector &out_vec) {
-		ReadColumn(col_idx);
+	void LoadResultTo (const LogicalType &type, const PostgresType &pg_type, Vector &out_vec, idx_t &col_idx) {
+		switch (type.id()) {
+			case LogicalTypeId::LIST:
+			case LogicalTypeId::ENUM:
+				throw NotImplementedException("Type %s doesn't support straight casting from string", type.ToString());
+
+			default:
+				break;
+		}
+		ReadColumn(pg_type, col_idx);
 		VectorOperations::DefaultCast(col_vec, out_vec, RowCount());
 	}
 
