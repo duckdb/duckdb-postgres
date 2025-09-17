@@ -24,9 +24,12 @@ struct IndexInfo;
 
 struct OwnedPostgresConnection {
 	explicit OwnedPostgresConnection(PGconn *conn = nullptr);
+	OwnedPostgresConnection(const OwnedPostgresConnection &) = delete;
+	OwnedPostgresConnection &operator=(const OwnedPostgresConnection &) = delete;
 	~OwnedPostgresConnection();
 
 	PGconn *connection;
+	mutex connection_lock;
 };
 
 class PostgresConnection {
@@ -61,7 +64,7 @@ public:
 	void CopyChunk(ClientContext &context, PostgresCopyState &state, DataChunk &chunk, DataChunk &varchar_chunk);
 	void FinishCopyTo(PostgresCopyState &state);
 
-	void BeginCopyFrom(PostgresBinaryReader &reader, const string &query);
+	void BeginCopyFrom(const string &query, ExecStatusType expected_result);
 
 	bool IsOpen();
 	void Close();

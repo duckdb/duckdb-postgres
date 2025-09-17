@@ -28,6 +28,9 @@ public:
 		D_ASSERT(res);
 		return string(GetValueInternal(row, col));
 	}
+	string_t GetStringRef(idx_t row, idx_t col) {
+		return string_t(GetValueInternal(row, col), PQgetlength(res, row, col));
+	}
 
 	int32_t GetInt32(idx_t row, idx_t col) {
 		return atoi(GetValueInternal(row, col));

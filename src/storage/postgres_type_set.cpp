@@ -44,7 +44,8 @@ ORDER BY n.oid, enumtypid, enumsortorder;
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
-void PostgresTypeSet::CreateEnum(PostgresResult &result, idx_t start_row, idx_t end_row) {
+void PostgresTypeSet::CreateEnum(PostgresTransaction &transaction, PostgresResult &result, idx_t start_row,
+                                 idx_t end_row) {
 	PostgresType postgres_type;
 	CreateTypeInfo info;
 	postgres_type.oid = result.GetInt64(start_row, 1);
@@ -57,11 +58,11 @@ void PostgresTypeSet::CreateEnum(PostgresResult &result, idx_t start_row, idx_t 
 	}
 	info.type = LogicalType::ENUM(duckdb_levels, enum_count);
 	info.type.SetAlias(info.name);
-	auto type_entry = make_uniq<PostgresTypeEntry>(catalog, schema, info, postgres_type);
-	CreateEntry(std::move(type_entry));
+	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, postgres_type);
+	CreateEntry(transaction, std::move(type_entry));
 }
 
-void PostgresTypeSet::InitializeEnums(PostgresResultSlice &enums) {
+void PostgresTypeSet::InitializeEnums(PostgresTransaction &transaction, PostgresResultSlice &enums) {
 	auto &result = enums.GetResult();
 	idx_t start = enums.start;
 	idx_t end = enums.end;
@@ -70,14 +71,14 @@ void PostgresTypeSet::InitializeEnums(PostgresResultSlice &enums) {
 		auto oid = result.GetInt64(row, 1);
 		if (oid != current_oid) {
 			if (row > start) {
-				CreateEnum(result, start, row);
+				CreateEnum(transaction, result, start, row);
 			}
 			start = row;
 			current_oid = oid;
 		}
 	}
 	if (end > start) {
-		CreateEnum(result, start, end);
+		CreateEnum(transaction, result, start, end);
 	}
 }
 
@@ -120,8 +121,8 @@ void PostgresTypeSet::CreateCompositeType(PostgresTransaction &transaction, Post
 	}
 	info.type = LogicalType::STRUCT(std::move(child_types));
 	info.type.SetAlias(info.name);
-	auto type_entry = make_uniq<PostgresTypeEntry>(catalog, schema, info, postgres_type);
-	CreateEntry(std::move(type_entry));
+	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, postgres_type);
+	CreateEntry(transaction, std::move(type_entry));
 }
 
 void PostgresTypeSet::InitializeCompositeTypes(PostgresTransaction &transaction, PostgresResultSlice &composite_types) {
@@ -144,12 +145,11 @@ void PostgresTypeSet::InitializeCompositeTypes(PostgresTransaction &transaction,
 	}
 }
 
-void PostgresTypeSet::LoadEntries(ClientContext &context) {
+void PostgresTypeSet::LoadEntries(PostgresTransaction &transaction) {
 	if (!enum_result || !composite_type_result) {
 		throw InternalException("PostgresTypeSet::LoadEntries not defined without enum/composite type result");
 	}
-	auto &transaction = PostgresTransaction::Get(context, catalog);
-	InitializeEnums(*enum_result);
+	InitializeEnums(transaction, *enum_result);
 	InitializeCompositeTypes(transaction, *composite_type_result);
 	enum_result.reset();
 	composite_type_result.reset();
@@ -193,16 +193,15 @@ string GetCreateTypeSQL(CreateTypeInfo &info) {
 	return sql;
 }
 
-optional_ptr<CatalogEntry> PostgresTypeSet::CreateType(ClientContext &context, CreateTypeInfo &info) {
-	auto &transaction = PostgresTransaction::Get(context, catalog);
+optional_ptr<CatalogEntry> PostgresTypeSet::CreateType(PostgresTransaction &transaction, CreateTypeInfo &info) {
 	auto &conn = transaction.GetConnection();
 
 	auto create_sql = GetCreateTypeSQL(info);
 	conn.Execute(create_sql);
 	info.type.SetAlias(info.name);
 	auto pg_type = PostgresUtils::CreateEmptyPostgresType(info.type);
-	auto type_entry = make_uniq<PostgresTypeEntry>(catalog, schema, info, pg_type);
-	return CreateEntry(std::move(type_entry));
+	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, pg_type);
+	return CreateEntry(transaction, std::move(type_entry));
 }
 
 } // namespace duckdb

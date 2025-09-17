@@ -16,7 +16,8 @@ namespace duckdb {
 //! PhysicalCreateSequence represents a CREATE SEQUENCE command
 class PostgresCreateIndex : public PhysicalOperator {
 public:
-	explicit PostgresCreateIndex(unique_ptr<CreateIndexInfo> info, TableCatalogEntry &table);
+	explicit PostgresCreateIndex(PhysicalPlan &physical_plan, unique_ptr<CreateIndexInfo> info,
+	                             TableCatalogEntry &table);
 
 	unique_ptr<CreateIndexInfo> info;
 	TableCatalogEntry &table;

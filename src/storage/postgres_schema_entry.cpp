@@ -57,7 +57,7 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateTable(CatalogTransaction t
 		// CREATE OR REPLACE - drop any existing entries first (if any)
 		TryDropEntry(transaction.GetContext(), CatalogType::TABLE_ENTRY, table_name);
 	}
-	return tables.CreateTable(transaction.GetContext(), info);
+	return tables.CreateTable(postgres_transaction, info);
 }
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateFunction(CatalogTransaction transaction,
@@ -67,7 +67,8 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateFunction(CatalogTransactio
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
                                                             TableCatalogEntry &table) {
-	return indexes.CreateIndex(transaction.GetContext(), info, table);
+	auto &postgres_transaction = GetPostgresTransaction(transaction);
+	return indexes.CreateIndex(postgres_transaction, info, table);
 }
 
 string PGGetCreateViewSQL(PostgresSchemaEntry &schema, CreateViewInfo &info) {
@@ -109,7 +110,7 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateView(CatalogTransaction tr
 	}
 	auto &postgres_transaction = GetPostgresTransaction(transaction);
 	postgres_transaction.Query(PGGetCreateViewSQL(*this, info));
-	return tables.ReloadEntry(transaction.GetContext(), info.view_name);
+	return tables.ReloadEntry(postgres_transaction, info.view_name);
 }
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateType(CatalogTransaction transaction, CreateTypeInfo &info) {
@@ -119,7 +120,7 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateType(CatalogTransaction tr
 		// CREATE OR REPLACE - drop any existing entries first (if any)
 		TryDropEntry(transaction.GetContext(), CatalogType::TYPE_ENTRY, info.name);
 	}
-	return types.CreateType(transaction.GetContext(), info);
+	return types.CreateType(postgres_transaction, info);
 }
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateSequence(CatalogTransaction transaction,
@@ -151,8 +152,9 @@ void PostgresSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info)
 	if (info.type != AlterType::ALTER_TABLE) {
 		throw BinderException("Only altering tables is supported for now");
 	}
+	auto &postgres_transaction = GetPostgresTransaction(transaction);
 	auto &alter = info.Cast<AlterTableInfo>();
-	tables.AlterTable(transaction.GetContext(), alter);
+	tables.AlterTable(postgres_transaction, alter);
 }
 
 bool CatalogTypeIsSupported(CatalogType type) {
@@ -172,7 +174,8 @@ void PostgresSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	if (!CatalogTypeIsSupported(type)) {
 		return;
 	}
-	GetCatalogSet(type).Scan(context, callback);
+	auto &postgres_transaction = PostgresTransaction::Get(context, catalog);
+	GetCatalogSet(type).Scan(postgres_transaction, callback);
 }
 void PostgresSchemaEntry::Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) {
 	throw NotImplementedException("Scan without context not supported");
@@ -180,7 +183,8 @@ void PostgresSchemaEntry::Scan(CatalogType type, const std::function<void(Catalo
 
 void PostgresSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	info.schema = name;
-	GetCatalogSet(info.type).DropEntry(context, info);
+	auto &postgres_transaction = PostgresTransaction::Get(context, catalog);
+	GetCatalogSet(info.type).DropEntry(postgres_transaction, info);
 }
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::LookupEntry(CatalogTransaction transaction,
@@ -189,7 +193,8 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::LookupEntry(CatalogTransaction t
 	if (!CatalogTypeIsSupported(catalog_type)) {
 		return nullptr;
 	}
-	return GetCatalogSet(catalog_type).GetEntry(transaction.GetContext(), lookup_info.GetEntryName());
+	auto &postgres_transaction = GetPostgresTransaction(transaction);
+	return GetCatalogSet(catalog_type).GetEntry(postgres_transaction, lookup_info.GetEntryName());
 }
 
 PostgresCatalogSet &PostgresSchemaEntry::GetCatalogSet(CatalogType type) {

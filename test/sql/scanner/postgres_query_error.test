@@ -1,0 +1,33 @@
+# name: test/sql/scanner/postgres_query_error.test
+# description: Test running postgres_query
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+statement ok
+BEGIN
+
+statement ok
+CALL pg_clear_cache();
+
+query III
+select * from postgres_query('s1', 'SELECT * FROM cars');
+----
+ferari	testarosa	red
+aston martin	db2	blue
+bentley	mulsanne	gray
+ford	T	black
+
+query III
+SELECT * FROM s1.cars
+----
+ferari	testarosa	red
+aston martin	db2	blue
+bentley	mulsanne	gray
+ford	T	black
+

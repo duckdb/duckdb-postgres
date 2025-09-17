@@ -15,12 +15,17 @@ namespace duckdb {
 
 class PostgresUpdate : public PhysicalOperator {
 public:
-	PostgresUpdate(LogicalOperator &op, TableCatalogEntry &table, vector<PhysicalIndex> columns);
+	PostgresUpdate(PhysicalPlan &physical_plan, LogicalOperator &op, TableCatalogEntry &table,
+	               vector<PhysicalIndex> columns, vector<unique_ptr<Expression>> expressions);
 
 	//! The table to delete from
 	TableCatalogEntry &table;
 	//! The set of columns to update
 	vector<PhysicalIndex> columns;
+	//! Expressions to execute
+	vector<unique_ptr<Expression>> expressions;
+	//! Whether or not we can keep the copy alive during Sink calls
+	bool keep_copy_alive = true;
 
 public:
 	// Source interface

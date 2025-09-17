@@ -68,12 +68,14 @@ PGresult *PostgresConnection::PQExecute(const string &query) {
 }
 
 unique_ptr<PostgresResult> PostgresConnection::TryQuery(const string &query, optional_ptr<string> error_message) {
+	lock_guard<mutex> guard(connection->connection_lock);
 	auto result = PQExecute(query.c_str());
 	if (ResultHasError(result)) {
 		if (error_message) {
 			*error_message = StringUtil::Format("Failed to execute query \"" + query +
 			                                    "\": " + string(PQresultErrorMessage(result)));
 		}
+		PQclear(result);
 		return nullptr;
 	}
 	return make_uniq<PostgresResult>(result);
@@ -106,6 +108,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(const stri
 		if (!res) {
 			break;
 		}
+		auto result = make_uniq<PostgresResult>(res);
 		if (ResultHasError(res)) {
 			throw std::runtime_error("Failed to execute query \"" + queries +
 			                         "\": " + string(PQresultErrorMessage(res)));
@@ -113,7 +116,6 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(const stri
 		if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 			continue;
 		}
-		auto result = make_uniq<PostgresResult>(res);
 		results.push_back(std::move(result));
 	}
 	return results;

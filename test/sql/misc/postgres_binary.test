@@ -52,6 +52,7 @@ query I nosort all_types
 FROM all_types_tbl
 ----
 
+
 query I nosort all_types
 SELECT * FROM s.binary_copy_test
 ----

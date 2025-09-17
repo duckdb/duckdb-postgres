@@ -9,6 +9,7 @@ add_library(
   postgres_index_entry.cpp
   postgres_index_set.cpp
   postgres_insert.cpp
+  postgres_merge_into.cpp
   postgres_optimizer.cpp
   postgres_schema_entry.cpp
   postgres_schema_set.cpp

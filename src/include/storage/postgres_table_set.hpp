@@ -22,28 +22,28 @@ public:
 	explicit PostgresTableSet(PostgresSchemaEntry &schema, unique_ptr<PostgresResultSlice> tables = nullptr);
 
 public:
-	optional_ptr<CatalogEntry> CreateTable(ClientContext &context, BoundCreateTableInfo &info);
+	optional_ptr<CatalogEntry> CreateTable(PostgresTransaction &transaction, BoundCreateTableInfo &info);
 
 	static unique_ptr<PostgresTableInfo> GetTableInfo(PostgresTransaction &transaction, PostgresSchemaEntry &schema,
 	                                                  const string &table_name);
 	static unique_ptr<PostgresTableInfo> GetTableInfo(PostgresConnection &connection, const string &schema_name,
 	                                                  const string &table_name);
-	optional_ptr<CatalogEntry> ReloadEntry(ClientContext &context, const string &table_name) override;
+	optional_ptr<CatalogEntry> ReloadEntry(PostgresTransaction &transaction, const string &table_name) override;
 
-	void AlterTable(ClientContext &context, AlterTableInfo &info);
+	void AlterTable(PostgresTransaction &transaction, AlterTableInfo &info);
 
 	static string GetInitializeQuery(const string &schema = string(), const string &table = string());
 
 protected:
-	void LoadEntries(ClientContext &context) override;
+	void LoadEntries(PostgresTransaction &transaction) override;
 	bool SupportReload() const override {
 		return true;
 	}
 
-	void AlterTable(ClientContext &context, RenameTableInfo &info);
-	void AlterTable(ClientContext &context, RenameColumnInfo &info);
-	void AlterTable(ClientContext &context, AddColumnInfo &info);
-	void AlterTable(ClientContext &context, RemoveColumnInfo &info);
+	void AlterTable(PostgresTransaction &transaction, RenameTableInfo &info);
+	void AlterTable(PostgresTransaction &transaction, RenameColumnInfo &info);
+	void AlterTable(PostgresTransaction &transaction, AddColumnInfo &info);
+	void AlterTable(PostgresTransaction &transaction, RemoveColumnInfo &info);
 
 	static void AddColumn(optional_ptr<PostgresTransaction> transaction, optional_ptr<PostgresSchemaEntry> schema,
 	                      PostgresResult &result, idx_t row, PostgresTableInfo &table_info);
@@ -55,7 +55,7 @@ protected:
 	void CreateEntries(PostgresTransaction &transaction, PostgresResult &result, idx_t start, idx_t end);
 
 private:
-	string GetAlterTablePrefix(ClientContext &context, const string &name);
+	string GetAlterTablePrefix(PostgresTransaction &transaction, const string &name);
 	string GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry);
 	string GetAlterTableColumnName(const string &name, optional_ptr<CatalogEntry> entry);
 

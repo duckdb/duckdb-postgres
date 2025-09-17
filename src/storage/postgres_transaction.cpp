@@ -16,6 +16,10 @@ PostgresTransaction::PostgresTransaction(PostgresCatalog &postgres_catalog, Tran
 
 PostgresTransaction::~PostgresTransaction() = default;
 
+ClientContext &PostgresTransaction::GetContext() {
+	return *context.lock();
+}
+
 void PostgresTransaction::Start() {
 	transaction_state = PostgresTransactionState::TRANSACTION_NOT_YET_STARTED;
 }
@@ -112,6 +116,12 @@ vector<unique_ptr<PostgresResult>> PostgresTransaction::ExecuteQueries(const str
 		return con.ExecuteQueries(transaction_start + queries);
 	}
 	return con.ExecuteQueries(queries);
+}
+
+optional_ptr<CatalogEntry> PostgresTransaction::ReferenceEntry(shared_ptr<CatalogEntry> &entry) {
+	auto &ref = *entry;
+	referenced_entries.emplace(ref, entry);
+	return ref;
 }
 
 string PostgresTransaction::GetTemporarySchema() {

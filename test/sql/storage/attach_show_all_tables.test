@@ -1,0 +1,19 @@
+# name: test/sql/storage/attach_show_all_tables.test
+# description: Test attaching using a secret
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+SHOW ALL TABLES

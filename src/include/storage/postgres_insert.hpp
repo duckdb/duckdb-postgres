@@ -16,9 +16,11 @@ namespace duckdb {
 class PostgresInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	PostgresInsert(LogicalOperator &op, TableCatalogEntry &table, physical_index_vector_t<idx_t> column_index_map);
+	PostgresInsert(PhysicalPlan &physical_plan, LogicalOperator &op, TableCatalogEntry &table,
+	               physical_index_vector_t<idx_t> column_index_map);
 	//! CREATE TABLE AS
-	PostgresInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
+	PostgresInsert(PhysicalPlan &physical_plan, LogicalOperator &op, SchemaCatalogEntry &schema,
+	               unique_ptr<BoundCreateTableInfo> info);
 
 	//! The table to insert into
 	optional_ptr<TableCatalogEntry> table;
@@ -28,6 +30,8 @@ public:
 	unique_ptr<BoundCreateTableInfo> info;
 	//! column_index_map
 	physical_index_vector_t<idx_t> column_index_map;
+	//! Whether or not we can keep the copy alive during Sink calls
+	bool keep_copy_alive = true;
 
 public:
 	// Source interface

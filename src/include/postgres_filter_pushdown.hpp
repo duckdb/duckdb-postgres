@@ -20,9 +20,12 @@ public:
 	                               const vector<string> &names);
 
 private:
-	static string TransformFilter(string &column_name, TableFilter &filter);
-	static string TransformComparision(ExpressionType type);
-	static string CreateExpression(string &column_name, vector<unique_ptr<TableFilter>> &filters, string op);
+	static string TransformCTIDLiteral(const Value &val);
+	static string TransformConstantFilter(string &column_name, ConstantFilter &filter, column_t column_id);
+	static string TransformFilter(string &column_name, TableFilter &filter, column_t column_id);
+	static string TransformComparison(ExpressionType type);
+	static string CreateExpression(string &column_name, vector<unique_ptr<TableFilter>> &filters, string op,
+	                               column_t column_id);
 };
 
 } // namespace duckdb

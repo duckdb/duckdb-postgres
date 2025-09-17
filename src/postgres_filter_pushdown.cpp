@@ -8,10 +8,10 @@
 namespace duckdb {
 
 string PostgresFilterPushdown::CreateExpression(string &column_name, vector<unique_ptr<TableFilter>> &filters,
-                                                string op) {
+                                                string op, column_t column_id) {
 	vector<string> filter_entries;
 	for (auto &filter : filters) {
-		auto filter_str = TransformFilter(column_name, *filter);
+		auto filter_str = TransformFilter(column_name, *filter, column_id);
 		if (!filter_str.empty()) {
 			filter_entries.push_back(std::move(filter_str));
 		}
@@ -22,7 +22,7 @@ string PostgresFilterPushdown::CreateExpression(string &column_name, vector<uniq
 	return "(" + StringUtil::Join(filter_entries, " " + op + " ") + ")";
 }
 
-string PostgresFilterPushdown::TransformComparision(ExpressionType type) {
+string PostgresFilterPushdown::TransformComparison(ExpressionType type) {
 	switch (type) {
 	case ExpressionType::COMPARE_EQUAL:
 		return "=";
@@ -63,7 +63,23 @@ string TransformLiteral(const Value &val) {
 	}
 }
 
-string PostgresFilterPushdown::TransformFilter(string &column_name, TableFilter &filter) {
+string PostgresFilterPushdown::TransformCTIDLiteral(const Value &constant) {
+	throw InternalException("FIXME: transform ctid literal");
+}
+
+string PostgresFilterPushdown::TransformConstantFilter(string &column_name, ConstantFilter &constant_filter,
+                                                       column_t column_id) {
+	string constant_string;
+	if (IsVirtualColumn(column_id)) {
+		return "FALSE";
+	} else {
+		constant_string = TransformLiteral(constant_filter.constant);
+	}
+	auto operator_string = TransformComparison(constant_filter.comparison_type);
+	return StringUtil::Format("%s %s %s", column_name, operator_string, constant_string);
+}
+
+string PostgresFilterPushdown::TransformFilter(string &column_name, TableFilter &filter, column_t column_id) {
 	switch (filter.filter_type) {
 	case TableFilterType::IS_NULL:
 		return column_name + " IS NULL";
@@ -71,27 +87,25 @@ string PostgresFilterPushdown::TransformFilter(string &column_name, TableFilter 
 		return column_name + " IS NOT NULL";
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjunction_filter = filter.Cast<ConjunctionAndFilter>();
-		return CreateExpression(column_name, conjunction_filter.child_filters, "AND");
+		return CreateExpression(column_name, conjunction_filter.child_filters, "AND", column_id);
 	}
 	case TableFilterType::CONJUNCTION_OR: {
 		auto &conjunction_filter = filter.Cast<ConjunctionOrFilter>();
-		return CreateExpression(column_name, conjunction_filter.child_filters, "OR");
+		return CreateExpression(column_name, conjunction_filter.child_filters, "OR", column_id);
 	}
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
-		auto constant_string = TransformLiteral(constant_filter.constant);
-		auto operator_string = TransformComparision(constant_filter.comparison_type);
-		return StringUtil::Format("%s %s %s", column_name, operator_string, constant_string);
+		return TransformConstantFilter(column_name, constant_filter, column_id);
 	}
 	case TableFilterType::STRUCT_EXTRACT: {
 		auto &struct_filter = filter.Cast<StructFilter>();
 		auto child_name = KeywordHelper::WriteQuoted(struct_filter.child_name, '\"');
 		auto new_name = "(" + column_name + ")." + child_name;
-		return TransformFilter(new_name, *struct_filter.child_filter);
+		return TransformFilter(new_name, *struct_filter.child_filter, column_id);
 	}
 	case TableFilterType::OPTIONAL_FILTER: {
 		auto &optional_filter = filter.Cast<OptionalFilter>();
-		return TransformFilter(column_name, *optional_filter.child_filter);
+		return TransformFilter(column_name, *optional_filter.child_filter, column_id);
 	}
 	case TableFilterType::IN_FILTER: {
 		auto &in_filter = filter.Cast<InFilter>();
@@ -119,9 +133,15 @@ string PostgresFilterPushdown::TransformFilters(const vector<column_t> &column_i
 	}
 	string result;
 	for (auto &entry : filters->filters) {
-		auto column_name = KeywordHelper::WriteQuoted(names[column_ids[entry.first]], '"');
+		string column_name;
+		auto column_id = column_ids[entry.first];
+		if (IsVirtualColumn(column_id)) {
+			column_name = "ctid";
+		} else {
+			column_name = KeywordHelper::WriteQuoted(names[column_id], '"');
+		}
 		auto &filter = *entry.second;
-		auto filter_text = TransformFilter(column_name, filter);
+		auto filter_text = TransformFilter(column_name, filter, column_id);
 
 		if (filter_text.empty()) {
 			continue;

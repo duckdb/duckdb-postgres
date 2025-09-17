@@ -19,12 +19,12 @@ public:
 	explicit PostgresSchemaSet(Catalog &catalog, string schema_to_load);
 
 public:
-	optional_ptr<CatalogEntry> CreateSchema(ClientContext &context, CreateSchemaInfo &info);
+	optional_ptr<CatalogEntry> CreateSchema(PostgresTransaction &transaction, CreateSchemaInfo &info);
 
 	static string GetInitializeQuery(const string &schema = string());
 
 protected:
-	void LoadEntries(ClientContext &context) override;
+	void LoadEntries(PostgresTransaction &transaction) override;
 
 protected:
 	//! Schema to load - if empty loads all schemas (default behavior)

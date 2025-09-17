@@ -14,14 +14,15 @@
 
 namespace duckdb {
 
-PostgresInsert::PostgresInsert(LogicalOperator &op, TableCatalogEntry &table,
+PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, LogicalOperator &op, TableCatalogEntry &table,
                                physical_index_vector_t<idx_t> column_index_map_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
       column_index_map(std::move(column_index_map_p)) {
 }
 
-PostgresInsert::PostgresInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
+PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, LogicalOperator &op, SchemaCatalogEntry &schema,
+                               unique_ptr<BoundCreateTableInfo> info)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
       info(std::move(info)) {
 }
 
@@ -30,14 +31,25 @@ PostgresInsert::PostgresInsert(LogicalOperator &op, SchemaCatalogEntry &schema, 
 //===--------------------------------------------------------------------===//
 class PostgresInsertGlobalState : public GlobalSinkState {
 public:
-	explicit PostgresInsertGlobalState(ClientContext &context, PostgresTableEntry *table)
-	    : table(table), insert_count(0) {
+	explicit PostgresInsertGlobalState(ClientContext &context, PostgresTableEntry &table, PostgresCopyFormat format)
+	    : table(table), insert_count(0), format(format) {
 	}
 
-	PostgresTableEntry *table;
+	PostgresTableEntry &table;
 	PostgresCopyState copy_state;
 	DataChunk varchar_chunk;
 	idx_t insert_count;
+	PostgresCopyFormat format;
+	vector<string> insert_column_names;
+	bool copy_is_active = false;
+
+	void FinishCopyTo(PostgresConnection &connection) {
+		if (!copy_is_active) {
+			return;
+		}
+		connection.FinishCopyTo(copy_state);
+		copy_is_active = false;
+	}
 };
 
 vector<string> GetInsertColumns(const PostgresInsert &insert, PostgresTableEntry &entry) {
@@ -67,7 +79,7 @@ vector<string> GetInsertColumns(const PostgresInsert &insert, PostgresTableEntry
 }
 
 unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkState(ClientContext &context) const {
-	PostgresTableEntry *insert_table;
+	optional_ptr<PostgresTableEntry> insert_table;
 	if (!table) {
 		auto &schema_ref = *schema.get_mutable();
 		insert_table =
@@ -78,9 +90,9 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkState(ClientContext &co
 	auto &transaction = PostgresTransaction::Get(context, insert_table->catalog);
 	auto &connection = transaction.GetConnection();
 	auto insert_columns = GetInsertColumns(*this, *insert_table);
-	auto result = make_uniq<PostgresInsertGlobalState>(context, insert_table);
 	auto format = insert_table->GetCopyFormat(context);
-	vector<string> insert_column_names;
+	auto result = make_uniq<PostgresInsertGlobalState>(context, *insert_table, format);
+	auto &insert_column_names = result->insert_column_names;
 	if (!insert_columns.empty()) {
 		for (auto &str : insert_columns) {
 			auto index = insert_table->GetColumnIndex(str, true);
@@ -91,8 +103,6 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkState(ClientContext &co
 			}
 		}
 	}
-	connection.BeginCopyTo(context, result->copy_state, format, insert_table->schema.name, insert_table->name,
-	                       insert_column_names);
 	return std::move(result);
 }
 
@@ -100,11 +110,21 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkState(ClientContext &co
 // Sink
 //===--------------------------------------------------------------------===//
 SinkResultType PostgresInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	auto &gstate = sink_state->Cast<PostgresInsertGlobalState>();
-	auto &transaction = PostgresTransaction::Get(context.client, gstate.table->catalog);
+	auto &gstate = input.global_state.Cast<PostgresInsertGlobalState>();
+	auto &transaction = PostgresTransaction::Get(context.client, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
+	if (!gstate.copy_is_active) {
+		// copy hasn't started yet
+		connection.BeginCopyTo(context.client, gstate.copy_state, gstate.format, gstate.table.schema.name,
+		                       gstate.table.name, gstate.insert_column_names);
+		gstate.copy_is_active = true;
+	}
 	connection.CopyChunk(context.client, gstate.copy_state, chunk, gstate.varchar_chunk);
 	gstate.insert_count += chunk.size();
+	if (!keep_copy_alive) {
+		// if we are can't keep the copy alive we need to restart the copy during every sink
+		gstate.FinishCopyTo(connection);
+	}
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -113,15 +133,15 @@ SinkResultType PostgresInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 //===--------------------------------------------------------------------===//
 SinkFinalizeType PostgresInsert::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                           OperatorSinkFinalizeInput &input) const {
-	auto &gstate = sink_state->Cast<PostgresInsertGlobalState>();
-	auto &transaction = PostgresTransaction::Get(context, gstate.table->catalog);
+	auto &gstate = input.global_state.Cast<PostgresInsertGlobalState>();
+	auto &transaction = PostgresTransaction::Get(context, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
-	connection.FinishCopyTo(gstate.copy_state);
+	gstate.FinishCopyTo(connection);
 	// update the approx_num_pages - approximately 8 bytes per column per row
 	idx_t bytes_per_page = 8192;
-	idx_t bytes_per_row = gstate.table->GetColumns().LogicalColumnCount() * 8;
+	idx_t bytes_per_row = gstate.table.GetColumns().LogicalColumnCount() * 8;
 	idx_t rows_per_page = MaxValue<idx_t>(1, bytes_per_page / bytes_per_row);
-	gstate.table->approx_num_pages += gstate.insert_count / rows_per_page;
+	gstate.table.approx_num_pages += gstate.insert_count / rows_per_page;
 	return SinkFinalizeType::READY;
 }
 
@@ -217,7 +237,7 @@ PhysicalOperator &PostgresCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into Postgres table");
 	}
-	if (op.action_type != OnConflictAction::THROW) {
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into Postgres table");
 	}
 

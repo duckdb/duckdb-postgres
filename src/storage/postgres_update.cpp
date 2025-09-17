@@ -5,11 +5,14 @@
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
 #include "duckdb/common/types/uuid.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
 
 namespace duckdb {
 
-PostgresUpdate::PostgresUpdate(LogicalOperator &op, TableCatalogEntry &table, vector<PhysicalIndex> columns_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(table), columns(std::move(columns_p)) {
+PostgresUpdate::PostgresUpdate(PhysicalPlan &physical_plan, LogicalOperator &op, TableCatalogEntry &table,
+                               vector<PhysicalIndex> columns_p, vector<unique_ptr<Expression>> expressions_p)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(table),
+      columns(std::move(columns_p)), expressions(std::move(expressions_p)) {
 }
 
 //===--------------------------------------------------------------------===//
@@ -25,7 +28,17 @@ public:
 	DataChunk insert_chunk;
 	DataChunk varchar_chunk;
 	string update_sql;
+	string update_table_name;
 	idx_t update_count;
+	bool copy_is_active = false;
+
+	void FinishCopyTo(PostgresConnection &connection) {
+		if (!copy_is_active) {
+			return;
+		}
+		connection.FinishCopyTo(copy_state);
+		copy_is_active = false;
+	}
 };
 
 string CreateUpdateTable(const string &name, PostgresTableEntry &table, const vector<PhysicalIndex> &index) {
@@ -33,16 +46,14 @@ string CreateUpdateTable(const string &name, PostgresTableEntry &table, const ve
 	result = "CREATE LOCAL TEMPORARY TABLE " + PostgresUtils::QuotePostgresIdentifier(name);
 	result += "(";
 	for (idx_t i = 0; i < index.size(); i++) {
-		if (i > 0) {
-			result += ", ";
-		}
 		auto &column_name = table.postgres_names[index[i].index];
 		auto &col = table.GetColumn(LogicalIndex(index[i].index));
 		result += KeywordHelper::WriteQuoted(column_name, '"');
 		result += " ";
 		result += PostgresUtils::TypeToString(col.GetType());
+		result += ", ";
 	}
-	result += ", __page_id_string VARCHAR) ON COMMIT DROP;";
+	result += "__page_id_string VARCHAR) ON COMMIT DROP;";
 	return result;
 }
 
@@ -77,10 +88,10 @@ unique_ptr<GlobalSinkState> PostgresUpdate::GetGlobalSinkState(ClientContext &co
 	auto result = make_uniq<PostgresUpdateGlobalState>(postgres_table);
 	auto &connection = transaction.GetConnection();
 	// create a temporary table to stream the update data into
-	auto table_name = "update_data_" + UUID::ToString(UUID::GenerateRandomUUID());
-	connection.Execute(CreateUpdateTable(table_name, postgres_table, columns));
+	result->update_table_name = "update_data_" + UUID::ToString(UUID::GenerateRandomUUID());
+	connection.Execute(CreateUpdateTable(result->update_table_name, postgres_table, columns));
 	// generate the final UPDATE sql
-	result->update_sql = GetUpdateSQL(table_name, postgres_table, columns);
+	result->update_sql = GetUpdateSQL(result->update_table_name, postgres_table, columns);
 	// initialize the insertion chunk
 	vector<LogicalType> insert_types;
 	for (idx_t i = 0; i < columns.size(); i++) {
@@ -89,12 +100,6 @@ unique_ptr<GlobalSinkState> PostgresUpdate::GetGlobalSinkState(ClientContext &co
 	}
 	insert_types.push_back(LogicalType::VARCHAR);
 	result->insert_chunk.Initialize(context, insert_types);
-
-	// begin the COPY TO
-	string schema_name;
-	vector<string> column_names;
-	connection.BeginCopyTo(context, result->copy_state, PostgresCopyFormat::TEXT, schema_name, table_name,
-	                       column_names);
 	return std::move(result);
 }
 
@@ -106,8 +111,15 @@ SinkResultType PostgresUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	chunk.Flatten();
 	// reference the data columns directly
-	for (idx_t c = 0; c < columns.size(); c++) {
-		gstate.insert_chunk.data[c].Reference(chunk.data[c]);
+	for (idx_t i = 0; i < expressions.size(); i++) {
+		// Default expression, set to the default value of the column.
+		if (expressions[i]->GetExpressionType() == ExpressionType::VALUE_DEFAULT) {
+			throw BinderException("SET DEFAULT is not yet supported for updates of a Postgres table");
+		}
+
+		D_ASSERT(expressions[i]->GetExpressionType() == ExpressionType::BOUND_REF);
+		auto &binding = expressions[i]->Cast<BoundReferenceExpression>();
+		gstate.insert_chunk.data[i].Reference(chunk.data[binding.index]);
 	}
 	// convert our row ids back into ctids
 	auto &row_identifiers = chunk.data[chunk.ColumnCount() - 1];
@@ -132,7 +144,18 @@ SinkResultType PostgresUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	auto &transaction = PostgresTransaction::Get(context.client, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
+	if (!gstate.copy_is_active) {
+		// begin the COPY TO
+		string schema_name;
+		vector<string> column_names;
+		connection.BeginCopyTo(context.client, gstate.copy_state, PostgresCopyFormat::TEXT, schema_name,
+		                       gstate.update_table_name, column_names);
+		gstate.copy_is_active = true;
+	}
 	connection.CopyChunk(context.client, gstate.copy_state, gstate.insert_chunk, gstate.varchar_chunk);
+	if (!keep_copy_alive) {
+		gstate.FinishCopyTo(connection);
+	}
 	gstate.update_count += chunk.size();
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -145,8 +168,7 @@ SinkFinalizeType PostgresUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 	auto &gstate = input.global_state.Cast<PostgresUpdateGlobalState>();
 	auto &transaction = PostgresTransaction::Get(context, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
-	// flush the copy to state
-	connection.FinishCopyTo(gstate.copy_state);
+	gstate.FinishCopyTo(connection);
 	// merge the update_info table into the actual table (i.e. perform the actual update)
 	connection.Execute(gstate.update_sql);
 	return SinkFinalizeType::READY;
@@ -185,14 +207,9 @@ PhysicalOperator &PostgresCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for updates of a Postgres table");
 	}
-	for (auto &expr : op.expressions) {
-		if (expr->type == ExpressionType::VALUE_DEFAULT) {
-			throw BinderException("SET DEFAULT is not yet supported for updates of a Postgres table");
-		}
-	}
 
 	PostgresCatalog::MaterializePostgresScans(plan);
-	auto &update = planner.Make<PostgresUpdate>(op, op.table, std::move(op.columns));
+	auto &update = planner.Make<PostgresUpdate>(op, op.table, std::move(op.columns), std::move(op.expressions));
 	update.children.push_back(plan);
 	return update;
 }

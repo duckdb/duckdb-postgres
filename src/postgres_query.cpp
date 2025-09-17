@@ -11,7 +11,7 @@ namespace duckdb {
 
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types, vector<string> &names) {
-	auto result = make_uniq<PostgresBindData>();
+	auto result = make_uniq<PostgresBindData>(context);
 
 	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
 		throw BinderException("Parameters to postgres_query cannot be NULL");

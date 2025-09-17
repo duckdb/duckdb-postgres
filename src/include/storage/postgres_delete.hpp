@@ -14,7 +14,7 @@ namespace duckdb {
 
 class PostgresDelete : public PhysicalOperator {
 public:
-	PostgresDelete(LogicalOperator &op, TableCatalogEntry &table, idx_t row_id_index);
+	PostgresDelete(PhysicalPlan &physical_plan, LogicalOperator &op, TableCatalogEntry &table, idx_t row_id_index);
 
 	//! The table to delete from
 	TableCatalogEntry &table;

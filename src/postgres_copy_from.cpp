@@ -3,15 +3,12 @@
 
 namespace duckdb {
 
-void PostgresConnection::BeginCopyFrom(PostgresBinaryReader &reader, const string &query) {
-	auto result = PQExecute(query.c_str());
-	if (!result || PQresultStatus(result) != PGRES_COPY_OUT) {
+void PostgresConnection::BeginCopyFrom(const string &query, ExecStatusType expected_result) {
+	PostgresResult pg_res(PQExecute(query.c_str()));
+	auto result = pg_res.res;
+	if (!result || PQresultStatus(result) != expected_result) {
 		throw std::runtime_error("Failed to prepare COPY \"" + query + "\": " + string(PQresultErrorMessage(result)));
 	}
-	if (!reader.Next()) {
-		throw IOException("Failed to fetch header for COPY \"%s\"", query);
-	}
-	reader.CheckHeader();
 }
 
 } // namespace duckdb

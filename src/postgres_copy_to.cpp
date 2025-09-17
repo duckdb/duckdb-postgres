@@ -56,7 +56,8 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
 	}
 	query += ")";
 
-	auto result = PQExecute(query.c_str());
+	PostgresResult pg_res(PQExecute(query.c_str()));
+	auto result = pg_res.res;
 	if (!result || PQresultStatus(result) != PGRES_COPY_IN) {
 		throw std::runtime_error("Failed to prepare COPY \"" + query + "\": " + string(PQresultErrorMessage(result)));
 	}
@@ -104,9 +105,11 @@ void PostgresConnection::FinishCopyTo(PostgresCopyState &state) {
 		throw InternalException("Error during PQputCopyEnd: %s", PQerrorMessage(GetConn()));
 	}
 	// fetch the query result to check for errors
-	auto result = PQgetResult(GetConn());
+	PostgresResult pg_res(PQgetResult(GetConn()));
+	auto result = pg_res.res;
 	if (!result || PQresultStatus(result) != PGRES_COMMAND_OK) {
-		throw std::runtime_error("Failed to copy data: " + string(PQresultErrorMessage(result)));
+		string error_msg(PQresultErrorMessage(result));
+		throw std::runtime_error("Failed to copy data: " + error_msg);
 	}
 }
 

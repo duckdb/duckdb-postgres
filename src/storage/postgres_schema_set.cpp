@@ -48,7 +48,7 @@ ORDER BY oid;
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
-void PostgresSchemaSet::LoadEntries(ClientContext &context) {
+void PostgresSchemaSet::LoadEntries(PostgresTransaction &transaction) {
 	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
 	auto pg_version = pg_catalog.GetPostgresVersion();
 	string schema_query = PostgresSchemaSet::GetInitializeQuery(schema_to_load);
@@ -59,7 +59,6 @@ void PostgresSchemaSet::LoadEntries(ClientContext &context) {
 
 	auto full_query = schema_query + tables_query + enum_types_query + composite_types_query + index_query;
 
-	auto &transaction = PostgresTransaction::Get(context, catalog);
 	auto results = transaction.ExecuteQueries(full_query);
 	auto result = std::move(results[0]);
 	results.erase(results.begin());
@@ -75,15 +74,13 @@ void PostgresSchemaSet::LoadEntries(ClientContext &context) {
 		CreateSchemaInfo info;
 		info.schema = schema_name;
 		info.internal = PostgresSchemaEntry::SchemaIsInternal(schema_name);
-		auto schema = make_uniq<PostgresSchemaEntry>(catalog, info, std::move(tables[row]), std::move(enums[row]),
-		                                             std::move(composite_types[row]), std::move(indexes[row]));
-		CreateEntry(std::move(schema));
+		auto schema = make_shared_ptr<PostgresSchemaEntry>(catalog, info, std::move(tables[row]), std::move(enums[row]),
+		                                                   std::move(composite_types[row]), std::move(indexes[row]));
+		CreateEntry(transaction, std::move(schema));
 	}
 }
 
-optional_ptr<CatalogEntry> PostgresSchemaSet::CreateSchema(ClientContext &context, CreateSchemaInfo &info) {
-	auto &transaction = PostgresTransaction::Get(context, catalog);
-
+optional_ptr<CatalogEntry> PostgresSchemaSet::CreateSchema(PostgresTransaction &transaction, CreateSchemaInfo &info) {
 	string create_sql = "CREATE SCHEMA ";
 	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 		create_sql += " IF NOT EXISTS";
@@ -92,8 +89,8 @@ optional_ptr<CatalogEntry> PostgresSchemaSet::CreateSchema(ClientContext &contex
 	transaction.Query(create_sql);
 	auto info_copy = info.Copy();
 	info.internal = PostgresSchemaEntry::SchemaIsInternal(info_copy->schema);
-	auto schema_entry = make_uniq<PostgresSchemaEntry>(catalog, info_copy->Cast<CreateSchemaInfo>());
-	return CreateEntry(std::move(schema_entry));
+	auto schema_entry = make_shared_ptr<PostgresSchemaEntry>(catalog, info_copy->Cast<CreateSchemaInfo>());
+	return CreateEntry(transaction, std::move(schema_entry));
 }
 
 } // namespace duckdb

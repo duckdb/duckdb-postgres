@@ -11,8 +11,10 @@
 
 namespace duckdb {
 
-PostgresCreateIndex::PostgresCreateIndex(unique_ptr<CreateIndexInfo> info, TableCatalogEntry &table)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), info(std::move(info)), table(table) {
+PostgresCreateIndex::PostgresCreateIndex(PhysicalPlan &physical_plan, unique_ptr<CreateIndexInfo> info,
+                                         TableCatalogEntry &table)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), info(std::move(info)),
+      table(table) {
 }
 
 //===--------------------------------------------------------------------===//

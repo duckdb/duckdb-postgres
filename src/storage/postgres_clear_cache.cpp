@@ -24,7 +24,7 @@ static unique_ptr<FunctionData> ClearCacheBind(ClientContext &context, TableFunc
 void PostgresClearCacheFunction::ClearPostgresCaches(ClientContext &context) {
 	auto databases = DatabaseManager::Get(context).GetDatabases(context);
 	for (auto &db_ref : databases) {
-		auto &db = db_ref.get();
+		auto &db = *db_ref;
 		auto &catalog = db.GetCatalog();
 		if (catalog.GetCatalogType() != "postgres") {
 			continue;

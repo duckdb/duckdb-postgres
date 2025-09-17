@@ -23,7 +23,7 @@ public:
 	                         unique_ptr<PostgresResultSlice> composite_type_result = nullptr);
 
 public:
-	optional_ptr<CatalogEntry> CreateType(ClientContext &context, CreateTypeInfo &info);
+	optional_ptr<CatalogEntry> CreateType(PostgresTransaction &transaction, CreateTypeInfo &info);
 
 	static string GetInitializeEnumsQuery(PostgresVersion version, const string &schema = string());
 	static string GetInitializeCompositesQuery(const string &schema = string());
@@ -33,12 +33,12 @@ protected:
 		// composite types can refer to other types
 		return true;
 	}
-	void LoadEntries(ClientContext &context) override;
+	void LoadEntries(PostgresTransaction &transaction) override;
 
-	void CreateEnum(PostgresResult &result, idx_t start_row, idx_t end_row);
+	void CreateEnum(PostgresTransaction &transaction, PostgresResult &result, idx_t start_row, idx_t end_row);
 	void CreateCompositeType(PostgresTransaction &transaction, PostgresResult &result, idx_t start_row, idx_t end_row);
 
-	void InitializeEnums(PostgresResultSlice &enums);
+	void InitializeEnums(PostgresTransaction &transaction, PostgresResultSlice &enums);
 	void InitializeCompositeTypes(PostgresTransaction &transaction, PostgresResultSlice &composite_types);
 
 protected:

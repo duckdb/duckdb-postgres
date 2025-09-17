@@ -22,6 +22,9 @@ class PostgresTransaction;
 struct PostgresBindData : public FunctionData {
 	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
 
+public:
+	PostgresBindData(ClientContext &context);
+
 	PostgresVersion version;
 	string schema_name;
 	string table_name;
@@ -41,6 +44,7 @@ struct PostgresBindData : public FunctionData {
 	bool read_only = true;
 	bool emit_ctid = false;
 	bool use_transaction = true;
+	bool use_text_protocol = false;
 	idx_t max_threads = 1;
 
 public:

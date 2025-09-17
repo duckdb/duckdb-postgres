@@ -30,12 +30,15 @@ public:
 
 	PostgresConnection &GetConnectionWithoutTransaction();
 	PostgresConnection &GetConnection();
+	ClientContext &GetContext();
 
 	string GetDSN();
 	unique_ptr<PostgresResult> Query(const string &query);
 	unique_ptr<PostgresResult> QueryWithoutTransaction(const string &query);
 	vector<unique_ptr<PostgresResult>> ExecuteQueries(const string &queries);
 	static PostgresTransaction &Get(ClientContext &context, Catalog &catalog);
+
+	optional_ptr<CatalogEntry> ReferenceEntry(shared_ptr<CatalogEntry> &entry);
 
 	string GetTemporarySchema();
 
@@ -45,6 +48,7 @@ private:
 	AccessMode access_mode;
 	PostgresIsolationLevel isolation_level;
 	string temporary_schema;
+	reference_map_t<CatalogEntry, shared_ptr<CatalogEntry>> referenced_entries;
 
 private:
 	//! Retrieves the connection **without** starting a transaction if none is active

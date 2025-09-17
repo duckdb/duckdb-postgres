@@ -22,10 +22,11 @@ public:
 public:
 	static string GetInitializeQuery(const string &schema = string());
 
-	optional_ptr<CatalogEntry> CreateIndex(ClientContext &context, CreateIndexInfo &info, TableCatalogEntry &table);
+	optional_ptr<CatalogEntry> CreateIndex(PostgresTransaction &transaction, CreateIndexInfo &info,
+	                                       TableCatalogEntry &table);
 
 protected:
-	void LoadEntries(ClientContext &context) override;
+	void LoadEntries(PostgresTransaction &transaction) override;
 
 protected:
 	unique_ptr<PostgresResultSlice> index_result;

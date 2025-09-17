@@ -7,9 +7,9 @@
 
 namespace duckdb {
 
-static unique_ptr<Catalog> PostgresAttach(StorageExtensionInfo *storage_info, ClientContext &context,
+static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
-                                          AccessMode access_mode) {
+                                          AttachOptions &attach_options) {
 	auto &config = DBConfig::GetConfig(context);
 	if (!config.options.enable_external_access) {
 		throw PermissionException("Attaching Postgres databases is disabled through configuration");
@@ -19,11 +19,9 @@ static unique_ptr<Catalog> PostgresAttach(StorageExtensionInfo *storage_info, Cl
 	string secret_name;
 	string schema_to_load;
 	PostgresIsolationLevel isolation_level = PostgresIsolationLevel::REPEATABLE_READ;
-	for (auto &entry : info.options) {
+	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
-		if (lower_name == "type" || lower_name == "read_only") {
-			// already handled
-		} else if (lower_name == "secret") {
+		if (lower_name == "secret") {
 			secret_name = entry.second.ToString();
 		} else if (lower_name == "schema") {
 			schema_to_load = entry.second.ToString();
@@ -46,11 +44,11 @@ static unique_ptr<Catalog> PostgresAttach(StorageExtensionInfo *storage_info, Cl
 		}
 	}
 	auto connection_string = PostgresCatalog::GetConnectionString(context, attach_path, secret_name);
-	return make_uniq<PostgresCatalog>(db, std::move(connection_string), std::move(attach_path), access_mode,
-	                                  std::move(schema_to_load), isolation_level);
+	return make_uniq<PostgresCatalog>(db, std::move(connection_string), std::move(attach_path),
+	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level);
 }
 
-static unique_ptr<TransactionManager> PostgresCreateTransactionManager(StorageExtensionInfo *storage_info,
+static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
                                                                        AttachedDatabase &db, Catalog &catalog) {
 	auto &postgres_catalog = catalog.Cast<PostgresCatalog>();
 	return make_uniq<PostgresTransactionManager>(db, postgres_catalog);

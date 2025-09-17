@@ -1,0 +1,100 @@
+{
+  "description": "Run on Postgres database as storage.",
+  "on_init": "ATTACH 'postgres:dbname=postgresscanner' AS pgdb; CALL postgres_execute('pgdb', 'DROP DATABASE IF EXISTS \"{BASE_TEST_NAME}\"', use_transaction = False); CALL postgres_execute('pgdb', 'CREATE DATABASE \"{BASE_TEST_NAME}\"', use_transaction = False); DETACH pgdb; ATTACH 'postgres:dbname={BASE_TEST_NAME}' AS pgdb;",
+  "on_new_connection": "USE pgdb;",
+  "on_cleanup": "ATTACH 'postgres:dbname=postgresscanner' AS exit_db; CALL postgres_execute('exit_db', 'DROP DATABASE IF EXISTS \"{BASE_TEST_NAME}\"', use_transaction = False); DETACH exit_db;",
+  "skip_compiled": "true",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "postgres_scanner"
+  ],
+  "skip_error_messages": [
+    "RETURNING is not implemented for Postgres yet",
+    "RETURNING clause not yet supported",
+    "SET DEFAULT is not yet supported for updates of a Postgres table",
+    "Composite types in Postgres must be named",
+    "Vacuum is only implemented for DuckDB tables",
+    "Postgres databases do not support creating sequences",
+    "Postgres databases do not support creating functions",
+    "Unsupported type for CREATE TYPE in Postgres",
+    "Unsupported ALTER TABLE type",
+    "Enums in Postgres must be named",
+    "Only altering tables is supported for now"
+  ],
+  "skip_tests": [
+    {
+      "reason": "Contains explicit use of the memory catalog.",
+      "paths": [
+        "test/sql/show_select/test_describe_all.test",
+        "test/sql/catalog/function/attached_macro.test",
+        "test/sql/catalog/test_temporary.test",
+        "test/sql/pragma/test_show_tables_temp_views.test",
+        "test/sql/pg_catalog/system_functions.test",
+        "test/sql/pg_catalog/sqlalchemy.test",
+        "test/sql/attach/attach_table_info.test",
+        "test/sql/attach/attach_defaults.test",
+        "test/sql/attach/attach_did_you_mean.test",
+        "test/sql/attach/attach_default_table.test",
+        "test/sql/attach/attach_show_all_tables.test",
+        "test/sql/attach/attach_issue7711.test",
+        "test/sql/attach/attach_issue_7660.test",
+        "test/sql/attach/show_databases.test",
+        "test/sql/attach/attach_views.test",
+        "test/sql/copy_database/copy_table_with_sequence.test",
+        "test/fuzzer/sqlsmith/current_schemas_null.test",
+        "test/sql/settings/drop_set_schema.test",
+        "test/sql/catalog/test_set_search_path.test",
+        "test/sql/attach/attach_table_constraints.test",
+        "test/sql/table_function/database_oid.test",
+        "test/sql/table_function/duckdb_schemas.test",
+        "test/sql/table_function/duckdb_tables.test",
+        "test/sql/table_function/test_information_schema_columns.test",
+        "test/sql/settings/setting_preserve_identifier_case.test",
+        "test/sql/pragma/test_pragma_database_list.test",
+        "test/sql/index/art/storage/test_art_duckdb_versions.test",
+        "test/sql/copy_database/copy_database_with_index.test",
+        "test/sql/table_function/information_schema.test",
+        "test/sql/table_function/duckdb_databases.test",
+        "test/sql/table_function/sqlite_master.test",
+        "test/sql/table_function/duckdb_columns.test",
+        "test/sql/table_function/sqlite_master_quotes.test"
+      ]
+    },
+    {
+      "reason": "Concurrent updates deadlock in Postgres due to pessimistic concurrency control.",
+      "paths": [
+        "test/sql/update/test_update_same_value.test",
+        "test/sql/update/test_update_delete_same_tuple.test",
+        "test/sql/constraints/primarykey/test_pk_concurrency_conflicts.test",
+        "test/sql/constraints/primarykey/test_primary_key.test",
+        "test/sql/constraints/foreignkey/test_fk_concurrency_conflicts.test",
+        "test/sql/delete/cleanup_delete_on_conflict.test",
+        "test/sql/catalog/test_schema_conflict.test",
+        "test/sql/storage/commit_abort_medium.test",
+        "test/sql/storage/commit_abort.test",
+        "test/sql/alter/rename_table/test_rename_table_collision.test",
+        "test/sql/alter/rename_table/test_rename_table_transactions.test",
+        "test/sql/alter/rename_table/test_rename_table_chain_rollback.test",
+        "test/sql/alter/rename_table/test_rename_table_chain_commit.test",
+        "test/sql/alter/rename_col/test_rename_col_transactions.test",
+        "test/sql/alter/add_col/test_add_col_transactions.test",
+        "test/sql/alter/drop_col/test_drop_col_transactions.test",
+        "test/sql/transactions/test_index_large_aborted_append.test",
+        "test/sql/transactions/test_index_transaction_local.test",
+        "test/sql/transactions/test_index_rollback_flushed_data.test",
+        "test/sql/transactions/test_index_abort.test",
+        "test/sql/transactions/test_index_pending_delete.test",
+        "test/sql/transactions/test_index_pending_insert.test",
+        "test/sql/transactions/test_index_pending_update.test",
+        "test/sql/transactions/conflict_rename_append.test",
+        "test/sql/index/art/vacuum/test_art_vacuum_rollback.test"
+      ]
+    },
+    {
+      "reason": "Views are not correctly detected as views in Postgres.",
+      "paths": [
+        "test/sql/merge/merge_into.test"
+      ]
+    }
+  ]
+}

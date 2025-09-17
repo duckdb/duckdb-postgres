@@ -93,6 +93,8 @@ if(WIN32)
       postgres/src/port/open.c
       postgres/src/port/pgsleep.c
       postgres/src/port/system.c
+      postgres/src/port/dirmod.c
+      postgres/src/port/win32common.c
       postgres/src/port/win32error.c
       postgres/src/port/win32ntdll.c
       postgres/src/port/win32setlocale.c
@@ -120,10 +122,10 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/postgres)
   message(STATUS "Downloading PostgreSQL source code")
   file(
     DOWNLOAD
-    "https://github.com/postgres/postgres/archive/refs/tags/REL_15_2.tar.gz"
+    "https://github.com/postgres/postgres/archive/refs/tags/REL_15_13.tar.gz"
     ${CMAKE_CURRENT_SOURCE_DIR}/pg.tar.gz
     SHOW_PROGRESS
-    EXPECTED_MD5 615ef3fa75d19c46d2dafd6c66ddb5f6
+    EXPECTED_MD5 106c54e53aca9395354a251eeea914c0
     STATUS PG_DOWNLOAD_RESULT)
 
   if(NOT PG_DOWNLOAD_RESULT EQUAL 0)
@@ -137,7 +139,7 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/postgres)
        ${CMAKE_CURRENT_SOURCE_DIR}/postgres_tmp)
 
   # Move out of root directory
-  file(RENAME ${CMAKE_CURRENT_SOURCE_DIR}/postgres_tmp/postgres-REL_15_2
+  file(RENAME ${CMAKE_CURRENT_SOURCE_DIR}/postgres_tmp/postgres-REL_15_13
        ${CMAKE_CURRENT_SOURCE_DIR}/postgres)
 
   # Remove the tmp directory

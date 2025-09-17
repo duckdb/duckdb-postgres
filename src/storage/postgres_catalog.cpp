@@ -92,6 +92,7 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 		new_connection_info += AddConnectionOption(kv_secret, "host");
 		new_connection_info += AddConnectionOption(kv_secret, "port");
 		new_connection_info += AddConnectionOption(kv_secret, "dbname");
+		new_connection_info += AddConnectionOption(kv_secret, "passfile");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {
@@ -108,7 +109,7 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto &postgres_transaction = PostgresTransaction::Get(transaction.GetContext(), *this);
-	auto entry = schemas.GetEntry(transaction.GetContext(), info.schema);
+	auto entry = schemas.GetEntry(postgres_transaction, info.schema);
 	if (entry) {
 		switch (info.on_conflict) {
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
@@ -117,7 +118,7 @@ optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction tran
 			try_drop.name = info.schema;
 			try_drop.if_not_found = OnEntryNotFound::RETURN_NULL;
 			try_drop.cascade = false;
-			schemas.DropEntry(transaction.GetContext(), try_drop);
+			schemas.DropEntry(postgres_transaction, try_drop);
 			break;
 		}
 		case OnCreateConflict::IGNORE_ON_CONFLICT:
@@ -127,15 +128,17 @@ optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction tran
 			throw BinderException("Failed to create schema \"%s\": schema already exists", info.schema);
 		}
 	}
-	return schemas.CreateSchema(transaction.GetContext(), info);
+	return schemas.CreateSchema(postgres_transaction, info);
 }
 
 void PostgresCatalog::DropSchema(ClientContext &context, DropInfo &info) {
-	return schemas.DropEntry(context, info);
+	auto &postgres_transaction = PostgresTransaction::Get(context, *this);
+	return schemas.DropEntry(postgres_transaction, info);
 }
 
 void PostgresCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
-	schemas.Scan(context, [&](CatalogEntry &schema) { callback(schema.Cast<PostgresSchemaEntry>()); });
+	auto &postgres_transaction = PostgresTransaction::Get(context, *this);
+	schemas.Scan(postgres_transaction, [&](CatalogEntry &schema) { callback(schema.Cast<PostgresSchemaEntry>()); });
 }
 
 optional_ptr<SchemaCatalogEntry> PostgresCatalog::LookupSchema(CatalogTransaction transaction,
@@ -146,7 +149,7 @@ optional_ptr<SchemaCatalogEntry> PostgresCatalog::LookupSchema(CatalogTransactio
 	if (schema_name == "pg_temp") {
 		schema_name = postgres_transaction.GetTemporarySchema();
 	}
-	auto entry = schemas.GetEntry(transaction.GetContext(), schema_name);
+	auto entry = schemas.GetEntry(postgres_transaction, schema_name);
 	if (!entry && if_not_found != OnEntryNotFound::RETURN_NULL) {
 		throw BinderException("Schema with name \"%s\" not found", schema_name);
 	}

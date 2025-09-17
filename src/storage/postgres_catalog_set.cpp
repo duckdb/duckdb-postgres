@@ -8,40 +8,39 @@ namespace duckdb {
 PostgresCatalogSet::PostgresCatalogSet(Catalog &catalog, bool is_loaded_p) : catalog(catalog), is_loaded(is_loaded_p) {
 }
 
-optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, const string &name) {
-	TryLoadEntries(context);
+optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(PostgresTransaction &transaction, const string &name) {
+	TryLoadEntries(transaction);
 	{
 		lock_guard<mutex> l(entry_lock);
 		auto entry = entries.find(name);
 		if (entry != entries.end()) {
 			// entry found
-			return entry->second.get();
+			return transaction.ReferenceEntry(entry->second);
+		}
+		// check the case insensitive map if there are any entries
+		auto name_entry = entry_map.find(name);
+		if (name_entry != entry_map.end()) {
+			// try again with the entry we found in the case insensitive map
+			auto entry = entries.find(name_entry->second);
+			if (entry != entries.end()) {
+				// still not found
+				return transaction.ReferenceEntry(entry->second);
+			}
 		}
 	}
 	// entry not found
 	if (SupportReload()) {
+		lock_guard<mutex> lock(load_lock);
 		// try loading entries again - maybe there has been a change remotely
-		auto entry = ReloadEntry(context, name);
+		auto entry = ReloadEntry(transaction, name);
 		if (entry) {
 			return entry;
 		}
 	}
-	// check the case insensitive map if there are any entries
-	auto name_entry = entry_map.find(name);
-	if (name_entry == entry_map.end()) {
-		// no entry found
-		return nullptr;
-	}
-	// try again with the entry we found in the case insensitive map
-	auto entry = entries.find(name_entry->second);
-	if (entry == entries.end()) {
-		// still not found
-		return nullptr;
-	}
-	return entry->second.get();
+	return nullptr;
 }
 
-void PostgresCatalogSet::TryLoadEntries(ClientContext &context) {
+void PostgresCatalogSet::TryLoadEntries(PostgresTransaction &transaction) {
 	if (HasInternalDependencies()) {
 		if (is_loaded) {
 			return;
@@ -52,14 +51,14 @@ void PostgresCatalogSet::TryLoadEntries(ClientContext &context) {
 		return;
 	}
 	is_loaded = true;
-	LoadEntries(context);
+	LoadEntries(transaction);
 }
 
-optional_ptr<CatalogEntry> PostgresCatalogSet::ReloadEntry(ClientContext &context, const string &name) {
+optional_ptr<CatalogEntry> PostgresCatalogSet::ReloadEntry(PostgresTransaction &transaction, const string &name) {
 	throw InternalException("PostgresCatalogSet does not support ReloadEntry");
 }
 
-void PostgresCatalogSet::DropEntry(ClientContext &context, DropInfo &info) {
+void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &info) {
 	string drop_query = "DROP ";
 	drop_query += CatalogTypeToString(info.type) + " ";
 	if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
@@ -72,7 +71,6 @@ void PostgresCatalogSet::DropEntry(ClientContext &context, DropInfo &info) {
 	if (info.cascade) {
 		drop_query += "CASCADE";
 	}
-	auto &transaction = PostgresTransaction::Get(context, catalog);
 	transaction.Query(drop_query);
 
 	// erase the entry from the catalog set
@@ -80,17 +78,18 @@ void PostgresCatalogSet::DropEntry(ClientContext &context, DropInfo &info) {
 	entries.erase(info.name);
 }
 
-void PostgresCatalogSet::Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback) {
-	TryLoadEntries(context);
+void PostgresCatalogSet::Scan(PostgresTransaction &transaction, const std::function<void(CatalogEntry &)> &callback) {
+	TryLoadEntries(transaction);
 	lock_guard<mutex> l(entry_lock);
 	for (auto &entry : entries) {
 		callback(*entry.second);
 	}
 }
 
-optional_ptr<CatalogEntry> PostgresCatalogSet::CreateEntry(unique_ptr<CatalogEntry> entry) {
+optional_ptr<CatalogEntry> PostgresCatalogSet::CreateEntry(PostgresTransaction &transaction,
+                                                           shared_ptr<CatalogEntry> entry) {
 	lock_guard<mutex> l(entry_lock);
-	auto result = entry.get();
+	auto result = transaction.ReferenceEntry(entry);
 	if (result->name.empty()) {
 		throw InternalException("PostgresCatalogSet::CreateEntry called with empty name");
 	}
@@ -100,6 +99,7 @@ optional_ptr<CatalogEntry> PostgresCatalogSet::CreateEntry(unique_ptr<CatalogEnt
 }
 
 void PostgresCatalogSet::ClearEntries() {
+	lock_guard<mutex> entry_guard(entry_lock);
 	entry_map.clear();
 	entries.clear();
 	is_loaded = false;
@@ -109,9 +109,10 @@ PostgresInSchemaSet::PostgresInSchemaSet(PostgresSchemaEntry &schema, bool is_lo
     : PostgresCatalogSet(schema.ParentCatalog(), is_loaded), schema(schema) {
 }
 
-optional_ptr<CatalogEntry> PostgresInSchemaSet::CreateEntry(unique_ptr<CatalogEntry> entry) {
+optional_ptr<CatalogEntry> PostgresInSchemaSet::CreateEntry(PostgresTransaction &transaction,
+                                                            shared_ptr<CatalogEntry> entry) {
 	entry->internal = schema.internal;
-	return PostgresCatalogSet::CreateEntry(std::move(entry));
+	return PostgresCatalogSet::CreateEntry(transaction, std::move(entry));
 }
 
 } // namespace duckdb
