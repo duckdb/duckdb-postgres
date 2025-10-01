@@ -133,9 +133,6 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 		secret_manager.LoadSecretStorage(std::move(storage));
 	} catch (InvalidConfigurationException &) {
 		// Storage already exists - this is fine, reuse the existing one
-		// Note: The existing storage may have a dangling catalog reference, but
-		// since we only write/remove secrets (not read), and those operations
-		// will fail if the catalog is detached, this is acceptable
 	}
 }
 

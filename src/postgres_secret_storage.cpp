@@ -12,7 +12,6 @@ namespace duckdb {
 
 // Initialize static counters starting at 25 and 0
 std::atomic<int64_t> PostgresSecretStorage::next_tie_break_offset(25);
-std::atomic<int64_t> PostgresSecretStorage::next_unique_id(0);
 
 int64_t PostgresSecretStorage::GetNextTieBreakOffset() {
 	return next_tie_break_offset.fetch_add(1);
@@ -126,30 +125,6 @@ void PostgresSecretStorage::RemoveSecret(const string &secret, OnEntryNotFound o
 	// Get a connection from the pool
 	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
 	auto &connection = pool_connection.GetConnection();
-
-	// Check if the secret exists first if we need to throw an error
-	if (on_entry_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-		auto escape_sql = [](const string &str) -> string {
-			string result;
-			for (char c : str) {
-				if (c == '\'') {
-					result += "''";
-				} else {
-					result += c;
-				}
-			}
-			return result;
-		};
-
-		string escaped_name = escape_sql(secret);
-		string check_query = StringUtil::Format("SELECT COUNT(*) FROM %s WHERE secret_name = '%s'",
-		                                        secrets_table_name, escaped_name);
-
-		auto result = connection.Query(check_query);
-		// Parse result to check if secret exists
-		// If count is 0, throw exception
-		// Note: This is a simplified check - you may need to parse the actual result
-	}
 
 	// Delete the secret
 	auto escape_sql = [](const string &str) -> string {
