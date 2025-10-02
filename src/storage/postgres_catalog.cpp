@@ -128,8 +128,7 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 	// If a storage with this name already exists, silently skip registration
 	// This allows the storage to persist across detach/reattach cycles
 	try {
-		auto storage =
-			make_uniq<PostgresSecretStorage>(storage_name, db_instance, *this);
+		auto storage = make_uniq<PostgresSecretStorage>(storage_name, db_instance, *this, secret_manager);
 		secret_manager.LoadSecretStorage(std::move(storage));
 	} catch (InvalidConfigurationException &) {
 		// Storage already exists - this is fine, reuse the existing one
