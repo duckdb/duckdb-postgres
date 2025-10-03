@@ -1,7 +1,11 @@
 #include "postgres_secret_storage.hpp"
 #include "storage/postgres_catalog.hpp"
+#include "storage/postgres_transaction.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/serializer/binary_serializer.hpp"
 #include "duckdb/common/serializer/binary_deserializer.hpp"
@@ -33,14 +37,23 @@ int64_t PostgresSecretStorage::GetNextTieBreakOffset() {
 PostgresSecretStorage::PostgresSecretStorage(const string &name_p, DatabaseInstance &db_p,
                                              PostgresCatalog &postgres_catalog_p, SecretManager &secret_manager_p)
     : SecretStorage(name_p, GetNextTieBreakOffset()), db(db_p), secret_manager(secret_manager_p),
-      postgres_catalog(postgres_catalog_p), secrets_table_name("duckdb_secrets") {
+      attached_database_name(postgres_catalog_p.GetAttached().GetName()), secrets_table_name("duckdb_secrets") {
 	persistent = true;
 
 	// Create the secrets table if it doesn't exist
-	InitializeSecretsTable();
+	InitializeSecretsTable(postgres_catalog_p);
 }
 
 PostgresSecretStorage::~PostgresSecretStorage() {
+}
+
+PostgresCatalog *PostgresSecretStorage::GetPostgresCatalog(ClientContext &context) {
+	auto &db_manager = DatabaseManager::Get(context);
+	auto attached_db = db_manager.GetDatabase(context, attached_database_name);
+	if (!attached_db) {
+		return nullptr;
+	}
+	return &attached_db->GetCatalog().Cast<PostgresCatalog>();
 }
 
 unique_ptr<const BaseSecret> PostgresSecretStorage::DeserializeSecret(const string &hex_string_ref,
@@ -105,10 +118,14 @@ unique_ptr<SecretEntry> PostgresSecretStorage::StoreSecret(unique_ptr<const Base
 	// Serialize the secret BEFORE moving it
 	string serialized = SerializeSecret(*secret);
 
-	// Get a connection from the pool
-	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
-	auto &connection = pool_connection.GetConnection();
-
+	// Get the Postgres catalog and transaction
+	auto &context = transaction->GetContext();
+	auto postgres_catalog = GetPostgresCatalog(context);
+	if (!postgres_catalog) {
+		throw InvalidInputException("Cannot store secret: database '%s' is not attached", attached_database_name);
+	}
+	auto &postgres_transaction = PostgresTransaction::Get(context, *postgres_catalog);
+	
 	string escaped_name = EscapeSQLString(secret_name);
 	string escaped_type = EscapeSQLString(secret_type);
 
@@ -127,7 +144,7 @@ unique_ptr<SecretEntry> PostgresSecretStorage::StoreSecret(unique_ptr<const Base
 		    secrets_table_name, escaped_name, escaped_type, serialized);
 	}
 
-	connection.Execute(query);
+	postgres_transaction.Query(query);
 
 	// Return the secret entry
 	auto secret_entry = make_uniq<SecretEntry>(std::move(secret));
@@ -139,11 +156,16 @@ unique_ptr<SecretEntry> PostgresSecretStorage::StoreSecret(unique_ptr<const Base
 vector<SecretEntry> PostgresSecretStorage::AllSecrets(optional_ptr<CatalogTransaction> transaction) {
 	vector<SecretEntry> result;
 
-	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
-	auto &connection = pool_connection.GetConnection();
-
+	auto &context = transaction->GetContext();
+	auto postgres_catalog = GetPostgresCatalog(context);
+	if (!postgres_catalog) {
+		// Database is not attached, return empty list
+		return result;
+	}
+	auto &postgres_transaction = PostgresTransaction::Get(context, *postgres_catalog);
+	
 	string query = StringUtil::Format("SELECT secret_name, serialized_secret FROM %s", secrets_table_name);
-	auto query_result = connection.Query(query);
+	auto query_result = postgres_transaction.Query(query);
 
 	for (idx_t i = 0; i < query_result->Count(); i++) {
 		auto secret_name = query_result->GetString(i, 0);
@@ -163,6 +185,15 @@ vector<SecretEntry> PostgresSecretStorage::AllSecrets(optional_ptr<CatalogTransa
 
 void PostgresSecretStorage::DropSecretByName(const string &name, OnEntryNotFound on_entry_not_found,
                                              optional_ptr<CatalogTransaction> transaction) {
+	auto &context = transaction->GetContext();
+	auto postgres_catalog = GetPostgresCatalog(context);
+	if (!postgres_catalog) {
+		if (on_entry_not_found == OnEntryNotFound::THROW_EXCEPTION) {
+			throw InvalidInputException("Cannot drop secret: database '%s' is not attached", attached_database_name);
+		}
+		return;
+	}
+
 	// Check if secret exists
 	auto existing = GetSecretByName(name, transaction);
 	if (!existing && on_entry_not_found == OnEntryNotFound::THROW_EXCEPTION) {
@@ -170,27 +201,30 @@ void PostgresSecretStorage::DropSecretByName(const string &name, OnEntryNotFound
 		                            storage_name);
 	}
 
-	// Get a connection from the pool
-	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
-	auto &connection = pool_connection.GetConnection();
+	auto &postgres_transaction = PostgresTransaction::Get(context, *postgres_catalog);
 
 	// Delete the secret
 	string escaped_name = EscapeSQLString(name);
 	string query = StringUtil::Format("DELETE FROM %s WHERE secret_name = '%s'", secrets_table_name, escaped_name);
-	connection.Execute(query);
+	postgres_transaction.Query(query);
 }
 
 SecretMatch PostgresSecretStorage::LookupSecret(const string &path, const string &type,
                                                 optional_ptr<CatalogTransaction> transaction) {
 	auto best_match = SecretMatch();
 
-	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
-	auto &connection = pool_connection.GetConnection();
+	auto &context = transaction->GetContext();
+	auto postgres_catalog = GetPostgresCatalog(context);
+	if (!postgres_catalog) {
+		// Database is not attached, return no match
+		return best_match;
+	}
+	auto &postgres_transaction = PostgresTransaction::Get(context, *postgres_catalog);
 
 	string escaped_type = EscapeSQLString(StringUtil::Lower(type));
 	string query = StringUtil::Format("SELECT secret_name, serialized_secret FROM %s WHERE LOWER(secret_type) = '%s'",
 										secrets_table_name, escaped_type);
-	auto query_result = connection.Query(query);
+	auto query_result = postgres_transaction.Query(query);
 
 	for (idx_t i = 0; i < query_result->Count(); i++) {
 		auto secret_name = query_result->GetString(i, 0);
@@ -210,13 +244,18 @@ SecretMatch PostgresSecretStorage::LookupSecret(const string &path, const string
 
 unique_ptr<SecretEntry> PostgresSecretStorage::GetSecretByName(const string &name,
                                                                 optional_ptr<CatalogTransaction> transaction) {
-	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
-	auto &connection = pool_connection.GetConnection();
+	auto &context = transaction->GetContext();
+	auto postgres_catalog = GetPostgresCatalog(context);
+	if (!postgres_catalog) {
+		// Database is not attached, return null
+		return nullptr;
+	}
+	auto &postgres_transaction = PostgresTransaction::Get(context, *postgres_catalog);
 
 	string escaped_name = EscapeSQLString(name);
 	string query = StringUtil::Format("SELECT serialized_secret FROM %s WHERE secret_name = '%s'", secrets_table_name,
 										escaped_name);
-	auto result = connection.Query(query);
+	auto result = postgres_transaction.Query(query);
 
 	if (result->Count() == 0) {
 		return nullptr;
@@ -234,7 +273,7 @@ unique_ptr<SecretEntry> PostgresSecretStorage::GetSecretByName(const string &nam
 	return secret_entry;
 }
 
-void PostgresSecretStorage::InitializeSecretsTable() {
+void PostgresSecretStorage::InitializeSecretsTable(PostgresCatalog &postgres_catalog) {
 	// Get a connection from the pool
 	auto pool_connection = postgres_catalog.GetConnectionPool().GetConnection();
 	auto &connection = pool_connection.GetConnection();

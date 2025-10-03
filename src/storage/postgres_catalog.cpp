@@ -124,9 +124,7 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 	// Create a storage name based on the attached database name
 	string storage_name = "postgres_" + GetAttached().GetName();
 
-	// Try to register the secret storage
-	// If a storage with this name already exists, silently skip registration
-	// This allows the storage to persist across detach/reattach cycles
+	// Register the secret storage
 	try {
 		auto storage = make_uniq<PostgresSecretStorage>(storage_name, db_instance, *this, secret_manager);
 		secret_manager.LoadSecretStorage(std::move(storage));

@@ -38,13 +38,14 @@ public:
                                           optional_ptr<CatalogTransaction> transaction = nullptr) override;
 
 private:
-  void InitializeSecretsTable();
+  void InitializeSecretsTable(PostgresCatalog &postgres_catalog);
   string SerializeSecret(const BaseSecret &secret);
   unique_ptr<const BaseSecret> DeserializeSecret(const string &hex_string, const string &secret_name);
+  PostgresCatalog *GetPostgresCatalog(ClientContext &context);
 
   DatabaseInstance &db;
   SecretManager &secret_manager;
-  PostgresCatalog &postgres_catalog;
+  string attached_database_name;
   string secrets_table_name;
 
   static std::atomic<int64_t> next_tie_break_offset;
