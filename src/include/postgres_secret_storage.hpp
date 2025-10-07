@@ -18,8 +18,7 @@ class PostgresCatalog;
 
 class PostgresSecretStorage : public SecretStorage {
 public:
-  PostgresSecretStorage(const string &name_p, DatabaseInstance &db,
-                        PostgresCatalog &postgres_catalog, SecretManager &secret_manager);
+  PostgresSecretStorage(const string &name_p, PostgresCatalog &postgres_catalog, SecretManager &secret_manager);
   ~PostgresSecretStorage() override;
 
   bool IncludeInLookups() override { return true; }
@@ -43,7 +42,6 @@ private:
   unique_ptr<const BaseSecret> DeserializeSecret(const string &hex_string, const string &secret_name);
   PostgresCatalog *GetPostgresCatalog(ClientContext &context);
 
-  DatabaseInstance &db;
   SecretManager &secret_manager;
   string attached_database_name;
   string secrets_table_name;

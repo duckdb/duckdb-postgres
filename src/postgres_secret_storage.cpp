@@ -34,9 +34,9 @@ int64_t PostgresSecretStorage::GetNextTieBreakOffset() {
 	return next_tie_break_offset.fetch_add(1);
 }
 
-PostgresSecretStorage::PostgresSecretStorage(const string &name_p, DatabaseInstance &db_p,
-                                             PostgresCatalog &postgres_catalog_p, SecretManager &secret_manager_p)
-    : SecretStorage(name_p, GetNextTieBreakOffset()), db(db_p), secret_manager(secret_manager_p),
+PostgresSecretStorage::PostgresSecretStorage(const string &name_p, PostgresCatalog &postgres_catalog_p, 
+											 SecretManager &secret_manager_p)
+    : SecretStorage(name_p, GetNextTieBreakOffset()), secret_manager(secret_manager_p),
       attached_database_name(postgres_catalog_p.GetAttached().GetName()), secrets_table_name("duckdb_secrets") {
 	persistent = true;
 
