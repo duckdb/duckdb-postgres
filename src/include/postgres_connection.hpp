@@ -9,6 +9,7 @@
 #pragma once
 
 #include "postgres_utils.hpp"
+#include "postgres_parameters.hpp"
 #include "postgres_result.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 
@@ -45,9 +46,13 @@ public:
 
 public:
 	static PostgresConnection Open(const string &dsn, const string &attach_path);
-	void Execute(optional_ptr<ClientContext> context, const string &query);
-	unique_ptr<PostgresResult> TryQuery(optional_ptr<ClientContext> context, const string &query, optional_ptr<string> error_message = nullptr);
-	unique_ptr<PostgresResult> Query(optional_ptr<ClientContext> context, const string &query);
+	void Execute(optional_ptr<ClientContext> context, const string &query,
+	             const PostgresParameters &params = PostgresParameters());
+	unique_ptr<PostgresResult> TryQuery(optional_ptr<ClientContext> context, const string &query,
+	                                    optional_ptr<string> error_message = nullptr,
+	                                    const PostgresParameters &params = PostgresParameters());
+	unique_ptr<PostgresResult> Query(optional_ptr<ClientContext> context, const string &query,
+	                                 const PostgresParameters &params = PostgresParameters());
 
 	//! Submits a set of queries to be executed in the connection.
 	vector<unique_ptr<PostgresResult>> ExecuteQueries(ClientContext &context, const string &queries);
@@ -87,7 +92,8 @@ public:
 	static bool DebugPrintQueries();
 
 private:
-	PGresult *PQExecute(optional_ptr<ClientContext> context, const string &query);
+	PGresult *PQExecute(optional_ptr<ClientContext> context, const string &query,
+	                    const PostgresParameters &params = PostgresParameters());
 
 	shared_ptr<OwnedPostgresConnection> connection;
 	string dsn;

@@ -198,8 +198,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 		connection->registered_state->Insert("postgres_extension", make_shared_ptr<PostgresExtensionState>());
 	}
 
-auto &instance = loader.GetDatabaseInstance();
-auto &log_manager = instance.GetLogManager();
+	auto &instance = loader.GetDatabaseInstance();
+	auto &log_manager = instance.GetLogManager();
 	log_manager.RegisterLogType(make_uniq<PostgresQueryLogType>());
 }
 

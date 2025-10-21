@@ -194,7 +194,8 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::LookupEntry(CatalogTransaction t
 		return nullptr;
 	}
 	auto &postgres_transaction = GetPostgresTransaction(transaction);
-	return GetCatalogSet(catalog_type).GetEntry(transaction.GetContext(), postgres_transaction, lookup_info.GetEntryName());
+	return GetCatalogSet(catalog_type)
+	    .GetEntry(transaction.GetContext(), postgres_transaction, lookup_info.GetEntryName());
 }
 
 PostgresCatalogSet &PostgresSchemaEntry::GetCatalogSet(CatalogType type) {

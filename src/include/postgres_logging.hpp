@@ -17,4 +17,4 @@ public:
 	static LogicalType GetLogType();
 };
 
-} // namespace
+} // namespace duckdb

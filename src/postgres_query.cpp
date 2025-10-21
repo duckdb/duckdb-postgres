@@ -1,6 +1,7 @@
 #include "duckdb.hpp"
 
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+#include "postgres_parameters.hpp"
 #include "postgres_scanner.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
@@ -44,7 +45,19 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 			use_transaction = BooleanValue::Get(kv.second);
 		}
 	}
-	result->use_transaction = use_transaction;
+
+	vector<Value> param_values;
+	auto params_it = input.named_parameters.find("params");
+	if (params_it != input.named_parameters.end()) {
+		Value &struct_val = params_it->second;
+		if (struct_val.IsNull()) {
+			throw BinderException("Parameters to postgres_query cannot be NULL");
+		}
+		if (struct_val.type().id() != LogicalTypeId::STRUCT) {
+			throw BinderException("Query parameters must be specified in a STRUCT");
+		}
+		param_values = StructValue::GetChildren(struct_val);
+	}
 
 	auto &con = use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
 
@@ -65,7 +78,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		auto extended_err = describe_prepared ? PQresultErrorMessage(describe_prepared) : PQerrorMessage(conn);
 		throw BinderException("Failed to describe prepared statement: %s", extended_err);
 	}
-	auto nfields = PQnfields(describe_prepared);
+	int nfields = PQnfields(describe_prepared);
 	if (nfields <= 0) {
 		throw BinderException("No fields returned by query \"%s\" - the query must be a SELECT statement that returns "
 		                      "at least one column",
@@ -82,6 +95,16 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		return_types.emplace_back(converted_type);
 		names.emplace_back(PQfname(describe_prepared, c));
 	}
+	int nparams = PQnparams(describe_prepared);
+	if (nparams != param_values.size()) {
+		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu, query: \"%s\"",
+		                      nparams, param_values.size(), sql);
+	}
+	vector<Oid> param_types;
+	for (idx_t p; p < nparams; p++) {
+		Oid ptype = PQparamtype(describe_prepared, p);
+		param_types.emplace_back(ptype);
+	}
 
 	// set up the bind data
 	result->SetCatalog(pg_catalog);
@@ -91,12 +114,15 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->read_only = false;
 	result->SetTablePages(0);
 	result->sql = std::move(sql);
+	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
+	result->use_transaction = use_transaction;
 	return std::move(result);
 }
 
 PostgresQueryFunction::PostgresQueryFunction()
     : TableFunction("postgres_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
 	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
+	named_parameters["params"] = LogicalType::ANY;
 	PostgresScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;

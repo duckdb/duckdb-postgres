@@ -14,7 +14,7 @@ PostgresTextReader::~PostgresTextReader() {
 }
 
 void PostgresTextReader::BeginCopy(ClientContext &context, const string &sql) {
-	result = con.Query(context, sql);
+	result = con.Query(context, sql, bind_data.params);
 	row_offset = 0;
 }
 

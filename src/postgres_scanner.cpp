@@ -89,8 +89,8 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 		return;
 	}
 
-	result =
-	    con.TryQuery(context, "SELECT pg_is_in_recovery(), pg_export_snapshot(), (select count(*) from pg_stat_wal_receiver)");
+	result = con.TryQuery(
+	    context, "SELECT pg_is_in_recovery(), pg_export_snapshot(), (select count(*) from pg_stat_wal_receiver)");
 	if (result) {
 		auto in_recovery = result->GetBool(0, 0) || result->GetInt64(0, 2) > 0;
 		gstate.snapshot = "";
