@@ -44,7 +44,7 @@ PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog
     : postgres_catalog(postgres_catalog), active_connections(0), maximum_connections(maximum_connections_p) {
 }
 
-PostgresPoolConnection PostgresConnectionPool::GetConnectionInternal() {
+PostgresPoolConnection PostgresConnectionPool::GetConnectionInternal(optional_ptr<ClientContext> context) {
 	active_connections++;
 	// check if we have any cached connections left
 	if (!connection_cache.empty()) {
@@ -54,21 +54,26 @@ PostgresPoolConnection PostgresConnectionPool::GetConnectionInternal() {
 	}
 
 	// no cached connections left but there is space to open a new one - open it
+	// If we have a context, generate a fresh connection string (with new RDS token if needed)
+	string connection_string_to_use = postgres_catalog.connection_string;
+	if (context) {
+		connection_string_to_use = postgres_catalog.GetFreshConnectionString(*context);
+	}
 	return PostgresPoolConnection(
-	    this, PostgresConnection::Open(postgres_catalog.connection_string, postgres_catalog.attach_path));
+	    this, PostgresConnection::Open(connection_string_to_use, postgres_catalog.attach_path));
 }
 
-PostgresPoolConnection PostgresConnectionPool::ForceGetConnection() {
+PostgresPoolConnection PostgresConnectionPool::ForceGetConnection(optional_ptr<ClientContext> context) {
 	lock_guard<mutex> l(connection_lock);
-	return GetConnectionInternal();
+	return GetConnectionInternal(context);
 }
 
-bool PostgresConnectionPool::TryGetConnection(PostgresPoolConnection &connection) {
+bool PostgresConnectionPool::TryGetConnection(PostgresPoolConnection &connection, optional_ptr<ClientContext> context) {
 	lock_guard<mutex> l(connection_lock);
 	if (active_connections >= maximum_connections) {
 		return false;
 	}
-	connection = GetConnectionInternal();
+	connection = GetConnectionInternal(context);
 	return true;
 }
 
@@ -79,9 +84,9 @@ void PostgresConnectionPool::PostgresSetConnectionCache(ClientContext &context, 
 	pg_use_connection_cache = BooleanValue::Get(parameter);
 }
 
-PostgresPoolConnection PostgresConnectionPool::GetConnection() {
+PostgresPoolConnection PostgresConnectionPool::GetConnection(optional_ptr<ClientContext> context) {
 	PostgresPoolConnection result;
-	if (!TryGetConnection(result)) {
+	if (!TryGetConnection(result, context)) {
 		throw IOException(
 		    "Failed to get connection from PostgresConnectionPool - maximum connection count exceeded (%llu/%llu max)",
 		    active_connections, maximum_connections);

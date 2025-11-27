@@ -94,6 +94,10 @@ unique_ptr<BaseSecret> CreatePostgresSecretFunction(ClientContext &context, Crea
 			result->secret_map["port"] = named_param.second.ToString();
 		} else if (lower_name == "passfile") {
 			result->secret_map["passfile"] = named_param.second.ToString();
+		} else if (lower_name == "use_rds_iam_auth") {
+			result->secret_map["use_rds_iam_auth"] = named_param.second.ToString();
+		} else if (lower_name == "aws_region") {
+			result->secret_map["aws_region"] = named_param.second.ToString();
 		} else {
 			throw InternalException("Unknown named parameter passed to CreatePostgresSecretFunction: " + lower_name);
 		}
@@ -112,6 +116,8 @@ void SetPostgresSecretParameters(CreateSecretFunction &function) {
 	function.named_parameters["database"] = LogicalType::VARCHAR; // alias for dbname
 	function.named_parameters["dbname"] = LogicalType::VARCHAR;
 	function.named_parameters["passfile"] = LogicalType::VARCHAR;
+	function.named_parameters["use_rds_iam_auth"] = LogicalType::BOOLEAN;
+	function.named_parameters["aws_region"] = LogicalType::VARCHAR;
 }
 
 void SetPostgresNullByteReplacement(ClientContext &context, SetScope scope, Value &parameter) {

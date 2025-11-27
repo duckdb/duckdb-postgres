@@ -21,11 +21,13 @@ class PostgresSchemaEntry;
 class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
-	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level);
+	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
+	                         string secret_name = string());
 	~PostgresCatalog();
 
 	string connection_string;
 	string attach_path;
+	string secret_name;
 	AccessMode access_mode;
 	PostgresIsolationLevel isolation_level;
 
@@ -39,6 +41,8 @@ public:
 	}
 
 	static string GetConnectionString(ClientContext &context, const string &attach_path, string secret_name);
+
+	string GetFreshConnectionString(ClientContext &context);
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 

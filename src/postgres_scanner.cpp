@@ -391,7 +391,7 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 			} else {
 				// we cannot use the main thread but we haven't initiated ANY scan yet
 				// we HAVE to open a new connection
-				lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection();
+				lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection(&context);
 				lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
 			}
 			used_main_thread = true;
@@ -400,7 +400,7 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 	}
 
 	if (pg_catalog) {
-		if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
+		if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection, &context)) {
 			return false;
 		}
 		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());

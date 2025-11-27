@@ -11,7 +11,7 @@ PostgresTransaction::PostgresTransaction(PostgresCatalog &postgres_catalog, Tran
                                          ClientContext &context)
     : Transaction(manager, context), access_mode(postgres_catalog.access_mode),
       isolation_level(postgres_catalog.isolation_level) {
-	connection = postgres_catalog.GetConnectionPool().GetConnection();
+	connection = postgres_catalog.GetConnectionPool().GetConnection(&context);
 }
 
 PostgresTransaction::~PostgresTransaction() = default;

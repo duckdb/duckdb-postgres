@@ -45,7 +45,8 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	}
 	auto connection_string = PostgresCatalog::GetConnectionString(context, attach_path, secret_name);
 	return make_uniq<PostgresCatalog>(db, std::move(connection_string), std::move(attach_path),
-	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level);
+	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level,
+	                                  std::move(secret_name));
 }
 
 static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,

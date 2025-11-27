@@ -7,14 +7,17 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/common/printer.hpp"
+#include <cstdio>
 
 namespace duckdb {
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
-                                 AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level)
+                                 AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
+                                 string secret_name_p)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
-      access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
-      connection_pool(*this), default_schema(schema_to_load) {
+      secret_name(std::move(secret_name_p)), access_mode(access_mode), isolation_level(isolation_level),
+      schemas(*this, schema_to_load), connection_pool(*this), default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
 	}
@@ -72,6 +75,71 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 	return nullptr;
 }
 
+string GenerateRdsAuthToken(const string &hostname, const string &port, const string &username,
+                             const string &aws_region) {
+
+	auto escape_shell_arg = [](const string &arg) -> string {
+		string escaped = "'";
+		for (char c : arg) {
+			if (c == '\'') {
+				escaped += "'\\''";
+			} else {
+				escaped += c;
+			}
+		}
+		escaped += "'";
+		return escaped;
+	};
+
+	string command = "aws rds generate-db-auth-token --hostname " + escape_shell_arg(hostname) +
+	                 " --port " + escape_shell_arg(port) + " --username " + escape_shell_arg(username);
+	
+	if (!aws_region.empty()) {
+		command += " --region " + escape_shell_arg(aws_region);
+	}
+	
+	command += " 2>&1";
+
+	FILE *pipe = popen(command.c_str(), "r");
+	if (!pipe) {
+		throw IOException("Failed to execute AWS CLI command to generate RDS auth token. "
+		                  "Make sure AWS CLI is installed and configured.");
+	}
+
+	string token;
+	char buffer[128];
+	while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+		token += buffer;
+	}
+
+	int status = pclose(pipe);
+
+	if (!token.empty() && token.back() == '\n') {
+		token.pop_back();
+	}
+	if (status != 0) {
+
+		throw IOException("Failed to generate RDS auth token: %s. "
+		                  "Make sure AWS CLI is installed, configured, and you have the necessary permissions.",
+		                  token.empty() ? "Unknown error" : token.c_str());
+	}
+
+	if (!token.empty() && token.back() == '\n') {
+		token.pop_back();
+	}
+
+
+	if (PostgresConnection::DebugPrintQueries()) {
+		string debug_msg = StringUtil::Format(
+		    "[RDS IAM Auth] Generated auth token for hostname=%s, port=%s, username=%s, region=%s\n, token=%s",
+		    hostname.c_str(), port.c_str(), username.c_str(),
+		    aws_region.empty() ? "(default)" : aws_region.c_str(), token.c_str());
+		Printer::Print(debug_msg);
+	}
+
+	return token;
+}
+
 string PostgresCatalog::GetConnectionString(ClientContext &context, const string &attach_path, string secret_name) {
 	// if no secret is specified we default to the unnamed postgres secret, if it exists
 	string connection_string = attach_path;
@@ -87,8 +155,47 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
 		string new_connection_info;
 
+		Value use_rds_iam_auth_val = kv_secret.TryGetValue("use_rds_iam_auth");
+		bool use_rds_iam_auth = false;
+		if (!use_rds_iam_auth_val.IsNull()) {
+			use_rds_iam_auth = BooleanValue::Get(use_rds_iam_auth_val);
+		}
+
 		new_connection_info += AddConnectionOption(kv_secret, "user");
-		new_connection_info += AddConnectionOption(kv_secret, "password");
+		
+		if (use_rds_iam_auth) {
+			Value host_val = kv_secret.TryGetValue("host");
+			Value port_val = kv_secret.TryGetValue("port");
+			Value user_val = kv_secret.TryGetValue("user");
+			Value aws_region_val = kv_secret.TryGetValue("aws_region");
+
+			if (host_val.IsNull() || port_val.IsNull() || user_val.IsNull()) {
+				throw BinderException(
+				    "RDS IAM authentication requires 'host', 'port', and 'user' to be set in the secret");
+			}
+
+			string hostname = host_val.ToString();
+			string port = port_val.ToString();
+			string username = user_val.ToString();
+			string aws_region;
+
+
+			if (!aws_region_val.IsNull()) {
+				aws_region = aws_region_val.ToString();
+			}
+
+			try {
+				string rds_token = GenerateRdsAuthToken(hostname, port, username, aws_region);
+				new_connection_info += "password=";
+				new_connection_info += EscapeConnectionString(rds_token);
+				new_connection_info += " ";
+			} catch (const std::exception &e) {
+				throw BinderException("Failed to generate RDS auth token: %s", e.what());
+			}
+		} else {
+			new_connection_info += AddConnectionOption(kv_secret, "password");
+		}
+
 		new_connection_info += AddConnectionOption(kv_secret, "host");
 		new_connection_info += AddConnectionOption(kv_secret, "port");
 		new_connection_info += AddConnectionOption(kv_secret, "dbname");
@@ -100,6 +207,10 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 		throw BinderException("Secret with name \"%s\" not found", secret_name);
 	}
 	return connection_string;
+}
+
+string PostgresCatalog::GetFreshConnectionString(ClientContext &context) {
+	return GetConnectionString(context, attach_path, secret_name);
 }
 
 PostgresCatalog::~PostgresCatalog() = default;

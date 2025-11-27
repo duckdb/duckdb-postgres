@@ -44,10 +44,10 @@ public:
 	PostgresConnectionPool(PostgresCatalog &postgres_catalog, idx_t maximum_connections = DEFAULT_MAX_CONNECTIONS);
 
 public:
-	bool TryGetConnection(PostgresPoolConnection &connection);
-	PostgresPoolConnection GetConnection();
+	bool TryGetConnection(PostgresPoolConnection &connection, optional_ptr<ClientContext> context = nullptr);
+	PostgresPoolConnection GetConnection(optional_ptr<ClientContext> context = nullptr);
 	//! Always returns a connection - even if the connection slots are exhausted
-	PostgresPoolConnection ForceGetConnection();
+	PostgresPoolConnection ForceGetConnection(optional_ptr<ClientContext> context = nullptr);
 	void ReturnConnection(PostgresConnection connection);
 	void SetMaximumConnections(idx_t new_max);
 
@@ -61,7 +61,7 @@ private:
 	vector<PostgresConnection> connection_cache;
 
 private:
-	PostgresPoolConnection GetConnectionInternal();
+	PostgresPoolConnection GetConnectionInternal(optional_ptr<ClientContext> context = nullptr);
 };
 
 } // namespace duckdb
