@@ -40,10 +40,10 @@ PostgresConnection &PostgresConnection::operator=(PostgresConnection &&other) no
 	return *this;
 }
 
-PostgresConnection PostgresConnection::Open(const string &connection_string) {
+PostgresConnection PostgresConnection::Open(const string &dsn, const string &attach_path) {
 	PostgresConnection result;
-	result.connection = make_shared_ptr<OwnedPostgresConnection>(PostgresUtils::PGConnect(connection_string));
-	result.dsn = connection_string;
+	result.connection = make_shared_ptr<OwnedPostgresConnection>(PostgresUtils::PGConnect(dsn, attach_path));
+	result.dsn = dsn;
 	return result;
 }
 
@@ -128,9 +128,13 @@ PostgresVersion PostgresConnection::GetPostgresVersion() {
 		version.type_v = PostgresInstanceType::UNKNOWN;
 		return version;
 	}
-	auto version = PostgresUtils::ExtractPostgresVersion(result->GetString(0, 0));
+	auto pg_version_string = result->GetString(0, 0);
+	auto version = PostgresUtils::ExtractPostgresVersion(pg_version_string);
 	if (result->GetInt64(0, 1) > 0) {
 		version.type_v = PostgresInstanceType::AURORA;
+	}
+	if (StringUtil::Contains(pg_version_string, "Redshift")) {
+		version.type_v = PostgresInstanceType::REDSHIFT;
 	}
 	return version;
 }

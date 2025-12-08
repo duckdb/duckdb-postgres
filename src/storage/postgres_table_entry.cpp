@@ -45,6 +45,7 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 	result->schema_name = schema.name;
 	result->table_name = name;
 	result->dsn = transaction.GetDSN();
+	result->attach_path = pg_catalog.attach_path;
 	result->SetCatalog(pg_catalog);
 	result->SetTable(*this);
 	for (auto &col : columns.Logical()) {

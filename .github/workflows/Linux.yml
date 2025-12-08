@@ -27,6 +27,18 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
+    - name: Free disk space 1
+      uses: endersonmenezes/free-disk-space@v2.1.1
+      continue-on-error: true
+      with:
+#          remove_android: true # ~9.5GB in #52s
+#          remove_dotnet: true
+        remove_haskell: true # ~6.5GB in ~3s
+        remove_tool_cache: true # ~4.8GB in ~17s
+#          remove_swap: true
+#          remove_packages_one_command: true # ~7.5 GB in ~94s
+        testing: false
+
     - name: Install required ubuntu packages
       run: |
         sudo apt-get update -y -qq

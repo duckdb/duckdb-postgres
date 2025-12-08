@@ -61,7 +61,7 @@ private:
 	vector<PostgresConnection> connection_cache;
 
 private:
-	PostgresPoolConnection GetConnectionInternal();
+	PostgresPoolConnection GetConnectionInternal(unique_lock<mutex> &lock);
 };
 
 } // namespace duckdb

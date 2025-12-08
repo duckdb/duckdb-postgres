@@ -130,6 +130,9 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 	}
 	bind_data.SetTablePages(approx_num_pages);
 	bind_data.version = version;
+	if (version.type_v == PostgresInstanceType::REDSHIFT) {
+		bind_data.use_text_protocol = true;
+	}
 }
 
 PostgresBindData::PostgresBindData(ClientContext &context) {
@@ -177,8 +180,9 @@ static unique_ptr<FunctionData> PostgresBind(ClientContext &context, TableFuncti
 	bind_data->dsn = input.inputs[0].GetValue<string>();
 	bind_data->schema_name = input.inputs[1].GetValue<string>();
 	bind_data->table_name = input.inputs[2].GetValue<string>();
+	bind_data->attach_path = bind_data->dsn;
 
-	auto con = PostgresConnection::Open(bind_data->dsn);
+	auto con = PostgresConnection::Open(bind_data->dsn, bind_data->attach_path);
 	auto version = con.GetPostgresVersion();
 	// query the table schema so we can interpret the bits in the pages
 	auto info = PostgresTableSet::GetTableInfo(con, bind_data->schema_name, bind_data->table_name);
@@ -317,7 +321,7 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		    bind_data.use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
 		result->SetConnection(con.GetConnection());
 	} else {
-		auto con = PostgresConnection::Open(bind_data.dsn);
+		auto con = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
 		if (bind_data.use_transaction) {
 			PostgresScanConnect(con, string());
 		}
@@ -401,7 +405,7 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 		}
 		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
 	} else {
-		lstate.connection = PostgresConnection::Open(bind_data.dsn);
+		lstate.connection = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
 	}
 	PostgresScanConnect(lstate.connection, snapshot);
 	return true;

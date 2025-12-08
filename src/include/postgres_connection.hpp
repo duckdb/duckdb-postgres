@@ -44,7 +44,7 @@ public:
 	PostgresConnection &operator=(PostgresConnection &&) noexcept;
 
 public:
-	static PostgresConnection Open(const string &connection_string);
+	static PostgresConnection Open(const string &dsn, const string &attach_path);
 	void Execute(const string &query);
 	unique_ptr<PostgresResult> TryQuery(const string &query, optional_ptr<string> error_message = nullptr);
 	unique_ptr<PostgresResult> Query(const string &query);

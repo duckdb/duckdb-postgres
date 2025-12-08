@@ -12,7 +12,7 @@
 
 namespace duckdb {
 
-enum class PostgresInstanceType { UNKNOWN, POSTGRES, AURORA };
+enum class PostgresInstanceType { UNKNOWN, POSTGRES, AURORA, REDSHIFT };
 
 struct PostgresVersion {
 	PostgresVersion() {

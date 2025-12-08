@@ -58,7 +58,7 @@ enum class PostgresIsolationLevel { READ_COMMITTED, REPEATABLE_READ, SERIALIZABL
 
 class PostgresUtils {
 public:
-	static PGconn *PGConnect(const string &dsn);
+	static PGconn *PGConnect(const string &dsn, const string &attach_path);
 
 	static LogicalType ToPostgresType(const LogicalType &input);
 	static LogicalType TypeToLogicalType(optional_ptr<PostgresTransaction> transaction,

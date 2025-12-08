@@ -38,6 +38,7 @@ public:
 
 	idx_t pages_per_task = DEFAULT_PAGES_PER_TASK;
 	string dsn;
+	string attach_path;
 
 	bool requires_materialization = true;
 	bool can_use_main_thread = true;

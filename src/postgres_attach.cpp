@@ -47,7 +47,7 @@ static void AttachFunction(ClientContext &context, TableFunctionInput &data_p, D
 		return;
 	}
 
-	auto conn = PostgresConnection::Open(data.dsn);
+	auto conn = PostgresConnection::Open(data.dsn, data.dsn);
 	auto dconn = Connection(context.db->GetDatabase(context));
 	auto fetch_table_query = StringUtil::Format(
 	    R"(
