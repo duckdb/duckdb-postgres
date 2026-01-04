@@ -62,6 +62,5 @@ SELECT count(*) FROM (SELECT * FROM s.limit_test_large WHERE grp = 'Group A' LIM
 statement ok
 ROLLBACK
 
-# Cleanup
 statement ok
 DROP TABLE IF EXISTS s.limit_test_large

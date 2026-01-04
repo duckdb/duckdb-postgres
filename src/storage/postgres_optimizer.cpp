@@ -69,6 +69,11 @@ static void OptimizePostgresScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
 
 		if (!generated_limit_clause.empty()) {
 			bind_data.limit = generated_limit_clause;
+			// When LIMIT is pushed down to Postgres, we must ensure single-task execution
+			// to avoid each task (whether parallel or sequential) applying the LIMIT independently.
+			// Setting pages_approx = 0 disables CTID-based task splitting, ensuring a single query.
+			bind_data.pages_approx = 0;
+			bind_data.max_threads = 1;
 
 			op = std::move(op->children[0]);
 			return;
