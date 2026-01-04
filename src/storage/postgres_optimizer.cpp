@@ -53,11 +53,6 @@ static void OptimizePostgresScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
 		}
 
 		auto &bind_data = get.bind_data->Cast<PostgresBindData>();
-		if (bind_data.max_threads != 1 || !bind_data.can_use_main_thread) {
-			// cannot push down limit/offset if we are not using the main thread
-			OptimizePostgresScanLimitPushdown(op->children[0]);
-			return;
-		}
 
 		string generated_limit_clause = "";
 		if (limit.limit_val.Type() != LimitNodeType::UNSET) {
