@@ -7,7 +7,7 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-ATTACH 'host=127.0.0.1 port=5432 dbname=postgresscanner user=postgres' AS s (TYPE POSTGRES)
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
 CREATE OR REPLACE TABLE s.ordered_tbl AS SELECT generate_series AS i FROM generate_series(0, 99999)
