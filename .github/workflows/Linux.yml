@@ -91,6 +91,7 @@ jobs:
 
     - name: Test extension
       env:
+        LOCAL_EXTENSION_REPO: ${{ github.workspace }}/build/release/repository/
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
         PGSERVICE: postgres
       run: |

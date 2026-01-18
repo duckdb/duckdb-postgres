@@ -20,7 +20,7 @@ PostgresCreateIndex::PostgresCreateIndex(PhysicalPlan &physical_plan, unique_ptr
 //===--------------------------------------------------------------------===//
 // Source
 //===--------------------------------------------------------------------===//
-SourceResultType PostgresCreateIndex::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType PostgresCreateIndex::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                               OperatorSourceInput &input) const {
 	auto &catalog = table.catalog;
 	auto &schema = table.schema;
