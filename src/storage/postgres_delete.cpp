@@ -96,7 +96,7 @@ SinkFinalizeType PostgresDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 //===--------------------------------------------------------------------===//
 // GetData
 //===--------------------------------------------------------------------===//
-SourceResultType PostgresDelete::GetData(ExecutionContext &context, DataChunk &chunk,
+SourceResultType PostgresDelete::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                          OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresDeleteGlobalState>();
 	chunk.SetCardinality(1);
