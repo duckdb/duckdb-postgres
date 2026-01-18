@@ -1,5 +1,4 @@
 #include "duckdb.hpp"
-#include "duckdb/main/settings.hpp"
 #include "postgres_storage.hpp"
 #include "storage/postgres_catalog.hpp"
 #include "duckdb/main/settings.hpp"
