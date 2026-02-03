@@ -204,6 +204,7 @@ if(WIN32)
     ${LOADABLE_EXTENSION_NAME}
     PRIVATE postgres/src/include/port/win32 postgres/src/port
             postgres/src/include/port/win32_msvc)
+endif()
 
 # Fix for ELF symbol conflict when loaded inside PostgreSQL backend
 # Use -Bsymbolic to force the extension to prefer its own symbols over global ones
