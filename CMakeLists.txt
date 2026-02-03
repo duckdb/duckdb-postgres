@@ -194,6 +194,17 @@ build_static_extension(${TARGET_NAME} ${ALL_OBJECT_FILES}
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES}
                          ${LIBPG_SOURCES_FULLPATH})
 
+target_include_directories(
+  ${LOADABLE_EXTENSION_NAME}
+  PRIVATE include postgres/src/include postgres/src/backend
+          postgres/src/interfaces/libpq ${OPENSSL_INCLUDE_DIR})
+
+if(WIN32)
+  target_include_directories(
+    ${LOADABLE_EXTENSION_NAME}
+    PRIVATE postgres/src/include/port/win32 postgres/src/port
+            postgres/src/include/port/win32_msvc)
+
 # Fix for ELF symbol conflict when loaded inside PostgreSQL backend
 # Use -Bsymbolic to force the extension to prefer its own symbols over global ones
 # This fixes the pg_link_canary_is_frontend() check failure where calls from within
@@ -204,14 +215,13 @@ if(NOT WIN32 AND NOT APPLE)
     )
 endif()
 
-# Loadable extension needs OpenSSL
 target_link_libraries(${LOADABLE_EXTENSION_NAME} ${OPENSSL_LIBRARIES})
+set_property(TARGET ${LOADABLE_EXTENSION_NAME} PROPERTY C_STANDARD 99)
 
 if(WIN32)
   target_link_libraries(${LOADABLE_EXTENSION_NAME} wsock32 ws2_32
                         wldap32 secur32 crypt32)
 endif()
-
 
 install(
   TARGETS ${EXTENSION_NAME}
