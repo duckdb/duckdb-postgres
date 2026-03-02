@@ -186,6 +186,7 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/postgres)
 endif()
 
 set(PARAMETERS "-no-warnings")
+build_static_extension(${TARGET_NAME} ${ALL_OBJECT_FILES} ${LIBPG_SOURCES_FULLPATH})
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES}
                          ${LIBPG_SOURCES_FULLPATH})
 
@@ -193,6 +194,10 @@ target_include_directories(
   ${TARGET_NAME}_loadable_extension
   PRIVATE include postgres/src/include postgres/src/backend
           postgres/src/interfaces/libpq ${OPENSSL_INCLUDE_DIR})
+target_include_directories(
+        ${TARGET_NAME}_extension
+        PRIVATE include postgres/src/include postgres/src/backend
+        postgres/src/interfaces/libpq ${OPENSSL_INCLUDE_DIR})
 
 if(WIN32)
   target_include_directories(
@@ -204,7 +209,17 @@ endif()
 target_link_libraries(${TARGET_NAME}_loadable_extension ${OPENSSL_LIBRARIES})
 set_property(TARGET ${TARGET_NAME}_loadable_extension PROPERTY C_STANDARD 99)
 
+
+target_link_libraries(${TARGET_NAME}_extension ${OPENSSL_LIBRARIES})
+set_property(TARGET ${TARGET_NAME}_extension PROPERTY C_STANDARD 99)
+
 if(WIN32)
   target_link_libraries(${TARGET_NAME}_loadable_extension wsock32 ws2_32
                         wldap32 secur32 crypt32)
 endif()
+
+install(
+        TARGETS ${TARGET_NAME}_extension
+        EXPORT "${DUCKDB_EXPORT_SET}"
+        LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
+        ARCHIVE DESTINATION "${INSTALL_LIB_DIR}")
