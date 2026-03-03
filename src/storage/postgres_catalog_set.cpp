@@ -8,7 +8,8 @@ namespace duckdb {
 PostgresCatalogSet::PostgresCatalogSet(Catalog &catalog, bool is_loaded_p) : catalog(catalog), is_loaded(is_loaded_p) {
 }
 
-optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, PostgresTransaction &transaction, const string &name) {
+optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, PostgresTransaction &transaction,
+                                                        const string &name) {
 	TryLoadEntries(context, transaction);
 	{
 		lock_guard<mutex> l(entry_lock);
@@ -78,7 +79,8 @@ void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &i
 	entries.erase(info.name);
 }
 
-void PostgresCatalogSet::Scan(ClientContext &context, PostgresTransaction &transaction, const std::function<void(CatalogEntry &)> &callback) {
+void PostgresCatalogSet::Scan(ClientContext &context, PostgresTransaction &transaction,
+                              const std::function<void(CatalogEntry &)> &callback) {
 	TryLoadEntries(context, transaction);
 	lock_guard<mutex> l(entry_lock);
 	for (auto &entry : entries) {

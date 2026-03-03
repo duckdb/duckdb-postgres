@@ -178,7 +178,7 @@ SinkFinalizeType PostgresUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 // GetData
 //===--------------------------------------------------------------------===//
 SourceResultType PostgresUpdate::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
-                                         OperatorSourceInput &input) const {
+                                                 OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresUpdateGlobalState>();
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.update_count));

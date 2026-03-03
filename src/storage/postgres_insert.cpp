@@ -149,7 +149,7 @@ SinkFinalizeType PostgresInsert::Finalize(Pipeline &pipeline, Event &event, Clie
 // GetData
 //===--------------------------------------------------------------------===//
 SourceResultType PostgresInsert::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
-                                         OperatorSourceInput &input) const {
+                                                 OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresInsertGlobalState>();
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.insert_count));

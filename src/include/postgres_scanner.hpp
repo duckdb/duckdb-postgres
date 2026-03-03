@@ -11,6 +11,7 @@
 #include "duckdb.hpp"
 #include "postgres_utils.hpp"
 #include "postgres_connection.hpp"
+#include "postgres_parameters.hpp"
 #include "storage/postgres_connection_pool.hpp"
 
 namespace duckdb {
@@ -29,6 +30,7 @@ public:
 	string schema_name;
 	string table_name;
 	string sql;
+	PostgresParameters params;
 	string limit;
 	idx_t pages_approx = 0;
 

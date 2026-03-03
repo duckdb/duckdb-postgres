@@ -1,0 +1,110 @@
+# name: test/sql/scanner/postgres_query_params.test
+# description: Test running postgres_query with parameters
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# COPY does not support parameters: ERROR:  there is no parameter $1
+statement ok
+SET pg_use_text_protocol=true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+query II
+FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT', params=row(42, 'foo'))
+----
+42	foo
+
+statement ok
+PREPARE p1 AS SELECT * FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT', params=row(?::INTEGER, ?::VARCHAR))
+
+query II
+EXECUTE p1(42, 'foo')
+----
+42	foo
+
+query II
+EXECUTE p1(43, 'bar')
+----
+43	bar
+
+statement ok
+DEALLOCATE p1
+
+query I
+FROM postgres_query('s1', 'SELECT $1::TEXT', params=row(NULL))
+----
+NULL
+
+query I
+FROM postgres_query('s1', 'SELECT $1::TEXT', params=row('foo'))
+----
+foo
+
+query I
+FROM postgres_query('s1', 'SELECT $1::BOOLEAN', params=row('t'))
+----
+TRUE
+
+query I
+FROM postgres_query('s1', 'SELECT $1::BOOLEAN', params=row('f'))
+----
+FALSE
+
+query I
+FROM postgres_query('s1', 'SELECT $1::SMALLINT', params=row(-127::TINYINT))
+----
+-127
+
+query I
+FROM postgres_query('s1', 'SELECT $1::SMALLINT', params=row(255::UTINYINT))
+----
+255
+
+query I
+FROM postgres_query('s1', 'SELECT $1::SMALLINT', params=row(-32767::SMALLINT))
+----
+-32767
+
+statement error
+FROM postgres_query('s1', 'SELECT $1::SMALLINT', params=row(32767::USMALLINT))
+----
+incorrect binary data format in bind parameter 1
+
+query I
+FROM postgres_query('s1', 'SELECT $1::INTEGER', params=row(65535::USMALLINT))
+----
+65535
+
+query I
+FROM postgres_query('s1', 'SELECT $1::INTEGER', params=row(-2147483647::INTEGER))
+----
+-2147483647
+
+statement error
+FROM postgres_query('s1', 'SELECT $1::INTEGER', params=row(2147483647::UINTEGER))
+----
+incorrect binary data format in bind parameter 1
+
+query I
+FROM postgres_query('s1', 'SELECT $1::BIGINT', params=row(2147483647::UINTEGER))
+----
+2147483647
+
+query I
+FROM postgres_query('s1', 'SELECT $1::BIGINT', params=row(-9223372036854775807::BIGINT))
+----
+-9223372036854775807
+
+query I
+FROM postgres_query('s1', 'SELECT $1::REAL', params=row(42.123::FLOAT))
+----
+42.123
+
+query I
+FROM postgres_query('s1', 'SELECT $1::DOUBLE PRECISION', params=row(42.123::DOUBLE))
+----
+42.123

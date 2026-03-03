@@ -173,8 +173,8 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 	return table_info;
 }
 
-unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &context, PostgresConnection &connection, const string &schema_name,
-                                                             const string &table_name) {
+unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &context, PostgresConnection &connection,
+                                                             const string &schema_name, const string &table_name) {
 	auto query = PostgresTableSet::GetInitializeQuery(schema_name, table_name);
 	auto result = connection.Query(context, query);
 	auto rows = result->Count();
@@ -340,7 +340,8 @@ string PostgresTableSet::GetAlterTableColumnName(const string &name, optional_pt
 	return table.postgres_names[column_index.index];
 }
 
-string PostgresTableSet::GetAlterTablePrefix(ClientContext &context, PostgresTransaction &transaction, const string &name) {
+string PostgresTableSet::GetAlterTablePrefix(ClientContext &context, PostgresTransaction &transaction,
+                                             const string &name) {
 	auto entry = GetEntry(context, transaction, name);
 	return GetAlterTablePrefix(name, entry);
 }
@@ -352,7 +353,7 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 	transaction.Query(sql);
 }
 
-void PostgresTableSet::AlterTable(ClientContext &context,PostgresTransaction &transaction, RenameColumnInfo &info) {
+void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameColumnInfo &info) {
 	auto entry = GetEntry(context, transaction, info.name);
 	string sql = GetAlterTablePrefix(info.name, entry);
 	sql += " RENAME COLUMN  ";

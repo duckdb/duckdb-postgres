@@ -107,7 +107,7 @@ unique_ptr<PostgresResult> PostgresTransaction::QueryWithoutTransaction(const st
 	return con.Query(GetContext(), query);
 }
 
-vector<unique_ptr<PostgresResult>> PostgresTransaction::ExecuteQueries(ClientContext& context, const string &queries) {
+vector<unique_ptr<PostgresResult>> PostgresTransaction::ExecuteQueries(ClientContext &context, const string &queries) {
 	auto &con = GetConnectionRaw();
 	if (transaction_state == PostgresTransactionState::TRANSACTION_NOT_YET_STARTED) {
 		transaction_state = PostgresTransactionState::TRANSACTION_STARTED;

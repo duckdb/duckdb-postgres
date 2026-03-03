@@ -25,7 +25,8 @@ public:
 
 	optional_ptr<CatalogEntry> GetEntry(ClientContext &context, PostgresTransaction &transaction, const string &name);
 	void DropEntry(PostgresTransaction &transaction, DropInfo &info);
-	void Scan(ClientContext& context, PostgresTransaction &transaction, const std::function<void(CatalogEntry &)> &callback);
+	void Scan(ClientContext &context, PostgresTransaction &transaction,
+	          const std::function<void(CatalogEntry &)> &callback);
 	virtual optional_ptr<CatalogEntry> CreateEntry(PostgresTransaction &transaction, shared_ptr<CatalogEntry> entry);
 	void ClearEntries();
 	virtual bool SupportReload() const {

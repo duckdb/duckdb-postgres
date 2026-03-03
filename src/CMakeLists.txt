@@ -13,6 +13,7 @@ add_library(
   postgres_execute.cpp
   postgres_extension.cpp
   postgres_filter_pushdown.cpp
+  postgres_parameters.cpp
   postgres_query.cpp
   postgres_scanner.cpp
   postgres_storage.cpp

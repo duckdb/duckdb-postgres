@@ -26,8 +26,8 @@ public:
 
 	static unique_ptr<PostgresTableInfo> GetTableInfo(PostgresTransaction &transaction, PostgresSchemaEntry &schema,
 	                                                  const string &table_name);
-	static unique_ptr<PostgresTableInfo> GetTableInfo(ClientContext &context, PostgresConnection &connection, const string &schema_name,
-	                                                  const string &table_name);
+	static unique_ptr<PostgresTableInfo> GetTableInfo(ClientContext &context, PostgresConnection &connection,
+	                                                  const string &schema_name, const string &table_name);
 	optional_ptr<CatalogEntry> ReloadEntry(PostgresTransaction &transaction, const string &table_name) override;
 
 	void AlterTable(ClientContext &context, PostgresTransaction &transaction, AlterTableInfo &info);
