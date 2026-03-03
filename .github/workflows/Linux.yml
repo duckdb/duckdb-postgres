@@ -1,15 +1,45 @@
 name: Integration Tests
-on: [push, pull_request,repository_dispatch]
+on: 
+  push:
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/**'
+      - '!.github/workflows/Linux.yml'
+  pull_request:
+  repository_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
-defaults:
-  run:
-    shell: bash
 
 jobs:
+
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Install
+        run: |
+          pip3 install           \
+            black==25.1.0        \
+            clang_format==11.0.1 \
+            cmake-format==0.6.13
+
+      - name: Format Check
+        run: |
+          python -m pip show black
+          python -m pip show cmake_format
+          python -m pip show clang_format
+          clang-format --version
+          clang-format --dump-config
+          make format-check
+
   linux-tests-postgres:
     name: Run tests on Linux
+    needs: format-check
     runs-on: ubuntu-latest
     strategy:
       matrix:

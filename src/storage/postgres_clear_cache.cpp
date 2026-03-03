@@ -14,7 +14,6 @@ struct ClearCacheFunctionData : public TableFunctionData {
 
 static unique_ptr<FunctionData> ClearCacheBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
-
 	auto result = make_uniq<ClearCacheFunctionData>();
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.emplace_back("Success");

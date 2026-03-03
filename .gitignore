@@ -3,5 +3,4 @@ cmake-build-debug
 .idea
 .DS_Store
 postgres/postgres
-.clang-format
 postgres
