@@ -101,7 +101,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		                      nparams, param_values.size(), sql);
 	}
 	vector<Oid> param_types;
-	for (idx_t p; p < nparams; p++) {
+	for (idx_t p = 0; p < nparams; p++) {
 		Oid ptype = PQparamtype(describe_prepared, p);
 		param_types.emplace_back(ptype);
 	}
