@@ -186,25 +186,47 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/postgres)
 endif()
 
 set(PARAMETERS "-no-warnings")
+set(EXTENSION_NAME ${TARGET_NAME}_extension)
+set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
+
+build_static_extension(${TARGET_NAME} ${ALL_OBJECT_FILES}
+                         ${LIBPG_SOURCES_FULLPATH})
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES}
                          ${LIBPG_SOURCES_FULLPATH})
 
 target_include_directories(
-  ${TARGET_NAME}_loadable_extension
+  ${LOADABLE_EXTENSION_NAME}
   PRIVATE include postgres/src/include postgres/src/backend
           postgres/src/interfaces/libpq ${OPENSSL_INCLUDE_DIR})
 
 if(WIN32)
   target_include_directories(
-    ${TARGET_NAME}_loadable_extension
+    ${LOADABLE_EXTENSION_NAME}
     PRIVATE postgres/src/include/port/win32 postgres/src/port
             postgres/src/include/port/win32_msvc)
 endif()
 
-target_link_libraries(${TARGET_NAME}_loadable_extension ${OPENSSL_LIBRARIES})
-set_property(TARGET ${TARGET_NAME}_loadable_extension PROPERTY C_STANDARD 99)
+# Fix for ELF symbol conflict when loaded inside PostgreSQL backend
+# Use -Bsymbolic to force the extension to prefer its own symbols over global ones
+# This fixes the pg_link_canary_is_frontend() check failure where calls from within
+# this extension resolve to the backend's version (returns false) instead of ours (returns true)
+if(NOT WIN32 AND NOT APPLE)
+    target_link_options(${LOADABLE_EXTENSION_NAME} PRIVATE
+        "-Wl,-Bsymbolic"
+    )
+endif()
+
+target_link_libraries(${LOADABLE_EXTENSION_NAME} ${OPENSSL_LIBRARIES})
+set_property(TARGET ${EXTENSION_NAME} PROPERTY C_STANDARD 99)
+set_property(TARGET ${LOADABLE_EXTENSION_NAME} PROPERTY C_STANDARD 99)
 
 if(WIN32)
-  target_link_libraries(${TARGET_NAME}_loadable_extension wsock32 ws2_32
+  target_link_libraries(${LOADABLE_EXTENSION_NAME} wsock32 ws2_32
                         wldap32 secur32 crypt32)
 endif()
+
+install(
+  TARGETS ${EXTENSION_NAME}
+  EXPORT "${DUCKDB_EXPORT_SET}"
+  LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
+  ARCHIVE DESTINATION "${INSTALL_LIB_DIR}")
