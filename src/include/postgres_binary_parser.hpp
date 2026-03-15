@@ -207,8 +207,7 @@ protected:
 		return (config.is_negative ? -base_res : base_res);
 	}
 
-	void ReadGeometry(const LogicalType &type, const PostgresType &postgres_type, Vector &out_vec,
-	                  idx_t output_offset);
+	void ReadGeometry(const LogicalType &type, const PostgresType &postgres_type, Vector &out_vec, idx_t output_offset);
 
 	void ReadArray(const LogicalType &type, const PostgresType &postgres_type, Vector &out_vec, idx_t output_offset,
 	               uint32_t current_count, uint32_t dimensions[], uint32_t ndim);
