@@ -2,6 +2,7 @@
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
+#include "postgres_secret_storage.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -106,6 +107,20 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 PostgresCatalog::~PostgresCatalog() = default;
 
 void PostgresCatalog::Initialize(bool load_builtin) {
+	// Register the PostgresSecretStorage for this catalog
+	auto &db_instance = GetAttached().GetDatabase();
+	auto &secret_manager = SecretManager::Get(db_instance);
+
+	// Create a storage name based on the attached database name
+	string storage_name = "postgres_" + GetAttached().GetName();
+
+	// Register the secret storage
+	try {
+		auto storage = make_uniq<PostgresSecretStorage>(storage_name, *this, secret_manager);
+		secret_manager.LoadSecretStorage(std::move(storage));
+	} catch (InvalidConfigurationException &) {
+		// Storage already exists - this is fine, reuse the existing one
+	}
 }
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {

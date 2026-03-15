@@ -16,6 +16,7 @@ add_library(
   postgres_parameters.cpp
   postgres_query.cpp
   postgres_scanner.cpp
+  postgres_secret_storage.cpp
   postgres_storage.cpp
   postgres_text_reader.cpp
   postgres_utils.cpp
