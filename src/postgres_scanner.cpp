@@ -303,8 +303,9 @@ static idx_t PostgresMaxThreads(ClientContext &context, const FunctionData *bind
 static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context, TableFunctionInitInput &input,
                                                          PostgresGlobalState &gstate);
 
-static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn, string snapshot) {
-	conn.Execute(context, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn, string snapshot,
+                                AccessMode access_mode, PostgresIsolationLevel isolation_level) {
+	conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(isolation_level, access_mode));
 	if (!snapshot.empty()) {
 		conn.Query(context, StringUtil::Format("SET TRANSACTION SNAPSHOT '%s'", snapshot));
 	}
@@ -323,7 +324,8 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 	} else {
 		auto con = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
 		if (bind_data.use_transaction) {
-			PostgresScanConnect(context, con, string());
+			PostgresScanConnect(context, con, string(), AccessMode::READ_ONLY,
+			                    PostgresIsolationLevel::REPEATABLE_READ);
 		}
 		result->SetConnection(std::move(con));
 	}
@@ -404,10 +406,13 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 			return false;
 		}
 		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
+		PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode,
+		                    pg_catalog->isolation_level);
 	} else {
 		lstate.connection = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
+		PostgresScanConnect(context, lstate.connection, snapshot, AccessMode::READ_ONLY,
+		                    PostgresIsolationLevel::REPEATABLE_READ);
 	}
-	PostgresScanConnect(context, lstate.connection, snapshot);
 	return true;
 }
 

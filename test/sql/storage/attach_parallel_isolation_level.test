@@ -1,0 +1,53 @@
+# name: test/sql/storage/attach_parallel_isolation_level.test
+# description: Test that parallel attached scans honor the configured isolation level
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
+CREATE OR REPLACE TABLE s.large_parallel_isolation AS FROM range(1000000) t(i)
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, READ_ONLY, ISOLATION_LEVEL 'READ COMMITTED')
+
+statement ok
+SET threads=1000
+
+statement ok
+SET pg_pages_per_task=1
+
+statement ok
+SET pg_connection_limit=4
+
+statement ok
+CALL enable_logging('PostgresQueryLog')
+
+query I
+SELECT COUNT(*) FROM s.large_parallel_isolation
+----
+1000000
+
+query I
+SELECT COUNT(*) > 0
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY'
+----
+1
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
+----
+0

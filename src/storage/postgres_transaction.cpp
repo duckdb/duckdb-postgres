@@ -36,7 +36,7 @@ void PostgresTransaction::Rollback() {
 	}
 }
 
-string PostgresTransaction::GetBeginTransactionQuery() {
+string PostgresTransaction::GetBeginTransactionQuery(PostgresIsolationLevel isolation_level, AccessMode access_mode) {
 	string result = "BEGIN TRANSACTION ISOLATION LEVEL ";
 	switch (isolation_level) {
 	case PostgresIsolationLevel::READ_COMMITTED:
@@ -55,6 +55,10 @@ string PostgresTransaction::GetBeginTransactionQuery() {
 		result += " READ ONLY";
 	}
 	return result;
+}
+
+string PostgresTransaction::GetBeginTransactionQuery() {
+	return GetBeginTransactionQuery(isolation_level, access_mode);
 }
 
 PostgresConnection &PostgresTransaction::GetConnectionWithoutTransaction() {
