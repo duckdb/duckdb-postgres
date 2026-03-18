@@ -352,6 +352,11 @@ public:
 			WriteRawBlob(data);
 			break;
 		}
+		case LogicalTypeId::GEOMETRY: {
+			auto data = FlatVector::GetData<string_t>(col)[r];
+			WriteRawBlob(data);
+			break;
+		}
 		case LogicalTypeId::ENUM: {
 			idx_t pos;
 			switch (type.InternalType()) {

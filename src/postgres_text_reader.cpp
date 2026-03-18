@@ -303,6 +303,52 @@ void PostgresTextReader::ConvertBlob(Vector &source, Vector &target, idx_t count
 	}
 }
 
+static void ConvertGeometry(Vector &source, Vector &target, idx_t count) {
+	// Geometry is encoded in HEXWKB format
+
+	UnifiedVectorFormat vdata;
+	source.ToUnifiedFormat(count, vdata);
+	const auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
+	const auto result = FlatVector::GetData<string_t>(target);
+
+	string result_blob;
+
+	for (idx_t out_idx = 0; out_idx < count; out_idx++) {
+		const auto row_idx = vdata.sel->get_index(out_idx);
+
+		if (!vdata.validity.RowIsValid(row_idx)) {
+			// NULL value - skip
+			FlatVector::SetNull(target, row_idx, true);
+			continue;
+		}
+		auto blob_str = strings[row_idx];
+		const auto data = blob_str.GetData();
+		const auto size = blob_str.GetSize();
+		if (size % 2 != 0) {
+			throw InvalidInputException("Blob size must be modulo 2 (\\xAA)");
+		}
+
+		// Reset buffer
+		result_blob.clear();
+
+		// Decode the HEX string into binary data
+		for (idx_t i = 0; i < size; i += 2) {
+			int byte_a = Blob::HEX_MAP[static_cast<uint8_t>(data[i])];
+			int byte_b = Blob::HEX_MAP[static_cast<uint8_t>(data[i + 1])];
+			if (byte_a == -1 || byte_b == -1) {
+				throw InvalidInputException("Invalid character in HEX WKB string: '%c%c'", byte_a, byte_b);
+			}
+
+			result_blob += UnsafeNumericCast<data_t>((byte_a << 4) + byte_b);
+		}
+
+		// Finally convert from WKB (which will handle big-endian format too)
+		if (!Geometry::FromBinary(result_blob, result[out_idx], target, true)) {
+			throw InvalidInputException("Failed to parse geometry from WKB - invalid format");
+		}
+	}
+}
+
 void PostgresTextReader::ConvertVector(Vector &source, Vector &target, const PostgresType &postgres_type, idx_t count) {
 	if (source.GetType().id() != LogicalTypeId::VARCHAR) {
 		throw InternalException("Source needs to be VARCHAR");
@@ -320,6 +366,9 @@ void PostgresTextReader::ConvertVector(Vector &source, Vector &target, const Pos
 		break;
 	case LogicalTypeId::BLOB:
 		ConvertBlob(source, target, count);
+		break;
+	case LogicalTypeId::GEOMETRY:
+		ConvertGeometry(source, target, count);
 		break;
 	default:
 		VectorOperations::Cast(context, source, target, count);

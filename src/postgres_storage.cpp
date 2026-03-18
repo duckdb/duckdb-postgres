@@ -11,6 +11,10 @@ namespace duckdb {
 static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
                                           AttachOptions &attach_options) {
+	auto &config = DBConfig::GetConfig(context);
+	if (!Settings::Get<EnableExternalAccessSetting>(context)) {
+		throw PermissionException("Attaching Postgres databases is disabled through configuration");
+	}
 	string attach_path = info.path;
 
 	string secret_name;

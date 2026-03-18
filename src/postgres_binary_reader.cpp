@@ -276,6 +276,16 @@ void PostgresBinaryReader::ReadValue(const LogicalType &type, const PostgresType
 		FlatVector::GetData<string_t>(out_vec)[output_offset] = StringVector::AddStringOrBlob(out_vec, str, value_len);
 		break;
 	}
+	case LogicalTypeId::GEOMETRY: {
+		const auto str = ReadString(value_len);
+
+		string_t res_val;
+		if (!Geometry::FromBinary(string_t(str, value_len), res_val, out_vec, true)) {
+			throw InvalidInputException("Failed to parse Postgres geometry data");
+		}
+		FlatVector::GetData<string_t>(out_vec)[output_offset] = res_val;
+		break;
+	}
 	case LogicalTypeId::BOOLEAN:
 		D_ASSERT(value_len == sizeof(bool));
 		FlatVector::GetData<bool>(out_vec)[output_offset] = ReadBoolean();
