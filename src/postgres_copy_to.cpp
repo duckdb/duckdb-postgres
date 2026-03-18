@@ -263,11 +263,6 @@ void CastBlobToPostgres(ClientContext &context, Vector &input, Vector &result, i
 	}
 }
 
-void CastGeometryToPostgres(ClientContext &context, Vector &input, Vector &result, idx_t size) {
-	// Cast to WKT format
-	VectorOperations::Cast(context, input, result, size);
-}
-
 void CastToPostgresVarchar(ClientContext &context, Vector &input, Vector &result, idx_t size) {
 	auto &type = input.GetType();
 	switch (type.id()) {
@@ -276,9 +271,6 @@ void CastToPostgresVarchar(ClientContext &context, Vector &input, Vector &result
 		break;
 	case LogicalTypeId::STRUCT:
 		CastStructToPostgres(context, input, result, size);
-		break;
-	case LogicalTypeId::GEOMETRY:
-		CastGeometryToPostgres(context, input, result, size);
 		break;
 	case LogicalTypeId::BLOB:
 		CastBlobToPostgres(context, input, result, size);

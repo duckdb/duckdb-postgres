@@ -161,7 +161,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(postgres_secret_function);
 
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
-	StorageExtension::Register(config, "postgres_scanner", make_shared_ptr<PostgresStorageExtension>());
+	config.storage_extensions["postgres_scanner"] = make_uniq<PostgresStorageExtension>();
 
 	config.AddExtensionOption("pg_use_binary_copy", "Whether or not to use BINARY copy to read data",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
@@ -191,9 +191,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;
-	OptimizerExtension::Register(config, std::move(postgres_optimizer));
+	config.optimizer_extensions.push_back(std::move(postgres_optimizer));
 
-	ExtensionCallback::Register(config, make_shared_ptr<PostgresExtensionCallback>());
+	config.extension_callbacks.push_back(make_uniq<PostgresExtensionCallback>());
 	for (auto &connection : ConnectionManager::Get(loader.GetDatabaseInstance()).GetConnectionList()) {
 		connection->registered_state->Insert("postgres_extension", make_shared_ptr<PostgresExtensionState>());
 	}

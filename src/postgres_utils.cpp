@@ -24,8 +24,6 @@ string PostgresUtils::TypeToString(const LogicalType &input) {
 		return input.GetAlias();
 	}
 	switch (input.id()) {
-	case LogicalTypeId::GEOMETRY:
-		return "GEOMETRY";
 	case LogicalTypeId::FLOAT:
 		return "REAL";
 	case LogicalTypeId::DOUBLE:
@@ -147,7 +145,9 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		postgres_type.info = PostgresTypeAnnotation::JSONB;
 		return LogicalType::VARCHAR;
 	} else if (pgtypename == "geometry") {
-		return LogicalType::GEOMETRY();
+		// DuckDB 1.4.x does not expose a GEOMETRY logical type in core.
+		postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
+		return LogicalType::VARCHAR;
 	} else if (pgtypename == "date") {
 		return LogicalType::DATE;
 	} else if (pgtypename == "bytea") {
@@ -260,8 +260,6 @@ LogicalType PostgresUtils::ToPostgresType(const LogicalType &input) {
 		return LogicalType::DECIMAL(20, 0);
 	case LogicalTypeId::HUGEINT:
 		return LogicalType::DOUBLE;
-	case LogicalTypeId::GEOMETRY:
-		return LogicalType::GEOMETRY();
 	default:
 		return LogicalType::VARCHAR;
 	}
