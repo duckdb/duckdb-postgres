@@ -374,6 +374,19 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 	sql += KeywordHelper::WriteQuoted(info.new_column.Name(), '"');
 	sql += " ";
 	sql += info.new_column.Type().ToString();
+
+	if (info.new_column.HasDefaultValue()) {
+		const ParsedExpression &default_expr = info.new_column.DefaultValue();
+		if (default_expr.GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+			throw BinderException("Unsupported ALTER TABLE DEFAULT expression type - "
+			                      "only constant DEFAULT expressions are supported");
+		}
+		const ConstantExpression &default_const_expr = default_expr.Cast<ConstantExpression>();
+		std::string sql_str = default_const_expr.value.ToSQLString();
+		sql += " DEFAULT ";
+		sql += sql_str;
+	}
+
 	transaction.Query(sql);
 }
 
