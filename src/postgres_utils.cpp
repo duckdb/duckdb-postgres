@@ -147,6 +147,20 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		postgres_type.info = PostgresTypeAnnotation::JSONB;
 		return LogicalType::VARCHAR;
 	} else if (pgtypename == "geometry") {
+		// PostGIS encodes the column-level SRID in the type modifier of
+		// `geometry(TYPE, SRID)` columns. The bit layout is:
+		//   bits  0    : has-M
+		//   bits  1    : has-Z
+		//   bits  2-7  : geometry type code (POINT=1, LINESTRING=2, ...)
+		//   bits  8-29 : SRID
+		// Untyped `geometry` columns carry typmod -1 and we fall back to
+		// plain GEOMETRY (no CRS), matching the previous behavior.
+		if (type_info.type_modifier > 0) {
+			int32_t srid = static_cast<int32_t>((static_cast<uint32_t>(type_info.type_modifier) & 0x0FFFFF00u) >> 8);
+			if (srid > 0) {
+				return LogicalType::GEOMETRY("EPSG:" + std::to_string(srid));
+			}
+		}
 		return LogicalType::GEOMETRY();
 	} else if (pgtypename == "date") {
 		return LogicalType::DATE;
