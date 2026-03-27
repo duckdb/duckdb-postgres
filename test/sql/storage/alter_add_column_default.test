@@ -1,0 +1,113 @@
+# name: test/sql/storage/alter_add_column_default.test
+# description: Test that ALTER TABLE ADD COLUMN with DEFAULT backfills existing rows on postgres
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+CREATE OR REPLACE TABLE test_alter_default(id INTEGER)
+
+statement ok
+INSERT INTO test_alter_default VALUES (1), (2), (3)
+
+query I
+FROM test_alter_default ORDER BY id
+----
+1
+2
+3
+
+# statement ok
+# ALTER TABLE test_alter_default ADD COLUMN col_bool BOOLEAN DEFAULT TRUE
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_bool BOOLEAN DEFAULT 'TRUE'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_smallint SMALLINT DEFAULT -42
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_integer INTEGER DEFAULT -43
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_bigint BIGINT DEFAULT -44
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_float FLOAT DEFAULT -42.1
+
+# statement ok
+# ALTER TABLE test_alter_default ADD COLUMN col_double DOUBLE PRECISION DEFAULT -42.2
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_varchar VARCHAR DEFAULT 'foo'
+
+# statement ok
+# alter table test_alter_default add column col_blob blob default 'foo\x00bar'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_date DATE DEFAULT '2020-12-31'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_time TIME DEFAULT '23:58:59'
+
+# statement ok
+# ALTER TABLE test_alter_default ADD COLUMN col_time_tz TIME WITH TIME ZONE DEFAULT '23:58:59+00'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_timestamp TIMESTAMP DEFAULT '2020-12-30 23:59:58'
+
+# statement ok
+# ALTER TABLE test_alter_default ADD COLUMN col_timestamp_tz TIMESTAMP WITH TIME ZONE DEFAULT '2020-12-30 23:59:58+00'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_interval INTERVAL DEFAULT '42 years'
+
+# statement ok
+# ALTER TABLE test_alter_default ADD COLUMN col_bit BIT DEFAULT '101010'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_uuid UUID DEFAULT 'cc27a912-5425-439e-958c-799c47979452'
+
+statement ok
+ALTER TABLE test_alter_default ADD COLUMN col_null VARCHAR
+
+query IIIIIIIIIIIII
+FROM test_alter_default ORDER BY id
+----
+1	TRUE	-42	-43	-44	-42.1	foo	2020-12-31	23:58:59	2020-12-30 23:59:58	42 years	cc27a912-5425-439e-958c-799c47979452	NULL
+2	TRUE	-42	-43	-44	-42.1	foo	2020-12-31	23:58:59	2020-12-30 23:59:58	42 years	cc27a912-5425-439e-958c-799c47979452	NULL
+3	TRUE	-42	-43	-44	-42.1	foo	2020-12-31	23:58:59	2020-12-30 23:59:58	42 years	cc27a912-5425-439e-958c-799c47979452	NULL
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE FROM test_alter_default) AS a
+----
+id	INTEGER
+col_bool	BOOLEAN
+col_smallint	SMALLINT
+col_integer	INTEGER
+col_bigint	BIGINT
+col_float	DOUBLE
+col_varchar	VARCHAR
+col_date	DATE
+col_time	TIME
+col_timestamp	TIMESTAMP
+col_interval	INTERVAL
+col_uuid	UUID
+col_null	VARCHAR
+
+
+statement error
+ALTER TABLE test_alter_default ADD COLUMN col_err VARCHAR DEFAULT CONCAT('foo', 'bar')
+----
+Binder Error
