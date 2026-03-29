@@ -455,6 +455,12 @@ void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindDat
 	}
 	while (true) {
 		if (done && !PostgresParallelStateNext(context, &bind_data, *this, gstate)) {
+			// Scan is complete - release the PostgreSQL connection early so it is not held
+			// idle during post-scan processing (joins, aggregations, etc.)
+			reader.reset();
+			connection = PostgresConnection();
+			pool_connection = PostgresPoolConnection();
+			no_connection = true;
 			return;
 		}
 		if (!exec) {
