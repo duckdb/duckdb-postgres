@@ -1,5 +1,5 @@
 # name: test/sql/storage/attach_early_connection_release.test
-# description: Test that connections are released after scan completes, before query finishes processing
+# description: Covers parallel scan correctness for releasing connection with best effort.
 # group: [storage]
 
 require postgres_scanner
