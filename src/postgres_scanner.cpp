@@ -455,11 +455,6 @@ void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindDat
 	}
 	while (true) {
 		if (done && !PostgresParallelStateNext(context, &bind_data, *this, gstate)) {
-			// Scan is complete - release the PostgreSQL connection early so it is not held
-			// idle during post-scan processing (joins, aggregations, etc.)
-			reader.reset();
-			connection = PostgresConnection();
-			pool_connection = PostgresPoolConnection();
 			no_connection = true;
 			return;
 		}
@@ -488,6 +483,11 @@ static void PostgresScan(ClientContext &context, TableFunctionInput &data, DataC
 	}
 	auto &local_state = data.local_state->Cast<PostgresLocalState>();
 	if (local_state.no_connection) {
+		// Release the PostgreSQL connection early so it is not held
+		// idle during post-scan processing (joins, aggregations, etc.)
+		local_state.reader.reset();
+		local_state.connection = PostgresConnection();
+		local_state.pool_connection = PostgresPoolConnection();
 		return;
 	}
 	local_state.ScanChunk(context, bind_data, gstate, output);
