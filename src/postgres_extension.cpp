@@ -188,6 +188,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Whether or not to use TEXT protocol to read data. This is slower, but provides better "
 	                          "compatibility with non-Postgres systems",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("pg_statement_timeout_millis",
+	                          "Postgres statement timeout in milliseconds to set on scan connections",
+	                          LogicalType::UINTEGER, Value());
+	config.AddExtensionOption("pg_idle_in_transaction_timeout_millis",
+	                          "Postgres idle in transaction timeout in milliseconds to set on scan connections",
+	                          LogicalType::UINTEGER, Value());
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;

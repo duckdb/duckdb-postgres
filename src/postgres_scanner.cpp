@@ -315,6 +315,15 @@ static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn
 		D_ASSERT(isolation_level != PostgresIsolationLevel::READ_COMMITTED);
 		conn.Query(context, StringUtil::Format("SET TRANSACTION SNAPSHOT '%s'", snapshot));
 	}
+	Value statement_timeout;
+	if (context.TryGetCurrentSetting("pg_statement_timeout_millis", statement_timeout) && !statement_timeout.IsNull()) {
+		conn.Execute(context, StringUtil::Format("SET statement_timeout=%u", UIntegerValue::Get(statement_timeout)));
+	}
+	Value idle_timeout;
+	if (context.TryGetCurrentSetting("pg_idle_in_transaction_timeout_millis", idle_timeout) && !idle_timeout.IsNull()) {
+		conn.Execute(context, StringUtil::Format("SET idle_in_transaction_session_timeout=%u",
+		                                         UIntegerValue::Get(idle_timeout)));
+	}
 }
 
 static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContext &context,

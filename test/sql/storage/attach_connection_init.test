@@ -1,0 +1,60 @@
+# name: test/sql/storage/attach_connection_init.test
+# description: Test that pg_statement_timeout_millis and pg_idle_in_transaction_timeout_millis are applied to parallel scan connections
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
+CREATE OR REPLACE TABLE s.large_connection_init AS FROM range(1000000) t(i)
+
+statement ok
+CALL postgres_execute('s', 'ANALYZE large_connection_init')
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, READ_ONLY)
+
+statement ok
+SET threads=10
+
+statement ok
+SET pg_pages_per_task=1
+
+statement ok
+SET pg_connection_limit=4
+
+statement ok
+SET pg_statement_timeout_millis=0
+
+statement ok
+SET pg_idle_in_transaction_timeout_millis=0
+
+statement ok
+CALL enable_logging('PostgresQueryLog')
+
+query I
+SELECT COUNT(*) FROM s.large_connection_init
+----
+1000000
+
+# Verify that timeout settings were executed on parallel connections (not just the main one)
+query I
+SELECT COUNT(*) > 1
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SET statement_timeout=0'
+----
+1
+
+query I
+SELECT COUNT(*) > 1
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SET idle_in_transaction_session_timeout=0'
+----
+1
