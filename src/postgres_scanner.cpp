@@ -317,12 +317,12 @@ static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn
 	}
 	Value statement_timeout;
 	if (context.TryGetCurrentSetting("pg_statement_timeout_millis", statement_timeout) && !statement_timeout.IsNull()) {
-		conn.Execute(context, StringUtil::Format("SET statement_timeout=%lld", BigIntValue::Get(statement_timeout)));
+		conn.Execute(context, StringUtil::Format("SET statement_timeout=%u", UIntegerValue::Get(statement_timeout)));
 	}
 	Value idle_timeout;
 	if (context.TryGetCurrentSetting("pg_idle_in_transaction_timeout_millis", idle_timeout) && !idle_timeout.IsNull()) {
-		conn.Execute(context, StringUtil::Format("SET idle_in_transaction_session_timeout=%lld",
-		                                         BigIntValue::Get(idle_timeout)));
+		conn.Execute(context, StringUtil::Format("SET idle_in_transaction_session_timeout=%u",
+		                                         UIntegerValue::Get(idle_timeout)));
 	}
 }
 
