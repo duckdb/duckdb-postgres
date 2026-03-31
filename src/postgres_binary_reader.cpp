@@ -27,13 +27,10 @@ PostgresReadResult PostgresBinaryReader::Read(DataChunk &output) {
 		}
 		FreeBuffer();
 		if (!FetchNextBuffer()) {
-			break;
+			return PostgresReadResult::FINISHED;
 		}
 	}
-	if (output.size() > 0) {
-		return PostgresReadResult::HAVE_MORE_TUPLES;
-	}
-	return PostgresReadResult::FINISHED;
+	return PostgresReadResult::HAVE_MORE_TUPLES;
 }
 
 bool PostgresBinaryReader::FetchNextBuffer() {
