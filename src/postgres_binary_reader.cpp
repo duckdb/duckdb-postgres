@@ -5,31 +5,38 @@ namespace duckdb {
 
 PostgresBinaryReader::PostgresBinaryReader(PostgresConnection &con_p, const vector<column_t> &column_ids,
                                            const PostgresBindData &bind_data)
-    : PostgresResultReader(con_p, column_ids, bind_data),
-      PostgresBinaryParser(bind_data.types, bind_data.postgres_types) {
+    : PostgresResultReader(con_p, column_ids, bind_data), parser(bind_data.types, bind_data.postgres_types) {
 }
 
 PostgresBinaryReader::~PostgresBinaryReader() {
-	Reset();
+	FreeBuffer();
 }
 
 void PostgresBinaryReader::BeginCopy(ClientContext &context, const string &sql) {
 	con.BeginCopyFrom(context, sql, PGRES_COPY_OUT);
-	if (!Next()) {
+	if (!FetchNextBuffer()) {
 		throw IOException("Failed to fetch header for COPY \"%s\"", sql);
 	}
-	CheckHeader();
+	parser.CheckHeader();
 }
 
 PostgresReadResult PostgresBinaryReader::Read(DataChunk &output) {
-	if (ReadChunk(output, PostgresResultReader::column_ids)) {
+	while (output.size() < STANDARD_VECTOR_SIZE) {
+		if (parser.ReadChunk(output, column_ids)) {
+			return PostgresReadResult::HAVE_MORE_TUPLES;
+		}
+		FreeBuffer();
+		if (!FetchNextBuffer()) {
+			break;
+		}
+	}
+	if (output.size() > 0) {
 		return PostgresReadResult::HAVE_MORE_TUPLES;
 	}
 	return PostgresReadResult::FINISHED;
 }
 
-bool PostgresBinaryReader::Next() {
-	Reset();
+bool PostgresBinaryReader::FetchNextBuffer() {
 	char *out_buffer;
 	int len = PQgetCopyData(con.GetConn(), &out_buffer, 0);
 	auto new_buffer = data_ptr_cast(out_buffer);
@@ -56,18 +63,15 @@ bool PostgresBinaryReader::Next() {
 		throw IOException("Unable to read binary COPY data from Postgres: %s", string(PQerrorMessage(con.GetConn())));
 	}
 	buffer = new_buffer;
-	buffer_ptr = buffer;
-	end = buffer + len;
+	parser.SetBuffer(buffer, len);
 	return true;
 }
 
-void PostgresBinaryReader::Reset() {
+void PostgresBinaryReader::FreeBuffer() {
 	if (buffer) {
 		PQfreemem(buffer);
 	}
 	buffer = nullptr;
-	buffer_ptr = nullptr;
-	end = nullptr;
 }
 
 } // namespace duckdb

@@ -18,16 +18,12 @@ namespace duckdb {
 class PostgresBinaryParser {
 public:
 	PostgresBinaryParser(vector<LogicalType> types, vector<PostgresType> postgres_types);
-	virtual ~PostgresBinaryParser();
 
+	void SetBuffer(data_ptr_t buf, idx_t len);
 	bool ReadChunk(DataChunk &output, const vector<column_t> &column_ids);
-
 	void CheckHeader();
 
-protected:
-	virtual bool Next() = 0;
-	virtual void Reset() = 0;
-
+private:
 	bool Ready() {
 		return buffer_ptr != nullptr && buffer_ptr < end;
 	}
@@ -36,15 +32,14 @@ protected:
 		return buffer_ptr >= end;
 	}
 
-protected:
-	data_ptr_t buffer = nullptr;
+private:
 	data_ptr_t buffer_ptr = nullptr;
 	data_ptr_t end = nullptr;
 
 	vector<LogicalType> types;
 	vector<PostgresType> postgres_types;
 
-protected:
+private:
 	template <class T>
 	inline T ReadIntegerUnchecked() {
 		T val = Load<T>(buffer_ptr);

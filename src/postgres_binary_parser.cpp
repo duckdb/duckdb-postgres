@@ -7,21 +7,23 @@ PostgresBinaryParser::PostgresBinaryParser(vector<LogicalType> types_p, vector<P
     : types(std::move(types_p)), postgres_types(std::move(postgres_types_p)) {
 }
 
-PostgresBinaryParser::~PostgresBinaryParser() {
+void PostgresBinaryParser::SetBuffer(data_ptr_t buf, idx_t len) {
+	buffer_ptr = buf;
+	end = buf + len;
 }
 
 bool PostgresBinaryParser::ReadChunk(DataChunk &output, const vector<column_t> &column_ids) {
 	while (output.size() < STANDARD_VECTOR_SIZE) {
-		while (!Ready()) {
-			if (!Next()) {
-				return false;
-			}
+		if (!Ready()) {
+			return false;
 		}
 
 		auto tuple_count = ReadInteger<int16_t>();
 		if (tuple_count <= 0) {
-			// tuple_count of -1 signifies the file trailer (i.e. footer) - reset and skip
-			Reset();
+			// tuple_count of -1 signifies the file trailer (i.e. footer)
+			// clear the buffer so Ready() returns false and the caller can free it
+			buffer_ptr = nullptr;
+			end = nullptr;
 			continue;
 		}
 
@@ -39,7 +41,6 @@ bool PostgresBinaryParser::ReadChunk(DataChunk &output, const vector<column_t> &
 				ReadValue(types[col_idx], postgres_types[col_idx], out_vec, output_offset);
 			}
 		}
-		Reset();
 		output.SetCardinality(output_offset + 1);
 	}
 	return true;
