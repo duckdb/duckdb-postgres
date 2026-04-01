@@ -63,11 +63,17 @@ COPY (SELECT 42::UINT32) TO '__TEST_DIR__/pg_binary.bin' (FORMAT postgres_binary
 ----
 not supported
 
-# reading not yet supported
+# reading from a binary file
 statement ok
 CREATE TABLE read_tbl(i int);
 
-statement error
-COPY read_tbl FROM '__TEST_DIR__/pg_binary.bin' (FORMAT postgres_binary);
+statement ok
+COPY (SELECT 42::INTEGER AS i) TO '__TEST_DIR__/pg_binary_read.bin' (FORMAT postgres_binary);
+
+statement ok
+COPY read_tbl FROM '__TEST_DIR__/pg_binary_read.bin' (FORMAT postgres_binary);
+
+query I
+SELECT * FROM read_tbl;
 ----
-not supported
+42

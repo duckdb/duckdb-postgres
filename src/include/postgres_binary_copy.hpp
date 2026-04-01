@@ -32,6 +32,15 @@ public:
 	                                       GlobalFunctionData &gstate, LocalFunctionData &lstate);
 	static void PostgresBinaryWriteFinalize(ClientContext &context, FunctionData &bind_data,
 	                                        GlobalFunctionData &gstate);
+
+	static unique_ptr<FunctionData> PostgresBinaryReadBind(ClientContext &context, CopyFromFunctionBindInput &info,
+	                                                       vector<string> &expected_names,
+	                                                       vector<LogicalType> &expected_types);
+};
+
+class PostgresReadBinaryFunction : public TableFunction {
+public:
+	PostgresReadBinaryFunction();
 };
 
 } // namespace duckdb
