@@ -1,0 +1,65 @@
+# name: test/sql/misc/postgres_binary_read_copy_from.test
+# description: Test COPY FROM with postgres_binary format and multi-row datasets
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+LOAD postgres_scanner;
+
+statement ok
+PRAGMA enable_verification
+
+# --- COPY FROM basic ---
+statement ok
+CREATE TABLE roundtrip_tbl(i INTEGER, v VARCHAR, d DATE, t TIMESTAMP);
+
+statement ok
+COPY (SELECT 42, 'hello', DATE '2024-01-01', TIMESTAMP '2024-01-01 12:00:00') TO '__TEST_DIR__/roundtrip.bin' (FORMAT postgres_binary);
+
+statement ok
+COPY roundtrip_tbl FROM '__TEST_DIR__/roundtrip.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT * FROM roundtrip_tbl;
+----
+42	hello	2024-01-01	2024-01-01 12:00:00
+
+# --- COPY FROM multi-row ---
+statement ok
+CREATE TABLE multi_row_tbl(i INTEGER, v VARCHAR);
+
+statement ok
+COPY (SELECT i::INTEGER, 'row_' || i::VARCHAR AS v FROM range(10000) t(i)) TO '__TEST_DIR__/multi_row.bin' (FORMAT postgres_binary);
+
+statement ok
+COPY multi_row_tbl FROM '__TEST_DIR__/multi_row.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT COUNT(*), MIN(i), MAX(i), SUM(i) FROM multi_row_tbl;
+----
+10000	0	9999	49995000
+
+# --- read_postgres_binary multi-row ---
+query IIII
+SELECT COUNT(*), MIN(i), MAX(i), SUM(i) FROM read_postgres_binary('__TEST_DIR__/multi_row.bin', columns={i: 'INTEGER', v: 'VARCHAR'});
+----
+10000	0	9999	49995000
+
+# --- Dataset with NULLs interspersed ---
+statement ok
+COPY (SELECT CASE WHEN i % 3 = 0 THEN NULL ELSE i::INTEGER END AS i, CASE WHEN i % 5 = 0 THEN NULL ELSE 'val_' || i::VARCHAR END AS v FROM range(100) t(i)) TO '__TEST_DIR__/nulls.bin' (FORMAT postgres_binary);
+
+query II
+SELECT COUNT(*), COUNT(i) FROM read_postgres_binary('__TEST_DIR__/nulls.bin', columns={i: 'INTEGER', v: 'VARCHAR'});
+----
+100	66
+
+# --- Empty result set (header + footer only) ---
+statement ok
+COPY (SELECT 1::INTEGER AS i WHERE false) TO '__TEST_DIR__/empty.bin' (FORMAT postgres_binary);
+
+query I
+SELECT COUNT(*) FROM read_postgres_binary('__TEST_DIR__/empty.bin', columns={i: 'INTEGER'});
+----
+0
