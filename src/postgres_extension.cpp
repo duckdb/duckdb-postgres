@@ -148,6 +148,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	PostgresBinaryCopyFunction binary_copy;
 	loader.RegisterFunction(binary_copy);
 
+	PostgresReadBinaryFunction read_binary_func;
+	loader.RegisterFunction(read_binary_func);
+
 	// Register the new type
 	SecretType secret_type;
 	secret_type.name = "postgres";
