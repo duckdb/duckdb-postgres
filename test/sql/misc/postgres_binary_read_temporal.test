@@ -1,0 +1,65 @@
+# name: test/sql/misc/postgres_binary_read_temporal.test
+# description: Test reading temporal types from postgres binary format files
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+LOAD postgres_scanner;
+
+statement ok
+PRAGMA enable_verification
+
+# --- DATE ---
+statement ok
+COPY (SELECT DATE '1992-01-01' AS a, DATE '2000-01-01' AS b, NULL::DATE AS c) TO '__TEST_DIR__/date_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/date_test.bin', columns={a: 'DATE', b: 'DATE', c: 'DATE'});
+----
+1992-01-01	2000-01-01	NULL
+
+# --- TIME ---
+statement ok
+COPY (SELECT TIME '12:34:56' AS a, TIME '00:00:00' AS b, NULL::TIME AS c) TO '__TEST_DIR__/time_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/time_test.bin', columns={a: 'TIME', b: 'TIME', c: 'TIME'});
+----
+12:34:56	00:00:00	NULL
+
+# --- TIMESTAMP ---
+statement ok
+COPY (SELECT TIMESTAMP '2000-01-01 12:00:00' AS a, TIMESTAMP '1992-09-20 08:30:00' AS b, NULL::TIMESTAMP AS c) TO '__TEST_DIR__/ts_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/ts_test.bin', columns={a: 'TIMESTAMP', b: 'TIMESTAMP', c: 'TIMESTAMP'});
+----
+2000-01-01 12:00:00	1992-09-20 08:30:00	NULL
+
+# --- TIMESTAMP WITH TIME ZONE ---
+statement ok
+COPY (SELECT TIMESTAMPTZ '2000-01-01 12:00:00+00' AS a, NULL::TIMESTAMPTZ AS b) TO '__TEST_DIR__/tstz_test.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('__TEST_DIR__/tstz_test.bin', columns={a: 'TIMESTAMP WITH TIME ZONE', b: 'TIMESTAMP WITH TIME ZONE'});
+----
+2000-01-01 12:00:00+00	NULL
+
+# --- TIME WITH TIME ZONE ---
+statement ok
+COPY (SELECT TIMETZ '12:00:00+05:30' AS a, NULL::TIMETZ AS b) TO '__TEST_DIR__/timetz_test.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('__TEST_DIR__/timetz_test.bin', columns={a: 'TIME WITH TIME ZONE', b: 'TIME WITH TIME ZONE'});
+----
+12:00:00+05:30	NULL
+
+# --- INTERVAL ---
+statement ok
+COPY (SELECT INTERVAL '1 year 2 months 3 days 4 hours 5 minutes 6 seconds' AS a, NULL::INTERVAL AS b) TO '__TEST_DIR__/interval_test.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('__TEST_DIR__/interval_test.bin', columns={a: 'INTERVAL', b: 'INTERVAL'});
+----
+1 year 2 months 3 days 04:05:06	NULL

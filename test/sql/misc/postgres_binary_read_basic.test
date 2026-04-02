@@ -1,0 +1,117 @@
+# name: test/sql/misc/postgres_binary_read_basic.test
+# description: Test reading basic scalar types from postgres binary format files
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+LOAD postgres_scanner;
+
+statement ok
+PRAGMA enable_verification
+
+# --- BOOLEAN ---
+statement ok
+COPY (SELECT true AS a, false AS b, NULL::BOOLEAN AS c) TO '__TEST_DIR__/bool_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/bool_test.bin', columns={a: 'BOOLEAN', b: 'BOOLEAN', c: 'BOOLEAN'});
+----
+true	false	NULL
+
+# --- SMALLINT ---
+statement ok
+COPY (SELECT 1::SMALLINT AS a, -32767::SMALLINT AS b, 32767::SMALLINT AS c, NULL::SMALLINT AS d) TO '__TEST_DIR__/smallint_test.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT * FROM read_postgres_binary('__TEST_DIR__/smallint_test.bin', columns={a: 'SMALLINT', b: 'SMALLINT', c: 'SMALLINT', d: 'SMALLINT'});
+----
+1	-32767	32767	NULL
+
+# --- INTEGER ---
+statement ok
+COPY (SELECT 42::INTEGER AS a, -2147483647::INTEGER AS b, 2147483647::INTEGER AS c, NULL::INTEGER AS d) TO '__TEST_DIR__/int_test.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT * FROM read_postgres_binary('__TEST_DIR__/int_test.bin', columns={a: 'INTEGER', b: 'INTEGER', c: 'INTEGER', d: 'INTEGER'});
+----
+42	-2147483647	2147483647	NULL
+
+# --- BIGINT ---
+statement ok
+COPY (SELECT 100::BIGINT AS a, -9223372036854775807::BIGINT AS b, 9223372036854775807::BIGINT AS c, NULL::BIGINT AS d) TO '__TEST_DIR__/bigint_test.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT * FROM read_postgres_binary('__TEST_DIR__/bigint_test.bin', columns={a: 'BIGINT', b: 'BIGINT', c: 'BIGINT', d: 'BIGINT'});
+----
+100	-9223372036854775807	9223372036854775807	NULL
+
+# --- FLOAT ---
+statement ok
+COPY (SELECT 3.14::FLOAT AS a, 0::FLOAT AS b, NULL::FLOAT AS c) TO '__TEST_DIR__/float_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/float_test.bin', columns={a: 'FLOAT', b: 'FLOAT', c: 'FLOAT'});
+----
+3.14	0.0	NULL
+
+# --- DOUBLE ---
+statement ok
+COPY (SELECT 2.718281828::DOUBLE AS a, 0::DOUBLE AS b, NULL::DOUBLE AS c) TO '__TEST_DIR__/double_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/double_test.bin', columns={a: 'DOUBLE', b: 'DOUBLE', c: 'DOUBLE'});
+----
+2.718281828	0.0	NULL
+
+# --- DECIMAL ---
+statement ok
+COPY (SELECT 1.1::DECIMAL(4,1) AS a, 99.9::DECIMAL(4,1) AS b, NULL::DECIMAL(4,1) AS c) TO '__TEST_DIR__/dec41_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/dec41_test.bin', columns={a: 'DECIMAL(4,1)', b: 'DECIMAL(4,1)', c: 'DECIMAL(4,1)'});
+----
+1.1	99.9	NULL
+
+statement ok
+COPY (SELECT 12345.6789::DECIMAL(9,4) AS a) TO '__TEST_DIR__/dec94_test.bin' (FORMAT postgres_binary);
+
+query I
+SELECT * FROM read_postgres_binary('__TEST_DIR__/dec94_test.bin', columns={a: 'DECIMAL(9,4)'});
+----
+12345.6789
+
+statement ok
+COPY (SELECT 123456789012.123456::DECIMAL(18,6) AS a) TO '__TEST_DIR__/dec186_test.bin' (FORMAT postgres_binary);
+
+query I
+SELECT * FROM read_postgres_binary('__TEST_DIR__/dec186_test.bin', columns={a: 'DECIMAL(18,6)'});
+----
+123456789012.123456
+
+# --- VARCHAR ---
+statement ok
+COPY (SELECT 'hello world'::VARCHAR AS a, ''::VARCHAR AS b, NULL::VARCHAR AS c) TO '__TEST_DIR__/varchar_test.bin' (FORMAT postgres_binary);
+
+query III
+SELECT * FROM read_postgres_binary('__TEST_DIR__/varchar_test.bin', columns={a: 'VARCHAR', b: 'VARCHAR', c: 'VARCHAR'});
+----
+hello world	(empty)	NULL
+
+# --- BLOB ---
+statement ok
+COPY (SELECT '\xDEADBEEF'::BLOB AS a, NULL::BLOB AS b) TO '__TEST_DIR__/blob_test.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('__TEST_DIR__/blob_test.bin', columns={a: 'BLOB', b: 'BLOB'});
+----
+\xDEADBEEF	NULL
+
+# --- UUID ---
+statement ok
+COPY (SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::UUID AS a, NULL::UUID AS b) TO '__TEST_DIR__/uuid_test.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('__TEST_DIR__/uuid_test.bin', columns={a: 'UUID', b: 'UUID'});
+----
+a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11	NULL
