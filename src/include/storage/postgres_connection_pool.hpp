@@ -11,57 +11,38 @@
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/mutex.hpp"
 #include "duckdb/common/optional_ptr.hpp"
+
+#include "dbconnector/pool.hpp"
+
 #include "postgres_connection.hpp"
 
 namespace duckdb {
 class PostgresCatalog;
 class PostgresConnectionPool;
 
-class PostgresPoolConnection {
+using PostgresPoolConnection = dbconnector::pool::PooledConnection<PostgresConnection>;
+
+class PostgresConnectionPool : public dbconnector::pool::ConnectionPool<PostgresConnection> {
 public:
-	PostgresPoolConnection();
-	PostgresPoolConnection(optional_ptr<PostgresConnectionPool> pool, PostgresConnection connection);
-	~PostgresPoolConnection();
-	// disable copy constructors
-	PostgresPoolConnection(const PostgresPoolConnection &other) = delete;
-	PostgresPoolConnection &operator=(const PostgresPoolConnection &) = delete;
-	//! enable move constructors
-	PostgresPoolConnection(PostgresPoolConnection &&other) noexcept;
-	PostgresPoolConnection &operator=(PostgresPoolConnection &&) noexcept;
-
-	bool HasConnection();
-	PostgresConnection &GetConnection();
-
-private:
-	optional_ptr<PostgresConnectionPool> pool;
-	PostgresConnection connection;
-};
-
-class PostgresConnectionPool {
-public:
-	static constexpr const idx_t DEFAULT_MAX_CONNECTIONS = 64;
-
-	PostgresConnectionPool(PostgresCatalog &postgres_catalog, idx_t maximum_connections = DEFAULT_MAX_CONNECTIONS);
+	PostgresConnectionPool(PostgresCatalog &postgres_catalog, idx_t maximum_connections = DefaultPoolSize());
 
 public:
 	bool TryGetConnection(PostgresPoolConnection &connection);
 	PostgresPoolConnection GetConnection();
 	//! Always returns a connection - even if the connection slots are exhausted
 	PostgresPoolConnection ForceGetConnection();
-	void ReturnConnection(PostgresConnection connection);
-	void SetMaximumConnections(idx_t new_max);
 
-	static void PostgresSetConnectionCache(ClientContext &context, SetScope scope, Value &parameter);
+	static idx_t DefaultPoolSize() noexcept;
+
+protected:
+	std::unique_ptr<PostgresConnection> CreateNewConnection() override;
+	bool CheckConnectionHealthy(PostgresConnection &conn) override;
+	void ResetConnection(PostgresConnection &conn) override;
 
 private:
 	PostgresCatalog &postgres_catalog;
-	mutex connection_lock;
-	idx_t active_connections;
-	idx_t maximum_connections;
-	vector<PostgresConnection> connection_cache;
 
-private:
-	PostgresPoolConnection GetConnectionInternal(unique_lock<mutex> &lock);
+	static dbconnector::pool::ConnectionPoolConfig CreateConfig(idx_t max_connections);
 };
 
 } // namespace duckdb

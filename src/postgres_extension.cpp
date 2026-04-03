@@ -64,10 +64,21 @@ static void SetPostgresConnectionLimit(ClientContext &context, SetScope scope, V
 		if (catalog.GetCatalogType() != "postgres") {
 			continue;
 		}
-		catalog.Cast<PostgresCatalog>().GetConnectionPool().SetMaximumConnections(UBigIntValue::Get(parameter));
+		catalog.Cast<PostgresCatalog>().GetConnectionPool().SetMaxConnections(UBigIntValue::Get(parameter));
 	}
 	auto &config = DBConfig::GetConfig(context);
 	config.SetOption("pg_connection_limit", parameter);
+}
+
+static void DisablePool(ClientContext &context, SetScope scope, Value &parameter) {
+	if (scope == SetScope::LOCAL) {
+		throw InvalidInputException("pg_connection_cache can only be set globally");
+	}
+	if (parameter.IsNull() || BooleanValue::Get(parameter)) {
+		return;
+	}
+	Value zero = Value::UBIGINT(0);
+	SetPostgresConnectionLimit(context, scope, zero);
 }
 
 static void SetPostgresDebugQueryPrint(ClientContext &context, SetScope scope, Value &parameter) {
@@ -173,13 +184,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("pg_pages_per_task", "The amount of pages per task", LogicalType::UBIGINT,
 	                          Value::UBIGINT(PostgresBindData::DEFAULT_PAGES_PER_TASK));
 	config.AddExtensionOption("pg_connection_limit", "The maximum amount of concurrent Postgres connections",
-	                          LogicalType::UBIGINT, Value::UBIGINT(PostgresConnectionPool::DEFAULT_MAX_CONNECTIONS),
+	                          LogicalType::UBIGINT, Value::UBIGINT(PostgresConnectionPool::DefaultPoolSize()),
 	                          SetPostgresConnectionLimit);
 	config.AddExtensionOption(
 	    "pg_array_as_varchar", "Read Postgres arrays as varchar - enables reading mixed dimensional arrays",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting);
 	config.AddExtensionOption("pg_connection_cache", "Whether or not to use the connection cache", LogicalType::BOOLEAN,
-	                          Value::BOOLEAN(true), PostgresConnectionPool::PostgresSetConnectionCache);
+	                          Value::BOOLEAN(true), DisablePool);
 	config.AddExtensionOption("pg_experimental_filter_pushdown", "Whether or not to use filter pushdown",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 	config.AddExtensionOption("pg_null_byte_replacement",
