@@ -73,6 +73,8 @@ public:
 
 	bool IsOpen();
 	void Close();
+	bool PingServer();
+	void Reset();
 
 	shared_ptr<OwnedPostgresConnection> GetConnection() {
 		return connection;

@@ -4,3 +4,6 @@
 [submodule "extension-ci-tools"]
 	path = extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools.git
+[submodule "database-connector"]
+	path = database-connector
+	url = https://github.com/duckdb/database-connector.git

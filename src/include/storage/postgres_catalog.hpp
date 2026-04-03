@@ -78,7 +78,7 @@ public:
 	string GetDBPath() override;
 
 	PostgresConnectionPool &GetConnectionPool() {
-		return connection_pool;
+		return *connection_pool;
 	}
 
 	void ClearCache();
@@ -103,7 +103,7 @@ private:
 private:
 	PostgresVersion version;
 	PostgresSchemaSet schemas;
-	PostgresConnectionPool connection_pool;
+	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
 };
 

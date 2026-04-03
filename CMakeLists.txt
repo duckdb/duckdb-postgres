@@ -28,8 +28,12 @@ set(CMAKE_C_FLAGS_RELEASE
 set(CMAKE_C_FLAGS_RELWITHDEBINFO
     "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${POSTGRES_SCANNER_EXTRA_CFLAGS}")
 
-include_directories(include postgres/src/include postgres/src/backend
-                    postgres/src/interfaces/libpq ${OPENSSL_INCLUDE_DIR})
+include_directories(
+    include
+    database-connector/src/include
+    postgres/src/include postgres/src/backend
+    postgres/src/interfaces/libpq
+    ${OPENSSL_INCLUDE_DIR})
 
 if(WIN32)
   include_directories(postgres/src/include/port/win32 postgres/src/port

@@ -186,6 +186,41 @@ void PostgresConnection::Close() {
 	connection = nullptr;
 }
 
+bool PostgresConnection::PingServer() {
+	if (!IsOpen()) {
+		return false;
+	}
+	PGconn *conn = GetConn();
+	if (PQstatus(conn) != CONNECTION_OK) {
+		return false;
+	}
+	PGresult *res = PQexec(conn, "SELECT 1");
+	PostgresResult res_holder(res);
+	return PQresultStatus(res) == PGRES_TUPLES_OK;
+}
+
+void PostgresConnection::Reset() {
+	if (!IsOpen()) {
+		throw InternalException("Cannot reset a connection that is not open");
+	}
+	PGconn *conn = GetConn();
+	{
+		PGresult *res = PQexec(conn, "ROLLBACK");
+		PostgresResult res_holder(res);
+	}
+	{
+		PGresult *res = PQexec(conn, "DISCARD ALL");
+		PostgresResult res_holder(res);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK) {
+			return;
+		}
+	}
+	PQreset(conn);
+	if (!PingServer()) {
+		throw InternalException("Connection reset failure");
+	}
+}
+
 vector<IndexInfo> PostgresConnection::GetIndexInfo(const string &table_name) {
 	return vector<IndexInfo>();
 }
