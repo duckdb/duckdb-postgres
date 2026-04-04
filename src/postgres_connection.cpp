@@ -186,7 +186,7 @@ void PostgresConnection::Close() {
 	connection = nullptr;
 }
 
-bool PostgresConnection::PingServer() {
+bool PostgresConnection::PingServer(const std::string &health_check_query) {
 	if (!IsOpen()) {
 		return false;
 	}
@@ -194,12 +194,15 @@ bool PostgresConnection::PingServer() {
 	if (PQstatus(conn) != CONNECTION_OK) {
 		return false;
 	}
-	PGresult *res = PQexec(conn, "SELECT 1");
+	if (health_check_query.empty()) {
+		return true;
+	}
+	PGresult *res = PQexec(conn, health_check_query.c_str());
 	PostgresResult res_holder(res);
 	return PQresultStatus(res) == PGRES_TUPLES_OK;
 }
 
-void PostgresConnection::Reset() {
+void PostgresConnection::Reset(const std::string &health_check_query) {
 	if (!IsOpen()) {
 		throw InternalException("Cannot reset a connection that is not open");
 	}
@@ -216,7 +219,7 @@ void PostgresConnection::Reset() {
 		}
 	}
 	PQreset(conn);
-	if (!PingServer()) {
+	if (!PingServer(health_check_query)) {
 		throw InternalException("Connection reset failure");
 	}
 }

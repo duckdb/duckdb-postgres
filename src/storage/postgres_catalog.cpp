@@ -19,11 +19,6 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
 	if (default_schema.empty()) {
 		default_schema = "public";
 	}
-	Value connection_limit;
-	auto &db_instance = db_p.GetDatabase();
-	if (db_instance.TryGetCurrentSetting("pg_connection_limit", connection_limit)) {
-		connection_pool->SetMaxConnections(UBigIntValue::Get(connection_limit));
-	}
 
 	auto connection = connection_pool->GetConnection();
 	this->version = connection.GetConnection().GetPostgresVersion(context);

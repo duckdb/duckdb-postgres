@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/mutex.hpp"
 #include "duckdb/common/optional_ptr.hpp"
@@ -24,7 +26,7 @@ using PostgresPoolConnection = dbconnector::pool::PooledConnection<PostgresConne
 
 class PostgresConnectionPool : public dbconnector::pool::ConnectionPool<PostgresConnection> {
 public:
-	PostgresConnectionPool(PostgresCatalog &postgres_catalog, idx_t maximum_connections = DefaultPoolSize());
+	PostgresConnectionPool(PostgresCatalog &postgres_catalog);
 
 public:
 	bool TryGetConnection(PostgresPoolConnection &connection);
@@ -32,7 +34,11 @@ public:
 	//! Always returns a connection - even if the connection slots are exhausted
 	PostgresPoolConnection ForceGetConnection();
 
-	static idx_t DefaultPoolSize() noexcept;
+	std::string GetHealthCheckQuery();
+	void SetHealthCheckQuery(const std::string &query);
+
+	static idx_t DefaultPoolSize();
+	static std::string DefaultHealthCheckQuery();
 
 protected:
 	std::unique_ptr<PostgresConnection> CreateNewConnection() override;
@@ -42,7 +48,8 @@ protected:
 private:
 	PostgresCatalog &postgres_catalog;
 
-	static dbconnector::pool::ConnectionPoolConfig CreateConfig(idx_t max_connections);
+	std::mutex config_mutex;
+	std::string health_check_query;
 };
 
 } // namespace duckdb
