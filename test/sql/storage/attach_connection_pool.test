@@ -59,3 +59,10 @@ query I
 SELECT COUNT(*) FROM connection_pool
 ----
 1000000
+
+# todo: pool introspection is required to check the effect
+statement ok
+SET pg_pool_health_check_query = 'SELECT FAIL'
+
+statement ok
+RESET pg_pool_health_check_query

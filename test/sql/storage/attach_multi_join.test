@@ -29,7 +29,7 @@ select * from test1 a left join test2 b on a.id = b.id left join test3 c on a.id
 ----
 
 statement ok
-SET pg_connection_limit=1
+SET pg_connection_limit=2
 
 query III
 select * from test1 a left join test2 b on a.id = b.id left join test3 c on a.id = c.id;

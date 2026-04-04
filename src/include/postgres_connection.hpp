@@ -73,8 +73,8 @@ public:
 
 	bool IsOpen();
 	void Close();
-	bool PingServer();
-	void Reset();
+	bool PingServer(const std::string &health_check_query);
+	void Reset(const std::string &health_check_query);
 
 	shared_ptr<OwnedPostgresConnection> GetConnection() {
 		return connection;

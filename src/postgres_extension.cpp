@@ -208,6 +208,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("pg_idle_in_transaction_timeout_millis",
 	                          "Postgres idle in transaction timeout in milliseconds to set on scan connections",
 	                          LogicalType::UINTEGER, Value());
+	// connection pool options
+	config.AddExtensionOption("pg_pool_health_check_query", "The query to use to check that the connection is healthy",
+	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery());
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;
