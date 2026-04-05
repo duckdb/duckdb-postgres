@@ -13,6 +13,7 @@
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "storage/postgres_catalog.hpp"
+#include "storage/postgres_connection_pool.hpp"
 #include "storage/postgres_optimizer.hpp"
 #include "duckdb/planner/extension_callback.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -161,6 +162,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	PostgresReadBinaryFunction read_binary_func;
 	loader.RegisterFunction(read_binary_func);
+
+	PostgresConfigurePoolFunction configure_pool_function;
+	loader.RegisterFunction(configure_pool_function);
 
 	// Register the new type
 	SecretType secret_type;

@@ -52,4 +52,9 @@ private:
 	std::string health_check_query;
 };
 
+class PostgresConfigurePoolFunction : public TableFunction {
+public:
+	PostgresConfigurePoolFunction();
+};
+
 } // namespace duckdb
