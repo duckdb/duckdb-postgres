@@ -26,7 +26,7 @@ using PostgresPoolConnection = dbconnector::pool::PooledConnection<PostgresConne
 
 class PostgresConnectionPool : public dbconnector::pool::ConnectionPool<PostgresConnection> {
 public:
-	PostgresConnectionPool(PostgresCatalog &postgres_catalog);
+	PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context);
 
 public:
 	bool TryGetConnection(PostgresPoolConnection &connection);

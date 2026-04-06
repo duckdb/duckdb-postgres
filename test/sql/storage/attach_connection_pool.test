@@ -72,15 +72,18 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 statement ok
 USE s;
 
+statement ok
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+
 query III
-SELECT catalog, available_connections, thread_local_cache_enabled
-FROM postgres_configure_pool(catalog='s', enable_thread_local_cache=FALSE)
+SELECT catalog_name, available_connections, thread_local_cache_enabled
+FROM postgres_configure_pool(catalog_name='s')
 ----
 s	0	FALSE
 
 query II
-SELECT catalog, health_check_query
-FROM postgres_configure_pool(catalog='s', health_check_query='SELECT FAIL')
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT FAIL')
 ----
 s	SELECT FAIL
 
@@ -88,14 +91,14 @@ statement ok
 CREATE OR REPLACE TABLE duckdb_connection_pool_test1(col1 INT)
 
 query II
-SELECT catalog, available_connections
-FROM postgres_configure_pool(catalog='s', enable_thread_local_cache=FALSE)
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
 ----
 s	0
 
 query II
-SELECT catalog, health_check_query
-FROM postgres_configure_pool(catalog='s', health_check_query='SELECT 42')
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT 42')
 ----
 s	SELECT 42
 
@@ -103,8 +106,8 @@ statement ok
 DROP TABLE duckdb_connection_pool_test1
 
 query II
-SELECT catalog, available_connections
-FROM postgres_configure_pool(catalog='s', enable_thread_local_cache=FALSE)
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
 ----
 s	1
 

@@ -15,7 +15,7 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
                                  ClientContext &context)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
       access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
-      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this)), default_schema(schema_to_load) {
+      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
 	}

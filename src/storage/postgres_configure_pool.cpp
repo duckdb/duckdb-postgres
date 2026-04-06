@@ -59,13 +59,20 @@ struct ConfigurePoolBindData : public TableFunctionData {
 	}
 
 	ConfigurePoolBindData(const named_parameter_map_t &map)
-	    : catalog_name(LookupString(map, "catalog")), max_connections(LookupUBigInt(map, "max_connections")),
+	    : catalog_name(LookupString(map, "catalog_name")), max_connections(LookupUBigInt(map, "max_connections")),
 	      wait_timeout_millis(LookupUBigInt(map, "wait_timeout_millis")),
 	      enable_thread_local_cache(LookupBool(map, "enable_thread_local_cache")),
 	      max_lifetime_millis(LookupUBigInt(map, "max_lifetime_millis")),
 	      idle_timeout_millis(LookupUBigInt(map, "idle_timeout_millis")),
 	      enable_reaper_thread(LookupBool(map, "enable_reaper_thread")),
 	      health_check_query(LookupString(map, "health_check_query")) {
+		if (catalog_name.second &&
+		    !(max_connections.second && wait_timeout_millis.second && enable_thread_local_cache.second &&
+		      max_lifetime_millis.second && idle_timeout_millis.second && enable_reaper_thread.second &&
+		      health_check_query.second)) {
+			throw BinderException("'catalog_name' argument must be specified to change any option value on the "
+			                      "connection pool of this catalog");
+		}
 	}
 };
 
@@ -85,7 +92,7 @@ static void AddColumn(vector<LogicalType> &return_types, vector<string> &names, 
 
 static unique_ptr<FunctionData> ConfigurePoolBind(ClientContext &context, TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types, vector<string> &names) {
-	AddColumn(return_types, names, "catalog", LogicalType::VARCHAR);
+	AddColumn(return_types, names, "catalog_name", LogicalType::VARCHAR);
 	AddColumn(return_types, names, "available_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "max_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "wait_timeout_millis", LogicalType::UBIGINT);
@@ -136,8 +143,9 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		pools.emplace_back(std::move(pool));
 	}
 
-	// configure pools
-	for (auto &pool : pools) {
+	// configure the single pool if specified
+	if (!bdata.catalog_name.second && pools.size() > 0) {
+		auto &pool = pools.at(0);
 		if (!bdata.max_connections.second) {
 			pool->SetMaxConnections(bdata.max_connections.first);
 		}
@@ -165,7 +173,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		}
 	}
 
-	// setresults
+	// set results
 	idx_t row_idx = 0;
 	for (auto &pool : pools) {
 		idx_t col_idx = 0;
@@ -178,7 +186,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetThreadLocalCacheMisses()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxLifetimeMillis()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetIdleTimeoutMillis()));
-		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(false)); // todo
+		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(pool->IsReaperRunning()));
 		output.SetValue(col_idx++, row_idx, Value(pool->GetHealthCheckQuery()));
 		row_idx++;
 	}
@@ -190,7 +198,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 PostgresConfigurePoolFunction::PostgresConfigurePoolFunction()
     : TableFunction("postgres_configure_pool", std::vector<LogicalType>(), ConfigurePoolFunction, ConfigurePoolBind,
                     ConfigurePoolInitGlobalState, ConfigurePoolInitLocalState) {
-	named_parameters["catalog"] = LogicalType::VARCHAR;
+	named_parameters["catalog_name"] = LogicalType::VARCHAR;
 	named_parameters["max_connections"] = LogicalType::UBIGINT;
 	named_parameters["wait_timeout_millis"] = LogicalType::UBIGINT;
 	named_parameters["enable_thread_local_cache"] = LogicalType::BOOLEAN;

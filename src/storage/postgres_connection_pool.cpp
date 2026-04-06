@@ -6,11 +6,11 @@
 
 namespace duckdb {
 
-static dbconnector::pool::ConnectionPoolConfig CreateConfig(PostgresCatalog &postgres_catalog);
+static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &context);
 
-static std::string GetHealthCheckQueryFromConfig(PostgresCatalog &postgres_catalog) {
+static std::string GetHealthCheckQueryFromConfig(ClientContext &context) {
 	Value val;
-	if (postgres_catalog.GetDatabase().TryGetCurrentSetting("pg_pool_health_check_query", val)) {
+	if (context.TryGetCurrentSetting("pg_pool_health_check_query", val)) {
 		if (val.IsNull()) {
 			return std::string();
 		}
@@ -19,9 +19,9 @@ static std::string GetHealthCheckQueryFromConfig(PostgresCatalog &postgres_catal
 	return PostgresConnectionPool::DefaultHealthCheckQuery();
 }
 
-PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog)
-    : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(postgres_catalog)),
-      postgres_catalog(postgres_catalog), health_check_query(GetHealthCheckQueryFromConfig(postgres_catalog)) {
+PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context)
+    : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(context)), postgres_catalog(postgres_catalog),
+      health_check_query(GetHealthCheckQueryFromConfig(context)) {
 }
 
 PostgresPoolConnection PostgresConnectionPool::ForceGetConnection() {
@@ -81,17 +81,46 @@ std::string PostgresConnectionPool::DefaultHealthCheckQuery() {
 	return "SELECT 1";
 }
 
-static dbconnector::pool::ConnectionPoolConfig CreateConfig(PostgresCatalog &postgres_catalog) {
-	DatabaseInstance &db = postgres_catalog.GetDatabase();
+static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &ctx) {
+	dbconnector::pool::ConnectionPoolConfig config;
 
-	Value connection_limit;
-	uint64_t max_connections = PostgresConnectionPool::DefaultPoolSize();
-	if (db.TryGetCurrentSetting("pg_connection_limit", connection_limit) && !connection_limit.IsNull()) {
-		max_connections = UBigIntValue::Get(connection_limit);
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_max_connections", val) && !val.IsNull()) {
+			config.max_connections = UBigIntValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_wait_timeout_millis", val) && !val.IsNull()) {
+			config.wait_timeout_millis = UBigIntValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_enable_thread_local_cache", val) && !val.IsNull()) {
+			config.tl_cache_enabled = BooleanValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_max_lifetime_millis", val) && !val.IsNull()) {
+			config.max_lifetime_millis = UBigIntValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_idle_timeout_millis", val) && !val.IsNull()) {
+			config.idle_timeout_millis = UBigIntValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_enable_reaper_thread", val) && !val.IsNull()) {
+			config.start_reaper_thread = BooleanValue::Get(val);
+		}
 	}
 
-	dbconnector::pool::ConnectionPoolConfig config;
-	config.max_connections = max_connections;
 	return config;
 }
 
