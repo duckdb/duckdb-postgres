@@ -61,6 +61,9 @@ SELECT COUNT(*) FROM connection_pool
 1000000
 
 statement ok
+RESET threads
+
+statement ok
 USE memory
 
 statement ok
@@ -81,24 +84,36 @@ FROM postgres_configure_pool(catalog_name='s')
 ----
 s	0	FALSE
 
-query II
+statement ok
 SELECT catalog_name, health_check_query
 FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT FAIL')
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s')
 ----
 s	SELECT FAIL
 
 statement ok
 CREATE OR REPLACE TABLE duckdb_connection_pool_test1(col1 INT)
 
-query II
+statement ok
 SELECT catalog_name, available_connections
 FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
 ----
 s	0
 
-query II
+statement ok
 SELECT catalog_name, health_check_query
 FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT 42')
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s')
 ----
 s	SELECT 42
 
@@ -107,7 +122,7 @@ DROP TABLE duckdb_connection_pool_test1
 
 query II
 SELECT catalog_name, available_connections
-FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+FROM postgres_configure_pool(catalog_name='s')
 ----
 s	1
 
