@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
 #include "postgres_connection.hpp"
@@ -79,6 +81,10 @@ public:
 
 	PostgresConnectionPool &GetConnectionPool() {
 		return *connection_pool;
+	}
+
+	shared_ptr<PostgresConnectionPool> GetConnectionPoolPtr() {
+		return connection_pool;
 	}
 
 	void ClearCache();

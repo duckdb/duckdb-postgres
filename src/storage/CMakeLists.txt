@@ -4,6 +4,7 @@ add_library(
   postgres_catalog_set.cpp
   postgres_connection_pool.cpp
   postgres_clear_cache.cpp
+  postgres_configure_pool.cpp
   postgres_delete.cpp
   postgres_index.cpp
   postgres_index_entry.cpp

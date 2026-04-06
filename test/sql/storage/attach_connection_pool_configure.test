@@ -1,0 +1,130 @@
+# name: test/sql/storage/attach_connection_pool_configure.test
+# description: Test connection pool live configuration
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES);
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool()
+ORDER BY catalog_name
+----
+s
+s1
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s')
+----
+s
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', max_connections=42)
+----
+s
+
+query II
+SELECT catalog_name, max_connections 
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	42
+
+query II
+SELECT catalog_name, max_connections 
+FROM postgres_configure_pool()
+ORDER BY catalog_name
+----
+s	42
+s1	8
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', wait_timeout_millis=42000)
+----
+s
+
+query II
+SELECT catalog_name, wait_timeout_millis
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	42000
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+----
+s
+
+query II
+SELECT catalog_name, thread_local_cache_enabled
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	FALSE
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', max_lifetime_millis=42000)
+----
+s
+
+query II
+SELECT catalog_name, max_lifetime_millis
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	42000
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', idle_timeout_millis=42000)
+----
+s
+
+query II
+SELECT catalog_name, idle_timeout_millis 
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	42000
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', enable_reaper_thread=TRUE)
+----
+s
+
+query II
+SELECT catalog_name, reaper_thread_running
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	TRUE
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', health_check_query='')
+----
+s
+
+query II
+SELECT catalog_name, health_check_query 
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	(empty)
+
+statement error
+FROM postgres_configure_pool(max_connections=42)
+----
+'catalog_name' argument must be specified
+
+statement ok
+DETACH s1
+
+statement ok
+DETACH s

@@ -60,9 +60,74 @@ SELECT COUNT(*) FROM connection_pool
 ----
 1000000
 
-# todo: pool introspection is required to check the effect
 statement ok
-SET pg_pool_health_check_query = 'SELECT FAIL'
+RESET threads
 
 statement ok
-RESET pg_pool_health_check_query
+USE memory
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
+USE s;
+
+statement ok
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+
+query III
+SELECT catalog_name, available_connections, thread_local_cache_enabled
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	0	FALSE
+
+statement ok
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT FAIL')
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	SELECT FAIL
+
+statement ok
+CREATE OR REPLACE TABLE duckdb_connection_pool_test1(col1 INT)
+
+statement ok
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
+
+statement ok
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT 42')
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	SELECT 42
+
+statement ok
+DROP TABLE duckdb_connection_pool_test1
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

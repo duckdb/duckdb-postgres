@@ -26,7 +26,7 @@ using PostgresPoolConnection = dbconnector::pool::PooledConnection<PostgresConne
 
 class PostgresConnectionPool : public dbconnector::pool::ConnectionPool<PostgresConnection> {
 public:
-	PostgresConnectionPool(PostgresCatalog &postgres_catalog);
+	PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context);
 
 public:
 	bool TryGetConnection(PostgresPoolConnection &connection);
@@ -50,6 +50,11 @@ private:
 
 	std::mutex config_mutex;
 	std::string health_check_query;
+};
+
+class PostgresConfigurePoolFunction : public TableFunction {
+public:
+	PostgresConfigurePoolFunction();
 };
 
 } // namespace duckdb
