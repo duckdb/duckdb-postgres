@@ -70,19 +70,22 @@ statement ok
 DETACH s
 
 statement ok
+SET pg_pool_enable_thread_local_cache = FALSE
+
+statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
 statement ok
 USE s;
 
-statement ok
-FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
-
 query III
 SELECT catalog_name, available_connections, thread_local_cache_enabled
 FROM postgres_configure_pool(catalog_name='s')
 ----
-s	0	FALSE
+s	1	FALSE
+
+statement ok
+RESET pg_pool_enable_thread_local_cache
 
 statement ok
 SELECT catalog_name, health_check_query
