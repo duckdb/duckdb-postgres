@@ -72,6 +72,45 @@ LogicalType PostgresUtils::RemoveAlias(const LogicalType &type) {
 	}
 }
 
+uint32_t PostgresUtils::TypeNameToPostgresOid(const string &type_name) {
+	if (type_name == "bool") {
+		return BOOLOID;
+	} else if (type_name == "int2") {
+		return INT2OID;
+	} else if (type_name == "int4") {
+		return INT4OID;
+	} else if (type_name == "int8") {
+		return INT8OID;
+	} else if (type_name == "float4") {
+		return FLOAT4OID;
+	} else if (type_name == "float8") {
+		return FLOAT8OID;
+	} else if (type_name == "varchar") {
+		return VARCHAROID;
+	} else if (type_name == "text") {
+		return TEXTOID;
+	} else if (type_name == "bytea") {
+		return BYTEAOID;
+	} else if (type_name == "date") {
+		return DATEOID;
+	} else if (type_name == "time") {
+		return TIMEOID;
+	} else if (type_name == "timestamp") {
+		return TIMESTAMPOID;
+	} else if (type_name == "timestamptz") {
+		return TIMESTAMPTZOID;
+	} else if (type_name == "interval") {
+		return INTERVALOID;
+	} else if (type_name == "timetz") {
+		return TIMETZOID;
+	} else if (type_name == "bit") {
+		return BITOID;
+	} else if (type_name == "uuid") {
+		return UUIDOID;
+	}
+	return 0;
+}
+
 LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> transaction,
                                              optional_ptr<PostgresSchemaEntry> schema,
                                              const PostgresTypeData &type_info, PostgresType &postgres_type) {
@@ -103,6 +142,10 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		child_type_info.type_modifier = type_info.type_modifier;
 		PostgresType child_pg_type;
 		auto child_type = PostgresUtils::TypeToLogicalType(transaction, schema, child_type_info, child_pg_type);
+		// populate the child OID from the actual Postgres type name
+		if (child_pg_type.oid == 0) {
+			child_pg_type.oid = TypeNameToPostgresOid(child_type_info.type_name);
+		}
 		// construct the child type based on the number of dimensions
 		for (idx_t i = 1; i < dimensions; i++) {
 			PostgresType new_pg_type;
@@ -275,9 +318,15 @@ PostgresType PostgresUtils::CreateEmptyPostgresType(const LogicalType &type) {
 			result.children.push_back(CreateEmptyPostgresType(child_type.second));
 		}
 		break;
-	case LogicalTypeId::LIST:
-		result.children.push_back(CreateEmptyPostgresType(ListType::GetChildType(type)));
+	case LogicalTypeId::LIST: {
+		auto child_pg_type = CreateEmptyPostgresType(ListType::GetChildType(type));
+		auto &child_type = ListType::GetChildType(type);
+		if (child_type.id() != LogicalTypeId::LIST && SupportedPostgresOid(child_type)) {
+			child_pg_type.oid = ToPostgresOid(child_type);
+		}
+		result.children.push_back(std::move(child_pg_type));
 		break;
+	}
 	default:
 		break;
 	}

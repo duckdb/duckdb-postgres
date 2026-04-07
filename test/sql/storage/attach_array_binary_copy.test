@@ -1,0 +1,117 @@
+# name: test/sql/storage/attach_array_binary_copy.test
+# description: Test that binary copy works for tables with array columns (issue #431)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s;
+
+# Scenario 1: DDL-created table with varchar[] (CreateEmptyPostgresType path)
+# Before the fix, this silently fell back to TEXT copy because PostgresType.oid was never populated
+statement ok
+CREATE OR REPLACE TABLE array_binary_ddl(id INTEGER, name VARCHAR, tags VARCHAR[], scores INT[]);
+
+statement ok
+INSERT INTO array_binary_ddl VALUES (1, 'alice', ['rock', 'jazz'], [10, 20, 30]);
+
+statement ok
+INSERT INTO array_binary_ddl VALUES (2, 'bob', ['pop'], []);
+
+statement ok
+INSERT INTO array_binary_ddl VALUES (3, 'charlie', [], [42]);
+
+statement ok
+INSERT INTO array_binary_ddl VALUES (NULL, NULL, NULL, NULL);
+
+query IIII
+SELECT * FROM array_binary_ddl ORDER BY id
+----
+1	alice	[rock, jazz]	[10, 20, 30]
+2	bob	[pop]	[]
+3	charlie	[]	[42]
+NULL	NULL	NULL	NULL
+
+# Scenario 2: DDL-created table with other array types
+statement ok
+CREATE OR REPLACE TABLE array_binary_types(bools BOOLEAN[], dates DATE[], floats DOUBLE[], uuids UUID[]);
+
+statement ok
+INSERT INTO array_binary_types VALUES ([true, false, NULL], ['2024-01-01', '2024-12-31'], [1.5, 2.5], ['6d3d2541-710b-4bde-b3af-4711738636bf']);
+
+statement ok
+INSERT INTO array_binary_types VALUES ([], [], [], []);
+
+statement ok
+INSERT INTO array_binary_types VALUES (NULL, NULL, NULL, NULL);
+
+query IIII
+SELECT * FROM array_binary_types ORDER BY bools::VARCHAR
+----
+[]	[]	[]	[]
+[true, false, NULL]	[2024-01-01, 2024-12-31]	[1.5, 2.5]	[6d3d2541-710b-4bde-b3af-4711738636bf]
+NULL	NULL	NULL	NULL
+
+# Scenario 3: Existing table with varchar[] created via postgres_execute (TypeToLogicalType path)
+statement ok
+DROP TABLE IF EXISTS array_binary_catalog_varchar;
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE array_binary_catalog_varchar(id INTEGER, tags VARCHAR[])');
+
+statement ok
+INSERT INTO array_binary_catalog_varchar VALUES (1, ['a', 'b', 'c']);
+
+statement ok
+INSERT INTO array_binary_catalog_varchar VALUES (2, []);
+
+statement ok
+INSERT INTO array_binary_catalog_varchar VALUES (3, [NULL, 'x']);
+
+query II
+SELECT * FROM array_binary_catalog_varchar ORDER BY id
+----
+1	[a, b, c]
+2	[]
+3	[NULL, x]
+
+# Scenario 4: Existing table with text[] created via postgres_execute
+# text[] should still work (falls back to TEXT copy because binary writer emits VARCHAROID but Postgres expects TEXTOID)
+statement ok
+DROP TABLE IF EXISTS array_binary_catalog_text;
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE array_binary_catalog_text(id INTEGER, notes TEXT[])');
+
+statement ok
+INSERT INTO array_binary_catalog_text VALUES (1, ['hello', 'world']);
+
+statement ok
+INSERT INTO array_binary_catalog_text VALUES (2, []);
+
+query II
+SELECT * FROM array_binary_catalog_text ORDER BY id
+----
+1	[hello, world]
+2	[]
+
+# Cleanup
+statement ok
+DROP TABLE IF EXISTS array_binary_ddl;
+
+statement ok
+DROP TABLE IF EXISTS array_binary_types;
+
+statement ok
+DROP TABLE IF EXISTS array_binary_catalog_varchar;
+
+statement ok
+DROP TABLE IF EXISTS array_binary_catalog_text;
