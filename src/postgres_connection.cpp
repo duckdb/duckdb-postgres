@@ -207,7 +207,8 @@ void PostgresConnection::Reset(const std::string &health_check_query) {
 		throw InternalException("Cannot reset a connection that is not open");
 	}
 	PGconn *conn = GetConn();
-	{
+	auto tx_status = PQtransactionStatus(conn);
+	if (tx_status == PQTRANS_INTRANS || tx_status == PQTRANS_INERROR) {
 		PGresult *res = PQexec(conn, "ROLLBACK");
 		PostgresResult res_holder(res);
 	}
