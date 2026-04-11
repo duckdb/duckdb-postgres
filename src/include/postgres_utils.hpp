@@ -72,6 +72,8 @@ public:
 	static PostgresType CreateEmptyPostgresType(const LogicalType &type);
 	static string QuotePostgresIdentifier(const string &text);
 
+	static string RelkindToString(const string &relkind);
+
 	static PostgresVersion ExtractPostgresVersion(const string &version);
 };
 

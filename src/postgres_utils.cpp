@@ -481,6 +481,21 @@ PostgresVersion PostgresUtils::ExtractPostgresVersion(const string &version_str)
 	return result;
 }
 
+string PostgresUtils::RelkindToString(const string &relkind) {
+	if (relkind == "r") {
+		return "table";
+	} else if (relkind == "v") {
+		return "view";
+	} else if (relkind == "m") {
+		return "materialized view";
+	} else if (relkind == "f") {
+		return "foreign table";
+	} else if (relkind == "p") {
+		return "partitioned table";
+	}
+	return "relation (relkind=" + relkind + ")";
+}
+
 string PostgresUtils::QuotePostgresIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
 }

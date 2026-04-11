@@ -24,7 +24,7 @@ string PostgresTableSet::GetInitializeQuery(const string &schema, const string &
 SELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,
     pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,
     attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,
-    NULL constraint_type, NULL constraint_key
+    NULL constraint_type, NULL constraint_key, pg_class.relkind
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid
@@ -34,7 +34,7 @@ UNION ALL
 SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,
     NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,
     pg_constraint.oid AS constraint_id, contype AS constraint_type,
-    conkey AS constraint_key
+    conkey AS constraint_key, NULL AS relkind
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)
@@ -49,6 +49,14 @@ ORDER BY namespace_id, relname, attnum, constraint_id;
 		condition += "AND relname=" + KeywordHelper::WriteQuoted(table);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
+}
+
+static idx_t GetScanRelpages(int64_t relpages, const string &relkind, const string &table_name) {
+	if (relpages < 0) {
+		throw NotImplementedException("Scanning %s \"%s\" is not supported (pg_class returned negative relpages).",
+		                              PostgresUtils::RelkindToString(relkind), table_name);
+	}
+	return static_cast<idx_t>(relpages);
 }
 
 void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
@@ -128,9 +136,10 @@ void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresR
 			if (info) {
 				tables.push_back(std::move(info));
 			}
-			auto approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
 			info = make_uniq<PostgresTableInfo>(schema, table_name);
-			info->approx_num_pages = approx_num_pages;
+			auto relpages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
+			auto relkind = result.IsNull(row, 12) ? string() : result.GetString(row, 12);
+			info->approx_num_pages = GetScanRelpages(relpages, relkind, table_name);
 		}
 		AddColumnOrConstraint(&transaction, &schema, result, row, *info);
 	}
@@ -169,7 +178,9 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(&transaction, &schema, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
+	auto relpages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
+	auto relkind = result->IsNull(0, 12) ? string() : result->GetString(0, 12);
+	table_info->approx_num_pages = GetScanRelpages(relpages, relkind, table_name);
 	return table_info;
 }
 
@@ -185,7 +196,9 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &cont
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(nullptr, nullptr, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
+	auto relpages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
+	auto relkind = result->IsNull(0, 12) ? string() : result->GetString(0, 12);
+	table_info->approx_num_pages = GetScanRelpages(relpages, relkind, table_name);
 	return table_info;
 }
 
