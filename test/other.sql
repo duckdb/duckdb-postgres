@@ -168,3 +168,10 @@ create table tbl_with_unique_constraints(pk int unique, c1 int not null, c2 int,
 create schema main;
 create table main.main_tbl(i int);
 insert into main.main_tbl values (42), (NULL);
+
+-- partitioned table (parent has relpages=-1 after analyze)
+create table part_tbl (id int, val text) partition by range (id);
+create table part_tbl_1 partition of part_tbl for values from (1) to (100);
+create table part_tbl_2 partition of part_tbl for values from (100) to (200);
+insert into part_tbl values (1,'a'),(50,'b'),(100,'c'),(150,'d');
+analyze part_tbl;

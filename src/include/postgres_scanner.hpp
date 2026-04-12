@@ -84,7 +84,7 @@ public:
 	PostgresScanFunction();
 
 	static void PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind,
-	                        idx_t approx_num_pages);
+	                        int64_t approx_num_pages);
 };
 
 class PostgresScanFunctionFilterPushdown : public TableFunction {

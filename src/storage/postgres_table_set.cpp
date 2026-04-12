@@ -128,9 +128,8 @@ void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresR
 			if (info) {
 				tables.push_back(std::move(info));
 			}
-			auto approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
 			info = make_uniq<PostgresTableInfo>(schema, table_name);
-			info->approx_num_pages = approx_num_pages;
+			info->approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
 		}
 		AddColumnOrConstraint(&transaction, &schema, result, row, *info);
 	}
@@ -169,7 +168,7 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(&transaction, &schema, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
+	table_info->approx_num_pages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
 	return table_info;
 }
 
@@ -185,7 +184,7 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &cont
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(nullptr, nullptr, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
+	table_info->approx_num_pages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
 	return table_info;
 }
 
