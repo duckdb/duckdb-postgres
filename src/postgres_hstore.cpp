@@ -2,13 +2,11 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/scalar_function.hpp"
 
-#include <optional>
-
 namespace duckdb {
 
 struct HstorePair {
 	std::string key;
-	std::optional<std::string> value;
+	unique_ptr<std::string> value;
 };
 
 namespace {
@@ -18,23 +16,23 @@ bool IsSpace(const char c) {
 	return std::isspace(u);
 }
 
-void SkipWhitespace(std::string_view input, size_t &pos) {
+void SkipWhitespace(const std::string &input, size_t &pos) {
 	while (pos < input.size() && IsSpace(input[pos])) {
 		++pos;
 	}
 }
 
-bool IsNullLiteral(const std::string_view &s) {
+bool IsNullLiteral(const std::string &s) {
 	return s.size() == 4 && std::tolower(static_cast<unsigned char>(s[0])) == 'n' &&
 	       std::tolower(static_cast<unsigned char>(s[1])) == 'u' &&
 	       std::tolower(static_cast<unsigned char>(s[2])) == 'l' &&
 	       std::tolower(static_cast<unsigned char>(s[3])) == 'l';
 }
 
-std::optional<std::string> ReadToken(std::string_view input, size_t &pos, bool is_key) {
+unique_ptr<std::string> ReadToken(const std::string &input, size_t &pos, bool is_key) {
 	SkipWhitespace(input, pos);
 	if (pos >= input.size()) {
-		return std::nullopt;
+		return nullptr;
 	}
 
 	std::string result;
@@ -46,7 +44,7 @@ std::optional<std::string> ReadToken(std::string_view input, size_t &pos, bool i
 			char c = input[pos];
 			++pos;
 			if (c == '"') {
-				return std::move(result);
+				return make_uniq<std::string>(std::move(result));
 			}
 			if (c == '\\') {
 				if (pos >= input.size()) {
@@ -85,12 +83,12 @@ std::optional<std::string> ReadToken(std::string_view input, size_t &pos, bool i
 		                            static_cast<int>(pos));
 	}
 	if (!is_key && IsNullLiteral(result)) {
-		return std::nullopt;
+		return nullptr;
 	}
-	return std::move(result);
+	return make_uniq<std::string>(std::move(result));
 }
 
-void ExpectArrow(std::string_view input, size_t &pos) {
+void ExpectArrow(const std::string &input, size_t &pos) {
 	SkipWhitespace(input, pos);
 	if (pos + 1 >= input.size() || input[pos] != '=' || input[pos + 1] != '>') {
 		throw InvalidInputException("syntax error in hstore, near \"%c\" at position %d",
@@ -99,14 +97,14 @@ void ExpectArrow(std::string_view input, size_t &pos) {
 	pos += 2;
 }
 
-std::vector<HstorePair> ParseHstore(std::string_view input) {
+std::vector<HstorePair> ParseHstore(const std::string &input) {
 	std::vector<HstorePair> pairs;
 	size_t pos = 0;
 
 	SkipWhitespace(input, pos);
 	while (pos < input.size()) {
 		auto key = ReadToken(input, pos, /* is_key = */ true);
-		D_ASSERT(key.has_value());
+		D_ASSERT(key);
 		ExpectArrow(input, pos);
 		auto value = ReadToken(input, pos, /* is_key = */ false);
 		pairs.push_back({std::move(*key), std::move(value)});
@@ -177,7 +175,7 @@ void PostgresHstoreGetFun(DataChunk &args, ExpressionState &state, Vector &resul
 
 		    for (auto it = pairs.rbegin(); it != pairs.rend(); ++it) {
 			    if (it->key == key.GetString()) {
-				    if (!it->value.has_value()) {
+				    if (!it->value) {
 					    mask.SetInvalid(idx);
 					    return string_t {};
 				    }
@@ -205,7 +203,7 @@ void PostgresHstoreToJsonFun(DataChunk &args, ExpressionState &state, Vector &re
 			                                           first = false;
 			                                           JsonEscapeString(json, pair.key);
 			                                           json += ": ";
-			                                           if (pair.value.has_value()) {
+			                                           if (pair.value) {
 				                                           JsonEscapeString(json, *pair.value);
 			                                           } else {
 				                                           json += "null";
