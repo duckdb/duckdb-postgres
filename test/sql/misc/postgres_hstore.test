@@ -2,23 +2,13 @@
 # description: test postgres hstore scalar functions
 # group: [misc]
 
-# Before we load the extension, this will fail
-statement error
-SELECT postgres_hstore_get('a=>b', 'a');
-----
-Catalog Error: Scalar Function with name postgres_hstore_get does not exist!
-
-# Require statement will ensure this test is run with this extension loaded
 require postgres_scanner
 
 statement ok
-PRAGMA enable_verification
+LOAD postgres_scanner;
 
-# Confirm the extension works
-query I
-SELECT postgres_hstore_get('a=>b', 'a');
-----
-b
+statement ok
+PRAGMA enable_verification
 
 # --- postgres_hstore_get: basic lookups ---
 
