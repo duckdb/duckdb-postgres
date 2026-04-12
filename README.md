@@ -75,3 +75,36 @@ Then, load the Postgres extension like so:
 ```SQL
 LOAD 'build/release/extension/postgres_scanner/postgres_scanner.duckdb_extension';
 ```
+
+## Testing
+
+Requires a running Postgres instance reachable via libpq defaults (e.g. `psql` works without extra flags). Create the test database schema:
+
+```bash
+PGHOST=localhost PGPORT=5432 PGUSER=<user> PGPASSWORD=<password> ./create-postgres-tables.sh
+```
+
+The extension is loaded from `~/.duckdb/extensions/<version>/<platform>/`, copied there on first load and not overwritten on reruns. Create a symlink so the latest build is always used:
+
+```bash
+DUCKDB_VERSION=$(ls build/reldebug/repository/)
+DUCKDB_PLATFORM=$(ls build/reldebug/repository/${DUCKDB_VERSION}/)
+ln -sf "$(pwd)/build/reldebug/extension/postgres_scanner/postgres_scanner.duckdb_extension" \
+  ~/.duckdb/extensions/${DUCKDB_VERSION}/${DUCKDB_PLATFORM}/postgres_scanner.duckdb_extension
+```
+
+Run all tests:
+
+```bash
+POSTGRES_TEST_DATABASE_AVAILABLE=1 LOCAL_EXTENSION_REPO=./build/release/repository \
+  ./build/release/test/unittest --autoloading available
+```
+
+Run a single test:
+
+```bash
+POSTGRES_TEST_DATABASE_AVAILABLE=1 LOCAL_EXTENSION_REPO=./build/release/repository \
+  ./build/release/test/unittest --autoloading available test/sql/storage/attach_simple.test
+```
+
+> **Note:** debug and release launchers and extensions should not be mixed — use `build/reldebug` consistently if building with `make reldebug`.
