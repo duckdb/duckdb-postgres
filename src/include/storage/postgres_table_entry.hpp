@@ -35,7 +35,7 @@ struct PostgresTableInfo {
 	unique_ptr<CreateTableInfo> create_info;
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
-	idx_t approx_num_pages = 0;
+	int64_t approx_num_pages = 0;
 };
 
 class PostgresTableEntry : public TableCatalogEntry {
@@ -64,7 +64,7 @@ public:
 	//! We would in this case remap them to "ID" and "id:1", while postgres_names store the original names
 	vector<string> postgres_names;
 	//! The approximate number of pages a table consumes in Postgres
-	idx_t approx_num_pages;
+	int64_t approx_num_pages;
 };
 
 } // namespace duckdb

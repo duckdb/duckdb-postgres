@@ -107,7 +107,7 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 }
 
 void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind_data,
-                                       idx_t approx_num_pages) {
+                                       int64_t approx_num_pages) {
 	Value pages_per_task;
 	if (context.TryGetCurrentSetting("pg_pages_per_task", pages_per_task)) {
 		bind_data.pages_per_task = UBigIntValue::Get(pages_per_task);
@@ -130,10 +130,14 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 		// see https://github.com/duckdb/postgres_scanner/issues/186
 		use_ctid_scan = false;
 	}
+	if (approx_num_pages < 0) {
+		// negative relpages (e.g. partitioned tables) cannot use ctid scan
+		use_ctid_scan = false;
+	}
 	if (!use_ctid_scan) {
 		approx_num_pages = 0;
 	}
-	bind_data.SetTablePages(approx_num_pages);
+	bind_data.SetTablePages(static_cast<idx_t>(approx_num_pages));
 	bind_data.version = version;
 	if (version.type_v == PostgresInstanceType::REDSHIFT) {
 		bind_data.use_text_protocol = true;

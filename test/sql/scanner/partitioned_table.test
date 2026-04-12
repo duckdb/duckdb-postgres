@@ -1,5 +1,5 @@
 # name: test/sql/scanner/partitioned_table.test
-# description: Scanning a partitioned table gracefully fail
+# description: Scanning a partitioned table fallbacks to 0 estimate
 # group: [scanner]
 
 require postgres_scanner
@@ -9,12 +9,15 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
-statement error
-SELECT * FROM s.public.part_tbl
+query IT
+SELECT * FROM s.public.part_tbl ORDER BY id
 ----
-Scanning partitioned table "part_tbl" is not supported (pg_class returned negative relpages).
+1	a
+50	b
+100	c
+150	d
 
-statement error
+query II
 EXPLAIN SELECT * FROM s.public.part_tbl
 ----
-Scanning partitioned table "part_tbl" is not supported (pg_class returned negative relpages).
+physical_plan	<REGEX>:.*~0 rows.*
