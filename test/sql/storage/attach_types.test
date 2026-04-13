@@ -36,7 +36,7 @@ NULL	NULL	NULL	NULL
 # test all types
 statement ok
 CREATE TABLE all_types_tbl AS SELECT *
-EXCLUDE (float, double, ubigint, hugeint, uhugeint, nested_int_array, struct, struct_of_arrays, array_of_structs, map, "union", fixed_int_array, fixed_varchar_array, fixed_nested_int_array, fixed_nested_varchar_array, fixed_struct_array, struct_of_fixed_array, fixed_array_of_int_list, list_of_fixed_int_array, bignum)
+EXCLUDE (float, double, ubigint, hugeint, uhugeint, nested_int_array, struct, struct_of_arrays, array_of_structs, map, "union", fixed_int_array, fixed_varchar_array, fixed_nested_int_array, fixed_nested_varchar_array, fixed_struct_array, struct_of_fixed_array, fixed_array_of_int_list, list_of_fixed_int_array, bignum, geometry)
 REPLACE(
 	CASE WHEN int IS NOT NULL THEN '2000-01-01' ELSE NULL END AS date,
 	CASE WHEN int IS NOT NULL THEN '2000-01-01 01:02:03' ELSE NULL END AS timestamp,
