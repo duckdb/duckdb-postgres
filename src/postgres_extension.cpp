@@ -21,6 +21,7 @@
 #include "duckdb/main/connection_manager.hpp"
 #include "duckdb/common/error_data.hpp"
 #include "postgres_logging.hpp"
+#include "postgres_hstore.hpp"
 
 using namespace duckdb;
 
@@ -180,6 +181,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	PostgresConfigurePoolFunction configure_pool_function;
 	loader.RegisterFunction(configure_pool_function);
+
+	RegisterHstoreFunctions(loader);
 
 	// Register the new type
 	SecretType secret_type;
