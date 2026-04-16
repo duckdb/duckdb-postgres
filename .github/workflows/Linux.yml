@@ -41,71 +41,79 @@ jobs:
     name: Run tests on Linux
     needs: format-check
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        # Add commits/tags to build against other DuckDB versions
-        duckdb_version: [ '<submodule_version>' ]
-        arch: ['linux_amd64']
-        vcpkg_version: [ '2023.04.15' ]
-        include:
-          - arch: 'linux_amd64'
-            vcpkg_triplet: 'x64-linux'
+        pg_version: [14, 18]
 
     env:
-      VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_triplet }}
-      GEN: Ninja
+      GEN: ninja
+      CC: 'ccache gcc'
+      CXX: 'ccache g++'
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      VCPKG_TARGET_TRIPLET: x64-linux-release
+      VCPKG_HOST_TRIPLET: x64-linux-release
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
-    - name: Free disk space 1
-      uses: endersonmenezes/free-disk-space@v2.1.1
-      continue-on-error: true
+    - name: Checkout
+      uses: actions/checkout@v6
       with:
-#          remove_android: true # ~9.5GB in #52s
-#          remove_dotnet: true
-        remove_haskell: true # ~6.5GB in ~3s
-        remove_tool_cache: true # ~4.8GB in ~17s
-#          remove_swap: true
-#          remove_packages_one_command: true # ~7.5 GB in ~94s
-        testing: false
+        fetch-depth: 0
+        submodules: 'true'
 
-    - name: Install required ubuntu packages
+    - name: Install Dependencies
       run: |
-        sudo apt-get update -y -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
+        sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
+        sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
+          build-essential \
+          ccache \
+          cmake \
+          ninja-build \
+          pgbouncer
 
-    - name: Setup PostgreSQL for Linux/macOS/Windows
-      uses: ikalnytskyi/action-setup-postgres@v7
+    - name: Cache Key
+      id: cache_key
+      working-directory: ./duckdb
+      run: |
+        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
+        echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
+
+    - name: Restore Cache
+      uses: actions/cache/restore@v5
       with:
-        postgres-version: '15'
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup Postgres
+      uses: ikalnytskyi/action-setup-postgres@v8
+      with:
+        postgres-version: ${{ matrix.pg_version }}
         username: 'postgres'
         password: 'postgres'
         database: 'postgres'
         port: '5432'
         ssl: true
 
-    - name: Test Postgres Setup
+    - name: Setup PgBouncer
       run: |
-        psql -c "SELECT 42"
-      env:
-        PGSERVICE: postgres
-
-    - uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-        submodules: 'true'
-
-    - name: Checkout DuckDB to version
-      if: ${{ matrix.duckdb_version != '<submodule_version>'}}
-      run: |
-        cd duckdb
-        git checkout ${{ matrix.duckdb_version }}
-
-    - name: Setup Ccache
-      uses: hendrikmuhs/ccache-action@main
-      with:
-        key: ${{ github.job }}
-        save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/duckdb-postgres' }}
+        mkdir pgbouncer
+        openssl req -new -x509 -days 365 -nodes -text -subj "/CN=localhost" \
+          -out ./pgbouncer/pgbouncer.crt \
+          -keyout ./pgbouncer/pgbouncer.key
+        sudo chown -R postgres:postgres ./pgbouncer
+        sudo cp -p ./pgbouncer/* /etc/pgbouncer/
+        sudo ls -la /etc/pgbouncer
+        sudo sed -i 's|^;bardb = host=localhost dbname=bazdb|postgresscanner = host=localhost dbname=postgresscanner|' /etc/pgbouncer/pgbouncer.ini
+        sudo sed -i 's|^;pool_mode = session|pool_mode = transaction|' /etc/pgbouncer/pgbouncer.ini
+        sudo sed -i 's|^;max_prepared_statements = 0|max_prepared_statements = 1024|' /etc/pgbouncer/pgbouncer.ini
+        sudo sed -i 's|^;client_tls_sslmode = disable|client_tls_sslmode = require|' /etc/pgbouncer/pgbouncer.ini
+        sudo sed -i 's|^;client_tls_key_file =|client_tls_key_file = /etc/pgbouncer/pgbouncer.key|' /etc/pgbouncer/pgbouncer.ini
+        sudo sed -i 's|^;client_tls_cert_file =|client_tls_cert_file = /etc/pgbouncer/pgbouncer.crt|' /etc/pgbouncer/pgbouncer.ini
+        echo '"postgres" "postgres"' | sudo tee /etc/pgbouncer/userlist.txt
+        sudo cat /etc/pgbouncer/pgbouncer.ini
+        sudo systemctl restart pgbouncer
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11.1
@@ -113,18 +121,57 @@ jobs:
         vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
 
     - name: Build extension
-      env:
-        GEN: ninja
-        STATIC_LIBCPP: 1
       run: |
-        make reldebug
+        make release
 
-    - name: Test extension
+    - name: Save Cache
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup test data
       env:
-        POSTGRES_TEST_DATABASE_AVAILABLE: 1
-        LOCAL_EXTENSION_REPO: 'build/reldebug/repository'
-        PGSERVICE: postgres
+        PGHOST: localhost
+        PGPORT: 5432
+        PGUSER: postgres
+        PGPASSWORD: postgres
       run: |
-        psql -c "SELECT 43"
         source ./create-postgres-tables.sh
-        ./build/reldebug/test/unittest --autoloading available
+
+    - name: Run tests with PgBouncer
+      env:
+        PGHOST: localhost
+        PGPORT: 6432
+        PGUSER: postgres
+        PGPASSWORD: postgres
+        PGSSLMODE: require
+        PGSSLROOTCERT: ${{ github.workspace }}/pgbouncer/pgbouncer.crt
+        POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        LOCAL_EXTENSION_REPO: 'build/release/repository'
+      run: |
+        psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+        make test
+
+    - name: Run tests directly
+      env:
+        PGHOST: localhost
+        PGPORT: 5432
+        PGUSER: postgres
+        PGPASSWORD: postgres
+        PGSSLMODE: require
+        PGSSLROOTCERT: ${{ github.workspace }}/server.crt
+        POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        LOCAL_EXTENSION_REPO: 'build/release/repository'
+      run: |
+        cp $RUNNER_TEMP/pgdata/server.crt .
+        psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+        make test
+
+    - name: Upload log
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: pgbouncer_${{ matrix.pg_version }}_log
+        path: |
+          /var/log/postgresql/pgbouncer.log
