@@ -1,5 +1,11 @@
 {
   "dependencies": [
-    "openssl"
-  ]
+    "openssl",
+    "libpq"
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "./vcpkg_ports"
+    ]
+  }
 }
