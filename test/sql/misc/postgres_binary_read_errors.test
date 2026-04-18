@@ -11,7 +11,7 @@ LOAD postgres_scanner;
 statement error
 SELECT * FROM read_postgres_binary('__TEST_DIR__/nonexistent.bin', columns={i: 'INTEGER'});
 ----
-No such file or directory
+IO Error:
 
 # --- Invalid file (not postgres binary format) ---
 statement ok
