@@ -13,6 +13,47 @@ statement ok
 DETACH s
 
 statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query II
+SELECT catalog_name, acquire_mode 
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	force
+
+statement ok
+DETACH s
+
+statement ok
+SET pg_pool_max_connections = 0
+
+statement error
+SET pg_pool_acquire_mode = 'wait'
+----
+pg_pool_max_connections > 0
+
+statement ok
+RESET pg_pool_max_connections
+
+statement ok
+SET pg_pool_acquire_mode = 'try'
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query II
+SELECT catalog_name, acquire_mode 
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	try
+
+statement ok
+RESET pg_pool_acquire_mode
+
+statement ok
+DETACH s
+
+statement ok
 SET pg_pool_max_connections = 42
 
 statement ok

@@ -20,11 +20,23 @@ ORDER BY catalog_name
 s
 s1
 
-query I
-SELECT catalog_name
+query II
+SELECT catalog_name, acquire_mode
 FROM postgres_configure_pool(catalog_name='s')
 ----
+s	force
+
+query I
+SELECT catalog_name
+FROM postgres_configure_pool(catalog_name='s', acquire_mode='wait')
+----
 s
+
+query II
+SELECT catalog_name, acquire_mode
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	wait
 
 query I
 SELECT catalog_name
@@ -122,6 +134,11 @@ statement error
 FROM postgres_configure_pool(max_connections=42)
 ----
 'catalog_name' argument must be specified
+
+statement error
+FROM postgres_configure_pool(catalog_name='fail', max_connections=42)
+----
+Catalog not found
 
 statement ok
 DETACH s1

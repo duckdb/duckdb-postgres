@@ -15,6 +15,7 @@ enum class ExecState { UNINITIALIZED, EXHAUSTED };
 
 struct ConfigurePoolBindData : public TableFunctionData {
 	std::pair<std::string, bool> catalog_name;
+	std::pair<PostgresPoolAcquireMode, bool> acquire_mode;
 	std::pair<uint64_t, bool> max_connections;
 	std::pair<uint64_t, bool> wait_timeout_millis;
 	std::pair<bool, bool> enable_thread_local_cache;
@@ -58,8 +59,23 @@ struct ConfigurePoolBindData : public TableFunctionData {
 		return std::make_pair(flag, false);
 	}
 
+	static std::pair<PostgresPoolAcquireMode, bool> LookupAcquireMode(const named_parameter_map_t &map,
+	                                                                  const std::string &key) {
+		std::pair<std::string, bool> st_pair = LookupString(map, key);
+		if (st_pair.second) {
+			return std::make_pair(PostgresPoolAcquireMode::FORCE, true);
+		}
+		try {
+			PostgresPoolAcquireMode mode = PostgresConnectionPool::AcquireModeFromString(st_pair.first);
+			return std::make_pair(mode, false);
+		} catch (InvalidInputException &e) {
+			throw BinderException(e.what());
+		}
+	}
+
 	ConfigurePoolBindData(const named_parameter_map_t &map)
-	    : catalog_name(LookupString(map, "catalog_name")), max_connections(LookupUBigInt(map, "max_connections")),
+	    : catalog_name(LookupString(map, "catalog_name")), acquire_mode(LookupAcquireMode(map, "acquire_mode")),
+	      max_connections(LookupUBigInt(map, "max_connections")),
 	      wait_timeout_millis(LookupUBigInt(map, "wait_timeout_millis")),
 	      enable_thread_local_cache(LookupBool(map, "enable_thread_local_cache")),
 	      max_lifetime_millis(LookupUBigInt(map, "max_lifetime_millis")),
@@ -67,9 +83,9 @@ struct ConfigurePoolBindData : public TableFunctionData {
 	      enable_reaper_thread(LookupBool(map, "enable_reaper_thread")),
 	      health_check_query(LookupString(map, "health_check_query")) {
 		if (catalog_name.second &&
-		    !(max_connections.second && wait_timeout_millis.second && enable_thread_local_cache.second &&
-		      max_lifetime_millis.second && idle_timeout_millis.second && enable_reaper_thread.second &&
-		      health_check_query.second)) {
+		    !(acquire_mode.second && max_connections.second && wait_timeout_millis.second &&
+		      enable_thread_local_cache.second && max_lifetime_millis.second && idle_timeout_millis.second &&
+		      enable_reaper_thread.second && health_check_query.second)) {
 			throw BinderException("'catalog_name' argument must be specified to change any option value on the "
 			                      "connection pool of this catalog");
 		}
@@ -93,6 +109,7 @@ static void AddColumn(vector<LogicalType> &return_types, vector<string> &names, 
 static unique_ptr<FunctionData> ConfigurePoolBind(ClientContext &context, TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types, vector<string> &names) {
 	AddColumn(return_types, names, "catalog_name", LogicalType::VARCHAR);
+	AddColumn(return_types, names, "acquire_mode", LogicalType::VARCHAR);
 	AddColumn(return_types, names, "available_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "max_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "wait_timeout_millis", LogicalType::UBIGINT);
@@ -143,9 +160,16 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		pools.emplace_back(std::move(pool));
 	}
 
+	if (!bdata.catalog_name.second && pools.size() == 0) {
+		throw InvalidInputException("Catalog not found, name: '%s'", bdata.catalog_name.first);
+	}
+
 	// configure the single pool if specified
 	if (!bdata.catalog_name.second && pools.size() > 0) {
 		auto &pool = pools.at(0);
+		if (!bdata.acquire_mode.second) {
+			pool->SetAcquireMode(bdata.acquire_mode.first);
+		}
 		if (!bdata.max_connections.second) {
 			pool->SetMaxConnections(bdata.max_connections.first);
 		}
@@ -178,6 +202,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 	for (auto &pool : pools) {
 		idx_t col_idx = 0;
 		output.SetValue(col_idx++, row_idx, Value(cat_names.at(row_idx)));
+		output.SetValue(col_idx++, row_idx, Value(PostgresConnectionPool::AcquireModeToString(pool->GetAcquireMode())));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetAvailableConnections()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxConnections()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetWaitTimeoutMillis()));
@@ -199,6 +224,7 @@ PostgresConfigurePoolFunction::PostgresConfigurePoolFunction()
     : TableFunction("postgres_configure_pool", std::vector<LogicalType>(), ConfigurePoolFunction, ConfigurePoolBind,
                     ConfigurePoolInitGlobalState, ConfigurePoolInitLocalState) {
 	named_parameters["catalog_name"] = LogicalType::VARCHAR;
+	named_parameters["acquire_mode"] = LogicalType::VARCHAR;
 	named_parameters["max_connections"] = LogicalType::UBIGINT;
 	named_parameters["wait_timeout_millis"] = LogicalType::UBIGINT;
 	named_parameters["enable_thread_local_cache"] = LogicalType::BOOLEAN;

@@ -242,6 +242,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Postgres idle in transaction timeout in milliseconds to set on scan connections",
 	                          LogicalType::UINTEGER, Value());
 	// connection pool options
+	config.AddExtensionOption(
+	    "pg_pool_acquire_mode",
+	    "How to acquire connections from the pool: 'force' (always connect, ignore pool limit), "
+	    "'wait' (block until available), 'try' (fail immediately if unavailable) (default: force)",
+	    LogicalType::VARCHAR, Value("force"), PostgresConnectionPool::ValidatePoolAcquireMode);
 	config.AddExtensionOption("pg_pool_max_connections",
 	                          "Maximum number of connections that are allowed to be cached in a connection pool for "
 	                          "each attached Postgres database. "
