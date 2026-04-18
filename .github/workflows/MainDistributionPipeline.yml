@@ -3,12 +3,6 @@
 #
 name: Main Extension Distribution Pipeline
 on:
-  push:
-    paths-ignore:
-      - '**.md'
-      - '.github/workflows/**'
-      - '!.github/workflows/MainDistributionPipeline.yml'
-  pull_request:
   workflow_dispatch:
 
 concurrency:
