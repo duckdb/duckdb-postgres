@@ -13,7 +13,10 @@ PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 
 	// both PQStatus and PQerrorMessage check for nullptr
 	if (PQstatus(conn) == CONNECTION_BAD) {
-		throw IOException("Unable to connect to Postgres at \"%s\": %s", attach_path, string(PQerrorMessage(conn)));
+		char *msg_cstr = PQerrorMessage(conn);
+		std::string msg = msg_cstr != nullptr ? std::string(msg_cstr) : std::string();
+		PQfinish(conn);
+		throw IOException("Unable to connect to Postgres at \"%s\": %s", attach_path, msg);
 	}
 	PQsetNoticeProcessor(conn, PGNoticeProcessor, nullptr);
 	return conn;

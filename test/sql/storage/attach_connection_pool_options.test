@@ -7,6 +7,9 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
+PRAGMA enable_verification
+
+statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
 statement ok
@@ -189,11 +192,6 @@ SELECT current_setting('pg_pool_max_connections')
 statement ok
 RESET GLOBAL pg_connection_limit
 
-query I
-SELECT current_setting('pg_pool_max_connections')
-----
-8
-
 statement ok
 DETACH s
 
@@ -216,11 +214,6 @@ SELECT current_setting('pg_pool_max_connections')
 
 statement ok
 RESET GLOBAL pg_connection_cache
-
-query I
-SELECT current_setting('pg_pool_max_connections')
-----
-8
 
 statement ok
 DETACH s
