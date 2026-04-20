@@ -102,8 +102,9 @@ void PostgresConnectionPool::SetAcquireMode(PostgresPoolAcquireMode mode) {
 
 idx_t PostgresConnectionPool::DefaultPoolSize() {
 	idx_t detected = static_cast<idx_t>(std::thread::hardware_concurrency());
+	idx_t detected_adjusted = detected * 3 / 2;
 	idx_t default_num = static_cast<idx_t>(8);
-	return detected > default_num ? detected : default_num;
+	return detected_adjusted > default_num ? detected_adjusted : default_num;
 }
 
 std::string PostgresConnectionPool::DefaultHealthCheckQuery() {

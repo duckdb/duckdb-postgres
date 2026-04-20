@@ -33,7 +33,7 @@ SET pg_pool_acquire_mode = 'wait'
 pg_pool_max_connections > 0
 
 statement ok
-RESET pg_pool_max_connections
+RESET GLOBAL pg_pool_max_connections
 
 statement ok
 SET pg_pool_acquire_mode = 'try'
@@ -48,7 +48,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	try
 
 statement ok
-RESET pg_pool_acquire_mode
+RESET GLOBAL pg_pool_acquire_mode
 
 statement ok
 DETACH s
@@ -66,7 +66,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	42
 
 statement ok
-RESET pg_pool_max_connections
+RESET GLOBAL pg_pool_max_connections
 
 statement ok
 DETACH s
@@ -84,7 +84,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	42000
 
 statement ok
-RESET pg_pool_wait_timeout_millis
+RESET GLOBAL pg_pool_wait_timeout_millis
 
 statement ok
 DETACH s
@@ -102,7 +102,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	FALSE
 
 statement ok
-RESET pg_pool_enable_thread_local_cache
+RESET GLOBAL pg_pool_enable_thread_local_cache
 
 statement ok
 DETACH s
@@ -120,7 +120,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	42000
 
 statement ok
-RESET pg_pool_max_lifetime_millis
+RESET GLOBAL pg_pool_max_lifetime_millis
 
 statement ok
 DETACH s
@@ -138,7 +138,7 @@ FROM postgres_configure_pool(catalog_name='s')
 s	42000
 
 statement ok
-RESET pg_pool_idle_timeout_millis
+RESET GLOBAL pg_pool_idle_timeout_millis
 
 statement ok
 DETACH s
@@ -159,10 +159,10 @@ FROM postgres_configure_pool(catalog_name='s')
 s	TRUE
 
 statement ok
-RESET pg_pool_enable_reaper_thread
+RESET GLOBAL pg_pool_enable_reaper_thread
 
 statement ok
-RESET pg_pool_idle_timeout_millis
+RESET GLOBAL pg_pool_idle_timeout_millis
 
 statement ok
 DETACH s
@@ -187,7 +187,7 @@ SELECT current_setting('pg_pool_max_connections')
 42
 
 statement ok
-RESET pg_connection_limit
+RESET GLOBAL pg_connection_limit
 
 query I
 SELECT current_setting('pg_pool_max_connections')
@@ -215,7 +215,7 @@ SELECT current_setting('pg_pool_max_connections')
 0
 
 statement ok
-RESET pg_connection_cache
+RESET GLOBAL pg_connection_cache
 
 query I
 SELECT current_setting('pg_pool_max_connections')
