@@ -7,18 +7,27 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
+PRAGMA enable_verification
+
+statement ok
+SET pg_pool_max_connections = 8
+
+statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
 statement ok
 ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES);
 
-query I
-SELECT catalog_name
+statement ok
+RESET GLOBAL pg_pool_max_connections
+
+query II
+SELECT catalog_name, max_connections 
 FROM postgres_configure_pool()
 ORDER BY catalog_name
 ----
-s
-s1
+s	8
+s1	8
 
 query II
 SELECT catalog_name, acquire_mode
