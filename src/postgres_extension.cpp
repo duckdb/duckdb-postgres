@@ -246,25 +246,28 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "pg_pool_acquire_mode",
 	    "How to acquire connections from the pool: 'force' (always connect, ignore pool limit), "
 	    "'wait' (block until available), 'try' (fail immediately if unavailable) (default: force)",
-	    LogicalType::VARCHAR, Value("force"), PostgresConnectionPool::ValidatePoolAcquireMode);
+	    LogicalType::VARCHAR, Value("force"), PostgresConnectionPool::ValidatePoolAcquireMode, SetScope::GLOBAL);
 	config.AddExtensionOption("pg_pool_max_connections",
 	                          "Maximum number of connections that are allowed to be cached in a connection pool for "
 	                          "each attached Postgres database. "
 	                          "This number can be temporary exceeded when parallel scans are used. " +
 	                              CreatePoolNote("max_connections=42"),
-	                          LogicalType::UBIGINT, Value::UBIGINT(PostgresConnectionPool::DefaultPoolSize()));
+	                          LogicalType::UBIGINT, Value::UBIGINT(PostgresConnectionPool::DefaultPoolSize()), nullptr,
+	                          SetScope::GLOBAL);
 	config.AddExtensionOption("pg_pool_wait_timeout_millis",
 	                          "Maximum number of milliseconds to wait when acquiring a connection from a pool where "
 	                          "all available connections are already taken. " +
 	                              CreatePoolNote("wait_timeout_millis=60000"),
 	                          LogicalType::UBIGINT,
-	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().wait_timeout_millis));
+	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().wait_timeout_millis), nullptr,
+	                          SetScope::GLOBAL);
 	config.AddExtensionOption(
 	    "pg_pool_enable_thread_local_cache",
 	    "Whether to enable the connection caching in thread-local cache. Such connections are getting pinned to the "
 	    "threads and are not made available to other threads, while still taking the place in the pool. " +
 	        CreatePoolNote("enable_thread_local_cache=FALSE"),
-	    LogicalType::BOOLEAN, Value::BOOLEAN(dbconnector::pool::ConnectionPoolConfig().tl_cache_enabled));
+	    LogicalType::BOOLEAN, Value::BOOLEAN(dbconnector::pool::ConnectionPoolConfig().tl_cache_enabled), nullptr,
+	    SetScope::GLOBAL);
 	config.AddExtensionOption("pg_pool_max_lifetime_millis",
 	                          "Maximum number of milliseconds the connection can be kept open. This number is checked "
 	                          "when the connection is taken from the pool and returned to the pool. "
@@ -272,7 +275,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "option), then this number is checked in background periodically. " +
 	                              CreatePoolNote("max_lifetime_millis=600000"),
 	                          LogicalType::UBIGINT,
-	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().max_lifetime_millis));
+	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().max_lifetime_millis), nullptr,
+	                          SetScope::GLOBAL);
 	config.AddExtensionOption("pg_pool_idle_timeout_millis",
 	                          "Maximum number of milliseconds the connection can be kept idle in the pool. This number "
 	                          "is checked when the connection is taken from the pool. "
@@ -280,7 +284,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "option), then this number is checked in background periodically. " +
 	                              CreatePoolNote("idle_timeout_millis=300000"),
 	                          LogicalType::UBIGINT,
-	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().idle_timeout_millis));
+	                          Value::UBIGINT(dbconnector::pool::ConnectionPoolConfig().idle_timeout_millis), nullptr,
+	                          SetScope::GLOBAL);
 	config.AddExtensionOption(
 	    "pg_pool_enable_reaper_thread",
 	    "Whether to enable the connection pool reaper thread, that periodically scans the pool to check the "
@@ -288,12 +293,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "Either 'max_lifetime_millis' or 'idle_timeout_millis' must be set to a non-zero value for this option to be "
 	    "effective. " +
 	        CreatePoolNote("enable_reaper_thread=TRUE"),
-	    LogicalType::BOOLEAN, Value::BOOLEAN(dbconnector::pool::ConnectionPoolConfig().start_reaper_thread));
+	    LogicalType::BOOLEAN, Value::BOOLEAN(dbconnector::pool::ConnectionPoolConfig().start_reaper_thread), nullptr,
+	    SetScope::GLOBAL);
 	config.AddExtensionOption("pg_pool_health_check_query",
 	                          "The query that is used to check that the connection is healthy. Setting this option to "
 	                          "an empty string disables the health check. " +
 	                              CreatePoolNote("health_check_query=SELECT 42"),
-	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery());
+	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery(), nullptr,
+	                          SetScope::GLOBAL);
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;
