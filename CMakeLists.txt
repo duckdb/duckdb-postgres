@@ -23,7 +23,8 @@ endif()
 include_directories(
     include
     database-connector/src/include
-    ${OPENSSL_INCLUDE_DIR})
+    ${OPENSSL_INCLUDE_DIR}
+    ${PostgreSQL_INCLUDE_DIRS})
 
 if(WIN32)
   include_directories(
