@@ -1,0 +1,45 @@
+# name: test/sql/storage/attach_oauth_token.test
+# description: Test OAuth bearer token injection via PQsetAuthDataHook
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env PGOAUTHTOKEN
+
+require-env PG_OAUTH_DSN
+
+# Explicitly load the extension so settings are registered
+statement ok
+LOAD postgres_scanner;
+
+# Test 1: Connect using the pg_oauth_token DuckDB setting
+statement ok
+SET pg_oauth_token = '${PGOAUTHTOKEN}';
+
+statement ok
+ATTACH '${PG_OAUTH_DSN}' AS pg_oauth (TYPE POSTGRES);
+
+query I
+SELECT current_user FROM postgres_query('pg_oauth', 'SELECT current_user');
+----
+admin
+
+statement ok
+DETACH pg_oauth;
+
+# Test 2: Clear the setting and verify env var fallback (PGOAUTHTOKEN) works
+statement ok
+SET pg_oauth_token = '';
+
+statement ok
+ATTACH '${PG_OAUTH_DSN}' AS pg_oauth_env (TYPE POSTGRES);
+
+query I
+SELECT current_user FROM postgres_query('pg_oauth_env', 'SELECT current_user');
+----
+admin
+
+statement ok
+DETACH pg_oauth_env;

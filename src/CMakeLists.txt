@@ -22,7 +22,8 @@ add_library(
   postgres_storage.cpp
   postgres_text_reader.cpp
   postgres_utils.cpp
-  postgres_logging.cpp)
+  postgres_logging.cpp
+  postgres_oauth.cpp)
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:postgres_ext_library>
     PARENT_SCOPE)
