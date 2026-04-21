@@ -86,6 +86,8 @@ static string GenerateRdsAuthToken(const string &hostname, const string &port, c
 		}
 	}
 
+	// Two threads may both reach here after a concurrent cache miss; the second write simply
+	// overwrites the first with an equally valid token — harmless given the 15-min TTL.
 	vector<string> aws_argv = {"aws", "rds", "generate-db-auth-token",
 	                           "--hostname", hostname, "--port", port, "--username", username};
 	if (!aws_region.empty()) {
@@ -237,7 +239,7 @@ string PostgresCatalog::GetFreshConnectionString() {
 		return connection_string;
 	}
 	string fresh_token = GenerateRdsAuthToken(rds_hostname, rds_port, rds_username, rds_region);
-	return rds_base_connection_string + " password=" + EscapeConnectionString(fresh_token) + " ";
+	return rds_base_connection_string + "password=" + EscapeConnectionString(fresh_token) + " ";
 }
 
 PostgresCatalog::~PostgresCatalog() = default;

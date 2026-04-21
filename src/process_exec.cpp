@@ -1,4 +1,5 @@
 #include "process_exec.hpp"
+#include "duckdb/common/chrono.hpp"
 #include "duckdb/common/exception.hpp"
 
 #ifdef _WIN32
@@ -13,6 +14,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+
+static constexpr int PROCESS_TIMEOUT_MS = 30000;
 
 namespace duckdb {
 
@@ -108,7 +111,7 @@ ProcessResult RunProcess(const vector<string> &argv) {
 	std::thread t_out(DrainPipe, stdout_r, std::ref(stdout_buf));
 	std::thread t_err(DrainPipe, stderr_r, std::ref(stderr_buf));
 
-	if (WaitForSingleObject(pi.hProcess, 30000) == WAIT_TIMEOUT) {
+	if (WaitForSingleObject(pi.hProcess, PROCESS_TIMEOUT_MS) == WAIT_TIMEOUT) {
 		TerminateProcess(pi.hProcess, 1);
 		WaitForSingleObject(pi.hProcess, INFINITE);
 		t_out.join();
@@ -165,7 +168,6 @@ ProcessResult RunProcess(const vector<string> &argv) {
 	}
 
 	if (pid == 0) {
-		// Child: wire up stdout/stderr, signal exec failure via err_pipe
 		dup2(stdout_pipe[1], STDOUT_FILENO);
 		dup2(stderr_pipe[1], STDERR_FILENO);
 		close(stdout_pipe[0]);
@@ -208,23 +210,12 @@ ProcessResult RunProcess(const vector<string> &argv) {
 	string *targets[2] = {&result.stdout_str, &result.stderr_str};
 	bool pipe_closed[2] = {false, false};
 
-	constexpr int TIMEOUT_MS = 30000;
-	// Compute an absolute deadline using clock_gettime to avoid steady_clock include dependency
-	struct timespec deadline_ts;
-	clock_gettime(CLOCK_MONOTONIC, &deadline_ts);
-	deadline_ts.tv_sec += TIMEOUT_MS / 1000;
-	deadline_ts.tv_nsec += (TIMEOUT_MS % 1000) * 1000000L;
-	if (deadline_ts.tv_nsec >= 1000000000L) {
-		deadline_ts.tv_sec++;
-		deadline_ts.tv_nsec -= 1000000000L;
-	}
+	auto deadline = steady_clock::now() + std::chrono::milliseconds(PROCESS_TIMEOUT_MS);
 
 	char buf[4096];
 	while (!pipe_closed[0] || !pipe_closed[1]) {
-		struct timespec now_ts;
-		clock_gettime(CLOCK_MONOTONIC, &now_ts);
-		long remaining_ms = (deadline_ts.tv_sec - now_ts.tv_sec) * 1000L +
-		                    (deadline_ts.tv_nsec - now_ts.tv_nsec) / 1000000L;
+		long remaining_ms =
+		    std::chrono::duration_cast<std::chrono::milliseconds>(deadline - steady_clock::now()).count();
 		if (remaining_ms <= 0) {
 			kill(pid, SIGKILL);
 			waitpid(pid, nullptr, 0);
