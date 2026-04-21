@@ -6,6 +6,8 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
+require-env POSTGRES_TEST_SLOW
+
 statement ok
 CALL postgres_attach('dbname=postgresscanner');
 

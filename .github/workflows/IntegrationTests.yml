@@ -39,8 +39,90 @@ jobs:
           make format-check
 
   linux-tests:
-    name: Run tests on Linux
+    name: Linux Tests
     needs: format-check
+    runs-on: ubuntu-latest
+
+    env:
+      GEN: ninja
+      CC: 'ccache gcc'
+      CXX: 'ccache g++'
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      VCPKG_TARGET_TRIPLET: x64-linux-release
+      VCPKG_HOST_TRIPLET: x64-linux-release
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        submodules: 'true'
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
+        sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
+          build-essential \
+          ccache \
+          cmake \
+          ninja-build
+
+    - name: Cache Key
+      id: cache_key
+      working-directory: ./duckdb
+      run: |
+        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
+        echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
+
+    - name: Restore Cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup Postgres
+      uses: ikalnytskyi/action-setup-postgres@v8
+      with:
+        postgres-version: 17
+        username: 'postgres'
+        password: 'postgres'
+        database: 'postgres'
+        port: '5432'
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11.1
+      with:
+        vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+    - name: Build extension
+      run: |
+        make release
+
+    - name: Save Cache
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Run tests
+      env:
+        PGHOST: localhost
+        PGPORT: 5432
+        PGUSER: postgres
+        PGPASSWORD: postgres
+        POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_TEST_SLOW: 1
+        LOCAL_EXTENSION_REPO: 'build/release/repository'
+      run: |
+        source ./create-postgres-tables.sh
+        psql -d postgresscanner -c "SELECT 42"
+        make test
+
+  linux-pgbouncer:
+    name: Linux PgBouncer
+    needs: linux-tests
     runs-on: ubuntu-latest
 
     strategy:
@@ -125,12 +207,6 @@ jobs:
       run: |
         make release
 
-    - name: Save Cache
-      uses: actions/cache/save@v5
-      with:
-        path: ${{ github.workspace }}/ccache
-        key: ${{ steps.cache_key.outputs.value }}
-
     - name: Setup test data
       env:
         PGHOST: localhost
@@ -147,8 +223,8 @@ jobs:
         PGUSER: postgres
         PGPASSWORD: postgres
         PGSSLMODE: require
-        PGSSLROOTCERT: ${{ github.workspace }}/pgbouncer/pgbouncer.crt
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_TEST_SLOW: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
@@ -161,11 +237,10 @@ jobs:
         PGUSER: postgres
         PGPASSWORD: postgres
         PGSSLMODE: require
-        PGSSLROOTCERT: ${{ github.workspace }}/server.crt
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_TEST_SLOW: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
-        cp $RUNNER_TEMP/pgdata/server.crt .
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
         make test
 
@@ -177,9 +252,93 @@ jobs:
         path: |
           /var/log/postgresql/pgbouncer.log
 
+  linux-relassert:
+    name: Linux RelAssert
+    needs: linux-tests
+    runs-on: ubuntu-latest
+
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CC: 'ccache gcc'
+      CXX: 'ccache g++'
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      VCPKG_TARGET_TRIPLET: x64-linux-release
+      VCPKG_HOST_TRIPLET: x64-linux-release
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        submodules: 'true'
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
+        sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
+          build-essential \
+          ccache \
+          cmake
+
+    - name: Cache Key
+      id: cache_key
+      working-directory: ./duckdb
+      run: |
+        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert
+        echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
+
+    - name: Restore Cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup Postgres
+      uses: ikalnytskyi/action-setup-postgres@v8
+      with:
+        postgres-version: 18
+        username: 'postgres'
+        password: 'postgres'
+        database: 'postgres'
+        port: '5432'
+        ssl: true
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11.1
+      with:
+        vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+    - name: Build extension
+      run: |
+        make relassert
+        cd build
+        ln -s relassert release
+
+    - name: Save Cache
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Run tests
+      env:
+        PGHOST: localhost
+        PGPORT: 5432
+        PGUSER: postgres
+        PGPASSWORD: postgres
+        PGSSLMODE: require
+        POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        LOCAL_EXTENSION_REPO: 'build/relassert/repository'
+      run: |
+        source ./create-postgres-tables.sh
+        psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+        make test
+
   windows-tests:
-    name: Run tests on Windows
-    needs: format-check
+    name: Windows Tests
+    needs: linux-tests
     runs-on: windows-latest
 
     env:

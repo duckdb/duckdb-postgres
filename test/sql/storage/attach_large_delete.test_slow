@@ -1,10 +1,12 @@
-# name: test/sql/storage/attach_large_delete.test
+# name: test/sql/storage/attach_large_delete.test_slow
 # description: Test deleting many rows from a large table
 # group: [storage]
 
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env POSTGRES_TEST_SLOW
 
 statement ok
 PRAGMA enable_verification

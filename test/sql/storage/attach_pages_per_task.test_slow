@@ -1,10 +1,12 @@
-# name: test/sql/storage/attach_pages_per_task.test
+# name: test/sql/storage/attach_pages_per_task.test_slow
 # description: Test the pg_pages_per_task setting
 # group: [storage]
 
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env POSTGRES_TEST_SLOW
 
 statement ok
 PRAGMA enable_verification
