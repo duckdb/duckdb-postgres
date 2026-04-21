@@ -118,7 +118,7 @@ unique_ptr<BaseSecret> CreatePostgresSecretFunction(ClientContext &context, Crea
 		} else if (lower_name == "passfile") {
 			result->secret_map["passfile"] = named_param.second.ToString();
 		} else if (lower_name == "use_rds_iam_auth") {
-			result->secret_map["use_rds_iam_auth"] = named_param.second.ToString();
+			result->secret_map["use_rds_iam_auth"] = named_param.second;
 		} else if (lower_name == "aws_region") {
 			result->secret_map["aws_region"] = named_param.second.ToString();
 		} else {

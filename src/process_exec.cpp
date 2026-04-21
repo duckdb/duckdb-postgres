@@ -73,7 +73,12 @@ ProcessResult RunProcess(const vector<string> &argv) {
 	sa.bInheritHandle = TRUE;
 
 	HANDLE stdout_r, stdout_w, stderr_r, stderr_w;
-	if (!CreatePipe(&stdout_r, &stdout_w, &sa, 0) || !CreatePipe(&stderr_r, &stderr_w, &sa, 0)) {
+	if (!CreatePipe(&stdout_r, &stdout_w, &sa, 0)) {
+		throw IOException("RunProcess: CreatePipe failed");
+	}
+	if (!CreatePipe(&stderr_r, &stderr_w, &sa, 0)) {
+		CloseHandle(stdout_r);
+		CloseHandle(stdout_w);
 		throw IOException("RunProcess: CreatePipe failed");
 	}
 	// Don't let the child inherit the read ends
@@ -152,7 +157,19 @@ ProcessResult RunProcess(const vector<string> &argv) {
 	c_args.push_back(nullptr);
 
 	int stdout_pipe[2], stderr_pipe[2], err_pipe[2];
-	if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0 || pipe(err_pipe) != 0) {
+	if (pipe(stdout_pipe) != 0) {
+		throw IOException("RunProcess: pipe() failed: %s", strerror(errno));
+	}
+	if (pipe(stderr_pipe) != 0) {
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+		throw IOException("RunProcess: pipe() failed: %s", strerror(errno));
+	}
+	if (pipe(err_pipe) != 0) {
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+		close(stderr_pipe[0]);
+		close(stderr_pipe[1]);
 		throw IOException("RunProcess: pipe() failed: %s", strerror(errno));
 	}
 

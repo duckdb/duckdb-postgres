@@ -105,8 +105,10 @@ static string GenerateRdsAuthToken(const string &hostname, const string &port, c
 	}
 
 	string token = std::move(proc.stdout_str);
-	// Strip the single trailing newline the aws CLI appends
 	if (!token.empty() && token.back() == '\n') {
+		token.pop_back();
+	}
+	if (!token.empty() && token.back() == '\r') {
 		token.pop_back();
 	}
 
@@ -161,7 +163,7 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
 				base += AddConnectionOption(kv, "port");
 				base += AddConnectionOption(kv, "dbname");
 				base += AddConnectionOption(kv, "passfile");
-				rds_base_connection_string = base + attach_path;
+				rds_base_connection_string = base;
 			}
 		}
 	}
@@ -239,7 +241,7 @@ string PostgresCatalog::GetFreshConnectionString() {
 		return connection_string;
 	}
 	string fresh_token = GenerateRdsAuthToken(rds_hostname, rds_port, rds_username, rds_region);
-	return rds_base_connection_string + "password=" + EscapeConnectionString(fresh_token) + " ";
+	return rds_base_connection_string + "password=" + EscapeConnectionString(fresh_token) + " " + attach_path;
 }
 
 PostgresCatalog::~PostgresCatalog() = default;
