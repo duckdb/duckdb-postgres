@@ -1,10 +1,12 @@
-# name: test/sql/storage/attach_connection_pool.test
+# name: test/sql/storage/attach_connection_pool.test_slow
 # description: Test that the connection pool correctly limits the number of connections
 # group: [storage]
 
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env POSTGRES_TEST_SLOW
 
 statement ok
 PRAGMA enable_verification
