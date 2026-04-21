@@ -58,7 +58,7 @@ PostgresPoolConnection PostgresConnectionPool::GetConnection() {
 	case PostgresPoolAcquireMode::TRY:
 		return TryAcquire();
 	default:
-		throw IOException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
+		throw IOException("Invalid unsupported acquire mode: %d", static_cast<int>(mode));
 	}
 }
 
@@ -180,7 +180,7 @@ std::string PostgresConnectionPool::AcquireModeToString(PostgresPoolAcquireMode 
 	case PostgresPoolAcquireMode::TRY:
 		return "try";
 	default:
-		throw InvalidInputException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
+		throw InvalidInputException("Invalid unsupported acquire mode: %d", static_cast<int>(mode));
 	}
 }
 

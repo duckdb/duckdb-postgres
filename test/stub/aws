@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stub aws binary for RDS IAM auth testing.
+# Prints a known fake token; logs to $AWS_STUB_LOG if set.
+FAKE_TOKEN="fake-rds-token-1234567890abcdef"
+if [ -n "$AWS_STUB_LOG" ]; then
+    echo "$@" >> "$AWS_STUB_LOG"
+fi
+echo "$FAKE_TOKEN"

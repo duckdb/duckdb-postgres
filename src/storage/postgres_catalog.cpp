@@ -2,6 +2,7 @@
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
+#include "process_exec.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -9,7 +10,6 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/common/chrono.hpp"
 #include "duckdb/common/printer.hpp"
-#include <cstdio>
 #include <unordered_map>
 
 namespace duckdb {
@@ -73,8 +73,7 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 
 // Generate an RDS IAM auth token via the AWS CLI.
 // Results are cached for 13 minutes (tokens expire at 15).
-// stderr from the aws command is not captured here — it propagates to the process stderr
-// so the user can see credential errors directly.
+// aws stderr is captured and surfaced in the exception message on failure.
 static string GenerateRdsAuthToken(const string &hostname, const string &port, const string &username,
                                    const string &aws_region) {
 	string cache_key = hostname + "|" + port + "|" + username + "|" + aws_region;
@@ -87,50 +86,26 @@ static string GenerateRdsAuthToken(const string &hostname, const string &port, c
 		}
 	}
 
-	auto escape_shell_arg = [](const string &arg) -> string {
-		string escaped = "'";
-		for (char c : arg) {
-			if (c == '\'') {
-				escaped += "'\\''";
-			} else {
-				escaped += c;
-			}
-		}
-		escaped += "'";
-		return escaped;
-	};
-
-	string command = "aws rds generate-db-auth-token --hostname " + escape_shell_arg(hostname) +
-	                 " --port " + escape_shell_arg(port) + " --username " + escape_shell_arg(username);
-
+	vector<string> aws_argv = {"aws", "rds", "generate-db-auth-token",
+	                           "--hostname", hostname, "--port", port, "--username", username};
 	if (!aws_region.empty()) {
-		command += " --region " + escape_shell_arg(aws_region);
-	}
-	// No 2>&1 — aws CLI stderr goes to the process stderr so users see credential errors.
-
-	FILE *pipe = popen(command.c_str(), "r");
-	if (!pipe) {
-		throw IOException("Failed to execute AWS CLI command to generate RDS auth token. "
-		                  "Make sure AWS CLI is installed and configured.");
+		aws_argv.push_back("--region");
+		aws_argv.push_back(aws_region);
 	}
 
-	string token;
-	char buffer[256];
-	while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-		token += buffer;
+	ProcessResult proc = RunProcess(aws_argv);
+
+	if (proc.exit_code != 0) {
+		string detail = proc.stderr_str.empty() ? string() : "\n" + proc.stderr_str;
+		throw IOException("Failed to generate RDS auth token (aws CLI exited with code %d). "
+		                  "Check AWS credentials and IAM permissions.%s",
+		                  proc.exit_code, detail);
 	}
 
-	int status = pclose(pipe);
-
+	string token = std::move(proc.stdout_str);
 	// Strip the single trailing newline the aws CLI appends
 	if (!token.empty() && token.back() == '\n') {
 		token.pop_back();
-	}
-
-	if (status != 0) {
-		throw IOException("Failed to generate RDS auth token (aws CLI exited with code %d). "
-		                  "Check AWS credentials and IAM permissions.",
-		                  status);
 	}
 
 	if (PostgresConnection::DebugPrintQueries()) {

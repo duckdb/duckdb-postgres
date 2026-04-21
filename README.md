@@ -58,7 +58,7 @@ The extension supports AWS RDS IAM-based authentication, which allows you to con
 
 #### Requirements
 
-- AWS CLI installed and configured
+- AWS CLI installed and available on `PATH` (works on Linux, macOS, and Windows)
 - RDS instance with IAM database authentication enabled
 - IAM user/role with `rds-db:connect` permission for the RDS instance
 - AWS credentials configured (via `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or IAM role)
