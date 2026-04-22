@@ -80,16 +80,15 @@ static string GenerateRdsAuthToken(const string &hostname, const string &port, c
 	{
 		lock_guard<mutex> lock(s_rds_cache_mutex);
 		auto it = s_rds_token_cache.find(cache_key);
-		if (it != s_rds_token_cache.end() &&
-		    steady_clock::now() < it->second.expiry) {
+		if (it != s_rds_token_cache.end() && steady_clock::now() < it->second.expiry) {
 			return it->second.token;
 		}
 	}
 
 	// Two threads may both reach here after a concurrent cache miss; the second write simply
 	// overwrites the first with an equally valid token — harmless given the 15-min TTL.
-	vector<string> aws_argv = {"aws", "rds", "generate-db-auth-token",
-	                           "--hostname", hostname, "--port", port, "--username", username};
+	vector<string> aws_argv = {"aws",        "rds",   "generate-db-auth-token", "--hostname", hostname, "--port", port,
+	                           "--username", username};
 	if (!aws_region.empty()) {
 		aws_argv.push_back("--region");
 		aws_argv.push_back(aws_region);
@@ -115,15 +114,13 @@ static string GenerateRdsAuthToken(const string &hostname, const string &port, c
 	if (PostgresConnection::DebugPrintQueries()) {
 		string prefix = token.size() > 6 ? token.substr(0, 6) + "..." : token;
 		Printer::Print(StringUtil::Format(
-		    "[RDS IAM Auth] Generated token for host=%s port=%s user=%s region=%s (prefix=%s len=%llu)\n",
-		    hostname, port, username, aws_region.empty() ? "(default)" : aws_region, prefix,
-		    (unsigned long long)token.size()));
+		    "[RDS IAM Auth] Generated token for host=%s port=%s user=%s region=%s (prefix=%s len=%llu)\n", hostname,
+		    port, username, aws_region.empty() ? "(default)" : aws_region, prefix, (unsigned long long)token.size()));
 	}
 
 	{
 		lock_guard<mutex> lock(s_rds_cache_mutex);
-		s_rds_token_cache[cache_key] = {
-		    token, steady_clock::now() + std::chrono::seconds(RDS_TOKEN_TTL_SECS)};
+		s_rds_token_cache[cache_key] = {token, steady_clock::now() + std::chrono::seconds(RDS_TOKEN_TTL_SECS)};
 	}
 
 	return token;
@@ -134,8 +131,8 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
                                  ClientContext &context, string secret_name_p)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
       secret_name(std::move(secret_name_p)), access_mode(access_mode), isolation_level(isolation_level),
-      schemas(*this, schema_to_load),
-      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
+      schemas(*this, schema_to_load), connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)),
+      default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
 	}
