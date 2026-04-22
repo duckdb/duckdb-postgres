@@ -64,7 +64,7 @@ public:
 	//! We would in this case remap them to "ID" and "id:1", while postgres_names store the original names
 	vector<string> postgres_names;
 	//! The approximate number of pages a table consumes in Postgres
-	int64_t approx_num_pages;
+	std::atomic<int64_t> approx_num_pages;
 };
 
 } // namespace duckdb

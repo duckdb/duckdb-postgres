@@ -451,6 +451,7 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 	}
 	if (bind_data.pages_approx == 0 || bind_data.requires_materialization) {
 		PostgresInitInternal(context, &bind_data, *local_state, 0, POSTGRES_TID_MAX);
+		lock_guard<mutex> parallel_lock(gstate.lock);
 		gstate.page_idx = POSTGRES_TID_MAX;
 	} else if (!PostgresParallelStateNext(context, input.bind_data.get(), *local_state, gstate)) {
 		local_state->done = true;
