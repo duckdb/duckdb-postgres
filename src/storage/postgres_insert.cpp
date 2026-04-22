@@ -141,7 +141,7 @@ SinkFinalizeType PostgresInsert::Finalize(Pipeline &pipeline, Event &event, Clie
 	idx_t bytes_per_page = 8192;
 	idx_t bytes_per_row = gstate.table.GetColumns().LogicalColumnCount() * 8;
 	idx_t rows_per_page = MaxValue<idx_t>(1, bytes_per_page / bytes_per_row);
-	gstate.table.approx_num_pages += gstate.insert_count / rows_per_page;
+	gstate.table.approx_num_pages.fetch_add(gstate.insert_count / rows_per_page, std::memory_order_acq_rel);
 	return SinkFinalizeType::READY;
 }
 

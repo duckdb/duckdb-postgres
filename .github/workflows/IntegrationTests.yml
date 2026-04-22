@@ -257,6 +257,10 @@ jobs:
     needs: linux-tests
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        threadsan: [0, 1]
+
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       CC: 'ccache gcc'
@@ -286,7 +290,7 @@ jobs:
       working-directory: ./duckdb
       run: |
         DUCKDB_VERSION=$(git rev-parse --short HEAD)
-        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert
+        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert-${{ matrix.threadsan }}
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
     - name: Restore Cache
@@ -311,8 +315,11 @@ jobs:
         vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
 
     - name: Build extension
+      env:
+        THREADSAN: ${{ matrix.threadsan }}
       run: |
         make relassert
+        cat ./build/relassert/src/CMakeFiles/duckdb.dir/flags.make
         cd build
         ln -s relassert release
 
