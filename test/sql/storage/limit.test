@@ -65,9 +65,10 @@ FROM s.large_tbl LIMIT 5 OFFSET 5
 statement ok
 set explain_output='optimized_only'
 
-# limit is still in plan as we were not able to push down due to parallel execution
+# limit is pushed down to Postgres even with pg_pages_per_task=1
+# (we now force single-task execution when LIMIT is pushed down)
 
 query II
 EXPLAIN FROM s.large_tbl LIMIT 5;
 ----
-logical_opt	<REGEX>:.*LIMIT.*
+logical_opt	<!REGEX>:.*LIMIT.*

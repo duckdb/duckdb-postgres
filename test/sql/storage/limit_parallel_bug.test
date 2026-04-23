@@ -1,0 +1,66 @@
+# name: test/sql/storage/limit_parallel_bug.test
+# description: Test LIMIT bug with parallelism (issues #380, #395)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# Create a large table to enable parallelism
+statement ok
+CREATE OR REPLACE TABLE s.limit_test_large AS
+SELECT unnest(generate_series(1, 1000000)) as id,
+       CASE floor(random() * 3)::int
+           WHEN 0 THEN 'Group A'
+           WHEN 1 THEN 'Group B'
+           ELSE 'Group C'
+       END as grp
+
+# Force parallelism with small pages_per_task
+statement ok
+SET pg_pages_per_task=1
+
+# Test 1: Basic LIMIT 1 should return exactly 1 row
+query I
+SELECT count(*) FROM (SELECT * FROM s.limit_test_large LIMIT 1)
+----
+1
+
+# Test 2: LIMIT 1 with WHERE clause
+query I
+SELECT count(*) FROM (SELECT * FROM s.limit_test_large WHERE grp = 'Group A' LIMIT 1)
+----
+1
+
+# Test 3: Within transaction
+statement ok
+BEGIN
+
+query I
+SELECT count(*) FROM (SELECT * FROM s.limit_test_large LIMIT 1)
+----
+1
+
+statement ok
+ROLLBACK
+
+# Test 4: Transaction with index creation (issue #395 scenario)
+statement ok
+BEGIN
+
+statement ok
+CREATE INDEX IF NOT EXISTS limit_test_idx ON s.limit_test_large (grp)
+
+query I
+SELECT count(*) FROM (SELECT * FROM s.limit_test_large WHERE grp = 'Group A' LIMIT 1)
+----
+1
+
+statement ok
+ROLLBACK
+
+statement ok
+DROP TABLE IF EXISTS s.limit_test_large
