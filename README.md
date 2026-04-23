@@ -52,6 +52,53 @@ D SELECT * FROM postgres_db.uuids;
 
 For more information on how to use the connector, refer to the [Postgres documentation on the website](https://duckdb.org/docs/extensions/postgres).
 
+### AWS RDS IAM Authentication
+
+The extension supports AWS RDS IAM-based authentication, which allows you to connect to RDS PostgreSQL instances using IAM database authentication instead of static passwords. This feature automatically generates temporary authentication tokens using the AWS CLI.
+
+#### Requirements
+
+- AWS CLI installed and available on `PATH` (works on Linux, macOS, and Windows)
+- RDS instance with IAM database authentication enabled
+- IAM user/role with `rds-db:connect` permission for the RDS instance
+- AWS credentials configured (via `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or IAM role)
+
+#### Usage
+
+To use RDS IAM authentication, create a Postgres secret with the `USE_RDS_IAM_AUTH` parameter set to `true`:
+
+```sql
+CREATE SECRET rds_secret (
+    TYPE POSTGRES,
+    HOST 'my-db-instance.xxxxxx.us-west-2.rds.amazonaws.com',
+    PORT '5432',
+    USER 'my_iam_user',
+    DATABASE 'mydb',
+    USE_RDS_IAM_AUTH true,
+    AWS_REGION 'us-west-2'  -- Optional: uses AWS CLI default if not specified
+);
+
+ATTACH '' AS rds_db (TYPE POSTGRES, SECRET rds_secret);
+```
+
+#### Secret Parameters for RDS IAM Authentication
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `USE_RDS_IAM_AUTH` | BOOLEAN | Yes | Enable RDS IAM authentication |
+| `HOST` | VARCHAR | Yes | RDS instance hostname |
+| `PORT` | VARCHAR | Yes | RDS instance port (typically 5432) |
+| `USER` | VARCHAR | Yes | IAM database username |
+| `DATABASE` or `DBNAME` | VARCHAR | No | Database name |
+| `AWS_REGION` | VARCHAR | No | AWS region (optional, uses AWS CLI default if not specified) |
+
+#### Important Notes
+
+- **Token Expiration**: RDS auth tokens expire after 15 minutes. The extension caches tokens for 13 minutes per `(host, port, user, region)` tuple, so new pool connections reuse cached tokens rather than spawning a new `aws` process each time.
+- **AWS CLI**: The extension uses the `aws rds generate-db-auth-token` command. Make sure the AWS CLI is installed and configured with appropriate credentials.
+- **Environment Variables**: The AWS CLI command inherits environment variables from the parent process, so `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_REGION` will be available to the AWS CLI.
+
+
 ## Building & Loading the Extension
 
 The DuckDB submodule must be initialized prior to building.

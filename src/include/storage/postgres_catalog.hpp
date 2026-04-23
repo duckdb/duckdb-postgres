@@ -24,7 +24,7 @@ class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
 	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-	                         ClientContext &context);
+	                         ClientContext &context, string secret_name = string());
 	~PostgresCatalog();
 
 	string connection_string;
@@ -42,6 +42,8 @@ public:
 	}
 
 	static string GetConnectionString(ClientContext &context, const string &attach_path, string secret_name);
+
+	string GetFreshConnectionString();
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 
@@ -111,6 +113,14 @@ private:
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
+
+	string secret_name;
+	bool use_rds_iam_auth = false;
+	string rds_hostname;
+	string rds_port;
+	string rds_username;
+	string rds_region;
+	string rds_base_connection_string;
 };
 
 } // namespace duckdb

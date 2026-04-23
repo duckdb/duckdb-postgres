@@ -58,12 +58,12 @@ PostgresPoolConnection PostgresConnectionPool::GetConnection() {
 	case PostgresPoolAcquireMode::TRY:
 		return TryAcquire();
 	default:
-		throw IOException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
+		throw IOException("Invalid unsupported acquire mode: %d", static_cast<int>(mode));
 	}
 }
 
 std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateNewConnection() {
-	auto conn = PostgresConnection::Open(postgres_catalog.connection_string, postgres_catalog.attach_path);
+	auto conn = PostgresConnection::Open(postgres_catalog.GetFreshConnectionString(), postgres_catalog.attach_path);
 	return make_uniq<PostgresConnection>(std::move(conn));
 }
 
@@ -180,7 +180,7 @@ std::string PostgresConnectionPool::AcquireModeToString(PostgresPoolAcquireMode 
 	case PostgresPoolAcquireMode::TRY:
 		return "try";
 	default:
-		throw InvalidInputException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
+		throw InvalidInputException("Invalid unsupported acquire mode: %d", static_cast<int>(mode));
 	}
 }
 
