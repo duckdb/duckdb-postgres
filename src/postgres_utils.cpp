@@ -2,6 +2,7 @@
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_type_oids.hpp"
+#include "duckdb/common/types/geometry_crs.hpp"
 
 namespace duckdb {
 
@@ -23,6 +24,26 @@ PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 }
 
 string PostgresUtils::TypeToString(const LogicalType &input) {
+	// Handle GEOMETRY('EPSG:N') first: the CRS-bearing GEOMETRY type can have
+	// an alias of "GEOMETRY", which would otherwise short-circuit the alias
+	// branch below and emit an untyped `geometry` column (typmod -1).  When
+	// CRS is present, emit a typmod-bearing PostGIS column type so the SRID
+	// survives a CREATE TABLE round trip; otherwise fall through.
+	if (input.id() == LogicalTypeId::GEOMETRY && GeoType::HasCRS(input)) {
+		auto &crs = GeoType::GetCRS(input);
+		auto &id = crs.GetIdentifier();
+		auto colon = id.find(':');
+		if (colon != string::npos) {
+			try {
+				int32_t srid = std::stoi(id.substr(colon + 1));
+				if (srid > 0) {
+					return "geometry(Geometry, " + std::to_string(srid) + ")";
+				}
+			} catch (...) {
+				// fall through to plain GEOMETRY
+			}
+		}
+	}
 	if (input.HasAlias()) {
 		return input.GetAlias();
 	}
@@ -193,6 +214,20 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		postgres_type.info = PostgresTypeAnnotation::JSONB;
 		return LogicalType::VARCHAR;
 	} else if (pgtypename == "geometry") {
+		// PostGIS encodes the column-level SRID in the type modifier of
+		// `geometry(TYPE, SRID)` columns. The bit layout is:
+		//   bits  0    : has-M
+		//   bits  1    : has-Z
+		//   bits  2-7  : geometry type code (POINT=1, LINESTRING=2, ...)
+		//   bits  8-29 : SRID
+		// Untyped `geometry` columns carry typmod -1 and we fall back to
+		// plain GEOMETRY (no CRS), matching the previous behavior.
+		if (type_info.type_modifier > 0) {
+			int32_t srid = static_cast<int32_t>((static_cast<uint32_t>(type_info.type_modifier) & 0x0FFFFF00u) >> 8);
+			if (srid > 0) {
+				return LogicalType::GEOMETRY("EPSG:" + std::to_string(srid));
+			}
+		}
 		return LogicalType::GEOMETRY();
 	} else if (pgtypename == "date") {
 		return LogicalType::DATE;
@@ -307,7 +342,11 @@ LogicalType PostgresUtils::ToPostgresType(const LogicalType &input) {
 	case LogicalTypeId::HUGEINT:
 		return LogicalType::DOUBLE;
 	case LogicalTypeId::GEOMETRY:
-		return LogicalType::GEOMETRY();
+		// Preserve CRS metadata so downstream TypeToString can emit a typmod-
+		// bearing PostGIS column type and the SRID survives a CREATE TABLE
+		// AS round trip.  Returning a CRS-less GEOMETRY here strips the CRS
+		// before it ever reaches the schema-emission path.
+		return input;
 	default:
 		return LogicalType::VARCHAR;
 	}
