@@ -2,6 +2,7 @@
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_type_oids.hpp"
+#include "duckdb/common/types/geometry_crs.hpp"
 
 namespace duckdb {
 
@@ -20,6 +21,26 @@ PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 }
 
 string PostgresUtils::TypeToString(const LogicalType &input) {
+	// Handle GEOMETRY('EPSG:N') first: the CRS-bearing GEOMETRY type can have
+	// an alias of "GEOMETRY", which would otherwise short-circuit the alias
+	// branch below and emit an untyped `geometry` column (typmod -1).  When
+	// CRS is present, emit a typmod-bearing PostGIS column type so the SRID
+	// survives a CREATE TABLE round trip; otherwise fall through.
+	if (input.id() == LogicalTypeId::GEOMETRY && GeoType::HasCRS(input)) {
+		auto &crs = GeoType::GetCRS(input);
+		auto &id = crs.GetIdentifier();
+		auto colon = id.find(':');
+		if (colon != string::npos) {
+			try {
+				int32_t srid = std::stoi(id.substr(colon + 1));
+				if (srid > 0) {
+					return "geometry(Geometry, " + std::to_string(srid) + ")";
+				}
+			} catch (...) {
+				// fall through to plain GEOMETRY
+			}
+		}
+	}
 	if (input.HasAlias()) {
 		return input.GetAlias();
 	}
@@ -275,7 +296,11 @@ LogicalType PostgresUtils::ToPostgresType(const LogicalType &input) {
 	case LogicalTypeId::HUGEINT:
 		return LogicalType::DOUBLE;
 	case LogicalTypeId::GEOMETRY:
-		return LogicalType::GEOMETRY();
+		// Preserve CRS metadata so downstream TypeToString can emit a typmod-
+		// bearing PostGIS column type and the SRID survives a CREATE TABLE
+		// AS round trip.  Returning a CRS-less GEOMETRY here strips the CRS
+		// before it ever reaches the schema-emission path.
+		return input;
 	default:
 		return LogicalType::VARCHAR;
 	}
