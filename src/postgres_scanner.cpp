@@ -51,6 +51,9 @@ struct PostgresGlobalState : public GlobalTableFunctionState {
 	bool used_main_thread = false;
 	string snapshot;
 
+	idx_t yb_hash_idx = 0;
+	idx_t yb_num_tasks = 0;
+
 	PostgresConnection &GetConnection();
 	void SetConnection(PostgresConnection connection);
 	void SetConnection(shared_ptr<OwnedPostgresConnection> connection);
@@ -285,6 +288,17 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 	lstate.done = false;
 	if (bind_data->pages_approx > 0) {
 		filter = StringUtil::Format("WHERE ctid BETWEEN '(%d,0)'::tid AND '(%d,0)'::tid", task_min, task_max);
+	} else if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE &&
+	           bind_data->yb_num_hash_key_columns > 0 && !bind_data->yb_hash_partition_columns.empty()) {
+		string hash_cols;
+		for (idx_t i = 0; i < bind_data->yb_hash_partition_columns.size(); i++) {
+			if (i > 0) {
+				hash_cols += ", ";
+			}
+			hash_cols += KeywordHelper::WriteQuoted(bind_data->yb_hash_partition_columns[i], '"');
+		}
+		filter = StringUtil::Format("WHERE yb_hash_code(%s) BETWEEN %d AND %d",
+		                            hash_cols, task_min, task_max);
 	}
 	if (!filter_string.empty()) {
 		if (filter.empty()) {
@@ -326,11 +340,17 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
                                                          PostgresGlobalState &gstate);
 
 static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn, const string &snapshot,
-                                AccessMode access_mode, PostgresIsolationLevel isolation_level) {
-	conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(isolation_level, access_mode));
-	if (!snapshot.empty()) {
-		D_ASSERT(isolation_level != PostgresIsolationLevel::READ_COMMITTED);
-		conn.Query(context, StringUtil::Format("SET TRANSACTION SNAPSHOT '%s'", snapshot));
+                                AccessMode access_mode, PostgresIsolationLevel isolation_level,
+                                PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES) {
+	if (instance_type == PostgresInstanceType::YUGABYTE) {
+		conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(
+		    PostgresIsolationLevel::REPEATABLE_READ, AccessMode::READ_ONLY));
+	} else {
+		conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(isolation_level, access_mode));
+		if (!snapshot.empty()) {
+			D_ASSERT(isolation_level != PostgresIsolationLevel::READ_COMMITTED);
+			conn.Query(context, StringUtil::Format("SET TRANSACTION SNAPSHOT '%s'", snapshot));
+		}
 	}
 	Value statement_timeout;
 	if (context.TryGetCurrentSetting("pg_statement_timeout_millis", statement_timeout) && !statement_timeout.IsNull()) {
@@ -388,6 +408,12 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		// we create a transaction here, and get the snapshot id to enable transaction-safe parallelism
 		PostgresGetSnapshot(context, bind_data.version, bind_data, *result);
 	}
+
+	if (bind_data.version.type_v == PostgresInstanceType::YUGABYTE &&
+	    bind_data.yb_num_hash_key_columns > 0 && bind_data.max_threads > 1) {
+		result->yb_num_tasks = bind_data.max_threads;
+	}
+
 	return std::move(result);
 }
 
@@ -398,6 +424,23 @@ static bool PostgresParallelStateNext(ClientContext &context, const FunctionData
 
 	lock_guard<mutex> parallel_lock(gstate.lock);
 	lstate.batch_idx = gstate.batch_idx++;
+
+	if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE &&
+	    bind_data->yb_num_hash_key_columns > 0 && gstate.yb_num_tasks > 0) {
+		if (gstate.yb_hash_idx >= gstate.yb_num_tasks) {
+			lstate.done = true;
+			return false;
+		}
+		idx_t range_size = 65536 / gstate.yb_num_tasks;
+		idx_t range_min = gstate.yb_hash_idx * range_size;
+		idx_t range_max = (gstate.yb_hash_idx == gstate.yb_num_tasks - 1)
+		                      ? 65535
+		                      : range_min + range_size - 1;
+		gstate.yb_hash_idx++;
+		PostgresInitInternal(context, bind_data, lstate, range_min, range_max);
+		return true;
+	}
+
 	if (gstate.page_idx < bind_data->pages_approx) {
 		auto page_max = gstate.page_idx + bind_data->pages_per_task;
 		if (page_max >= bind_data->pages_approx || page_max > POSTGRES_TID_MAX) {
@@ -437,11 +480,12 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 			return false;
 		}
 		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
-		PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode, pg_catalog->isolation_level);
+		PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode, pg_catalog->isolation_level,
+		                    bind_data.version.type_v);
 	} else {
 		lstate.connection = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
 		PostgresScanConnect(context, lstate.connection, snapshot, AccessMode::READ_ONLY,
-		                    PostgresIsolationLevel::REPEATABLE_READ);
+		                    PostgresIsolationLevel::REPEATABLE_READ, bind_data.version.type_v);
 	}
 	return true;
 }
@@ -462,7 +506,7 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		local_state->no_connection = true;
 		return std::move(local_state);
 	}
-	if (bind_data.pages_approx == 0 || bind_data.requires_materialization) {
+	if ((bind_data.pages_approx == 0 && gstate.yb_num_tasks == 0) || bind_data.requires_materialization) {
 		PostgresInitInternal(context, &bind_data, *local_state, 0, POSTGRES_TID_MAX);
 		lock_guard<mutex> parallel_lock(gstate.lock);
 		gstate.page_idx = POSTGRES_TID_MAX;
@@ -568,6 +612,9 @@ double PostgresScanProgress(ClientContext &context, const FunctionData *bind_dat
 	auto &gstate = global_state->Cast<PostgresGlobalState>();
 
 	lock_guard<mutex> parallel_lock(gstate.lock);
+	if (gstate.yb_num_tasks > 0) {
+		return MinValue<double>(100, 100.0 * double(gstate.yb_hash_idx) / double(gstate.yb_num_tasks));
+	}
 	double progress = 100 * double(gstate.page_idx) / double(bind_data.pages_approx);
 	return MinValue<double>(100, progress);
 }
