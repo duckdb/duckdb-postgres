@@ -15,7 +15,7 @@ enum class ExecState { UNINITIALIZED, EXHAUSTED };
 
 struct ConfigurePoolBindData : public TableFunctionData {
 	std::pair<std::string, bool> catalog_name;
-	std::pair<PostgresPoolAcquireMode, bool> acquire_mode;
+	std::pair<dbconnector::pool::AcquireMode, bool> acquire_mode;
 	std::pair<uint64_t, bool> max_connections;
 	std::pair<uint64_t, bool> wait_timeout_millis;
 	std::pair<bool, bool> enable_thread_local_cache;
@@ -59,16 +59,16 @@ struct ConfigurePoolBindData : public TableFunctionData {
 		return std::make_pair(flag, false);
 	}
 
-	static std::pair<PostgresPoolAcquireMode, bool> LookupAcquireMode(const named_parameter_map_t &map,
-	                                                                  const std::string &key) {
+	static std::pair<dbconnector::pool::AcquireMode, bool> LookupAcquireMode(const named_parameter_map_t &map,
+	                                                                         const std::string &key) {
 		std::pair<std::string, bool> st_pair = LookupString(map, key);
 		if (st_pair.second) {
-			return std::make_pair(PostgresPoolAcquireMode::FORCE, true);
+			return std::make_pair(dbconnector::pool::AcquireMode::FORCE, true);
 		}
 		try {
-			PostgresPoolAcquireMode mode = PostgresConnectionPool::AcquireModeFromString(st_pair.first);
+			dbconnector::pool::AcquireMode mode = dbconnector::pool::AcquireModeHelpers::FromString(st_pair.first);
 			return std::make_pair(mode, false);
-		} catch (InvalidInputException &e) {
+		} catch (const std::exception &e) {
 			throw BinderException(e.what());
 		}
 	}
@@ -113,12 +113,16 @@ static unique_ptr<FunctionData> ConfigurePoolBind(ClientContext &context, TableF
 	AddColumn(return_types, names, "available_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "max_connections", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "wait_timeout_millis", LogicalType::UBIGINT);
+	AddColumn(return_types, names, "cache_hits", LogicalType::UBIGINT);
+	AddColumn(return_types, names, "cache_misses", LogicalType::UBIGINT);
+	AddColumn(return_types, names, "try_failures", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "thread_local_cache_enabled", LogicalType::BOOLEAN);
 	AddColumn(return_types, names, "thread_local_cache_hits", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "thread_local_cache_misses", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "max_lifetime_millis", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "idle_timeout_millis", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "reaper_thread_running", LogicalType::BOOLEAN);
+	AddColumn(return_types, names, "reaper_thread_period_millis", LogicalType::UBIGINT);
 	AddColumn(return_types, names, "health_check_query", LogicalType::VARCHAR);
 
 	return make_uniq<ConfigurePoolBindData>(input.named_parameters);
@@ -202,16 +206,21 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 	for (auto &pool : pools) {
 		idx_t col_idx = 0;
 		output.SetValue(col_idx++, row_idx, Value(cat_names.at(row_idx)));
-		output.SetValue(col_idx++, row_idx, Value(PostgresConnectionPool::AcquireModeToString(pool->GetAcquireMode())));
+		output.SetValue(col_idx++, row_idx,
+		                Value(dbconnector::pool::AcquireModeHelpers::ToString(pool->GetAcquireMode())));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetAvailableConnections()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxConnections()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetWaitTimeoutMillis()));
+		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetCacheHits()));
+		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetCacheMisses()));
+		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetTryFailures()));
 		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(pool->IsThreadLocalCacheEnabled()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetThreadLocalCacheHits()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetThreadLocalCacheMisses()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxLifetimeMillis()));
 		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetIdleTimeoutMillis()));
 		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(pool->IsReaperRunning()));
+		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetReaperPeriodMillis()));
 		output.SetValue(col_idx++, row_idx, Value(pool->GetHealthCheckQuery()));
 		row_idx++;
 	}

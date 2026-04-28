@@ -21,13 +21,13 @@ ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES);
 statement ok
 RESET GLOBAL pg_pool_max_connections
 
-query II
-SELECT catalog_name, max_connections 
+query IIIIIIIIIII
+SELECT catalog_name, max_connections, cache_hits, cache_misses, try_failures, thread_local_cache_enabled, max_lifetime_millis, idle_timeout_millis, reaper_thread_running, reaper_thread_period_millis, health_check_query
 FROM postgres_configure_pool()
 ORDER BY catalog_name
 ----
-s	8
-s1	8
+s	8	0	1	0	FALSE	0	60000	1	30000	SELECT 1
+s1	8	0	1	0	FALSE	0	60000	1	30000	SELECT 1
 
 query II
 SELECT catalog_name, acquire_mode
