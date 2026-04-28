@@ -312,6 +312,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "transactions without a shared snapshot, so concurrent writes may cause inconsistent reads. "
 	    "Safe for read-only or append-only tables.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("pg_yb_tserver_probe_timeout",
+	                          "Connect timeout in seconds for tserver reachability probes during ATTACH",
+	                          LogicalType::UINTEGER, Value::UINTEGER(2));
 	config.AddExtensionOption("pg_yb_rows_per_transaction",
 	                          "Number of rows per transaction batch for COPY FROM on YugabyteDB (0 to disable)",
 	                          LogicalType::UBIGINT, Value::UBIGINT(10000));

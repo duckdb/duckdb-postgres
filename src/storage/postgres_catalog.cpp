@@ -31,9 +31,15 @@ static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection 
 		topology.tservers.push_back(std::move(ts));
 	}
 
+	uint32_t probe_timeout = 2;
+	Value timeout_val;
+	if (context.TryGetCurrentSetting("pg_yb_tserver_probe_timeout", timeout_val) && !timeout_val.IsNull()) {
+		probe_timeout = UIntegerValue::Get(timeout_val);
+	}
+
 	for (auto &ts : topology.tservers) {
-		string probe_dsn =
-		    connection_string + StringUtil::Format(" host='%s' port=%d connect_timeout=2", ts.ip_address, ts.port);
+		string probe_dsn = connection_string + StringUtil::Format(" host='%s' port=%d connect_timeout=%d",
+		                                                          ts.ip_address, ts.port, probe_timeout);
 		PGconn *probe = PQconnectdb(probe_dsn.c_str());
 		if (probe && PQstatus(probe) == CONNECTION_OK) {
 			ts.reachable = true;
