@@ -88,17 +88,28 @@ SELECT count(*) FROM yb.hash_test h JOIN yb.multi_hash m ON h.id = m.id
 ----
 10000
 
-# === Range-partitioned table — should NOT use hash-code parallel scan ===
+# === Range-partitioned tables — must NOT use hash-code parallel scan ===
+# These have yb_num_hash_key_columns = 0, so they fall back to single-thread
 
 query I
-SELECT count(*) FROM yb.range_test
+SELECT count(*) FROM yb.range_single
 ----
-20000
+10000
 
 query I
-SELECT count(*) FROM yb.range_test WHERE sensor_id = 0
+SELECT sum(id) FROM yb.range_single
+----
+50005000
+
+query I
+SELECT count(*) FROM yb.range_ts WHERE sensor_id = 0
 ----
 200
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
 
 # === Vary thread counts to exercise different hash range splits ===
 

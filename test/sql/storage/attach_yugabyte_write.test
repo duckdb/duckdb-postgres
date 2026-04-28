@@ -129,6 +129,53 @@ SELECT count(*) FROM yb.write_types WHERE col_bool = true
 ----
 2500
 
+# === yb_disable_transactional_writes COPY path ===
+# When enabled, BeginCopyTo sends SET yb_disable_transactional_writes = true
+# This disables per-row transactions for bulk loads (faster but no atomicity)
+statement ok
+SET pg_yb_disable_transactional_writes=true
+
+statement ok
+DROP TABLE IF EXISTS yb.write_notxn
+
+statement ok
+CREATE TABLE yb.write_notxn (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.write_notxn SELECT g, 'notxn_' || g FROM generate_series(1, 5000) g
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_notxn
+----
+5000
+
+query I
+SELECT sum(id) FROM yb.write_notxn
+----
+12502500
+
+statement ok
+RESET pg_yb_disable_transactional_writes
+
+# === Verify normal COPY still works after resetting the flag ===
+statement ok
+DROP TABLE IF EXISTS yb.write_after_reset
+
+statement ok
+CREATE TABLE yb.write_after_reset (id INTEGER PRIMARY KEY, val INTEGER)
+
+query I
+INSERT INTO yb.write_after_reset SELECT g, g * 10 FROM generate_series(1, 1000) g
+----
+1000
+
+query I
+SELECT count(*) FROM yb.write_after_reset
+----
+1000
+
 # === Cleanup ===
 statement ok
 DROP TABLE yb.write_test
@@ -138,6 +185,12 @@ DROP TABLE yb.write_copy
 
 statement ok
 DROP TABLE yb.write_types
+
+statement ok
+DROP TABLE yb.write_notxn
+
+statement ok
+DROP TABLE yb.write_after_reset
 
 statement ok
 DETACH yb

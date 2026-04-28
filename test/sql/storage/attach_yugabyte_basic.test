@@ -47,20 +47,30 @@ SELECT count(*) FROM yb.wide_test WHERE col_bool = true
 25000
 
 query I
-SELECT count(*) FROM yb.wide_test WHERE col_date > '2024-06-01'
+SELECT count(*) FROM yb.wide_test WHERE col_int > 2500000000
 ----
-49847
+25000
 
-# Range-partitioned table (no hash key — single-threaded scan fallback)
+# Range-partitioned tables (no hash key — must NOT use yb_hash_code scan)
 query I
-SELECT count(*) FROM yb.range_test
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+query I
+SELECT count(*) FROM yb.range_ts
 ----
 20000
 
 query I
-SELECT count(DISTINCT sensor_id) FROM yb.range_test
+SELECT count(DISTINCT sensor_id) FROM yb.range_ts
 ----
 100
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
 
 # Scan with NULLs
 query I

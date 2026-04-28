@@ -92,26 +92,107 @@ INSERT INTO multi_hash SELECT 'region_' || (g % 5), g, 'data_' || g FROM generat
 ANALYZE multi_hash;
 "
 
-# Range-partitioned table (no hash key) — should fall back to single-threaded scan
+# Range-partitioned tables (no hash key — yb_num_hash_key_columns = 0)
+# These must fall back to single-threaded scan, NOT yb_hash_code() ranges.
+
+# Single-column range key
 psql -d postgresscanner -c "
-CREATE TABLE range_test (
+CREATE TABLE range_single (
+  id INTEGER,
+  name TEXT,
+  value INTEGER,
+  PRIMARY KEY (id ASC)
+) SPLIT AT VALUES ((2500), (5000), (7500));
+INSERT INTO range_single SELECT g, 'range_' || g, g * 10 FROM generate_series(1, 10000) g;
+ANALYZE range_single;
+"
+
+# Compound range key (timeseries pattern)
+psql -d postgresscanner -c "
+CREATE TABLE range_ts (
   ts TIMESTAMP,
   sensor_id INTEGER,
   reading DOUBLE PRECISION,
   PRIMARY KEY (ts ASC, sensor_id ASC)
 );
-INSERT INTO range_test
+INSERT INTO range_ts
 SELECT '2024-01-01'::TIMESTAMP + (g || ' seconds')::INTERVAL,
        g % 100,
        random() * 1000
 FROM generate_series(1, 20000) g;
-ANALYZE range_test;
+ANALYZE range_ts;
+"
+
+# Range key with DESC ordering
+psql -d postgresscanner -c "
+CREATE TABLE range_desc (
+  created_at TIMESTAMP,
+  id INTEGER,
+  payload TEXT,
+  PRIMARY KEY (created_at DESC, id DESC)
+);
+INSERT INTO range_desc
+SELECT '2024-06-01'::TIMESTAMP - (g || ' seconds')::INTERVAL,
+       g,
+       'payload_' || g
+FROM generate_series(1, 15000) g;
+ANALYZE range_desc;
+"
+
+# Colocated database — all tables share a single tablet (no hash partitioning)
+# This exercises the non-parallel scan fallback and tests that yb_table_properties
+# returns 0 tablets for colocated tables.
+# YugabyteDB colocated databases must be created with colocation=true at CREATE DATABASE time.
+dropdb --if-exists postgresscanner_colocated || true
+psql -d yugabyte -c "CREATE DATABASE postgresscanner_colocated WITH colocation = true"
+psql -d postgresscanner_colocated -c "
+CREATE TABLE coloc_test (
+  id INTEGER PRIMARY KEY,
+  name TEXT,
+  value INTEGER
+);
+INSERT INTO coloc_test SELECT g, 'coloc_' || g, g * 10 FROM generate_series(1, 10000) g;
+ANALYZE coloc_test;
+"
+
+psql -d postgresscanner_colocated -c "
+CREATE TABLE coloc_wide (
+  id INTEGER PRIMARY KEY,
+  col_text TEXT,
+  col_int BIGINT,
+  col_float DOUBLE PRECISION,
+  col_bool BOOLEAN
+);
+INSERT INTO coloc_wide
+SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0)
+FROM generate_series(1, 5000) g;
+ANALYZE coloc_wide;
+"
+
+# Non-colocated table in the same database for contrast
+psql -d postgresscanner_colocated -c "
+CREATE TABLE non_coloc_test (
+  id INTEGER PRIMARY KEY,
+  name TEXT,
+  value INTEGER
+) WITH (colocation = false);
+INSERT INTO non_coloc_test SELECT g, 'nocoloc_' || g, g * 10 FROM generate_series(1, 10000) g;
+ANALYZE non_coloc_test;
 "
 
 echo "YugabyteDB test tables created successfully"
-echo "  hash_test:  100,000 rows (hash-partitioned, single key)"
-echo "  wide_test:   50,000 rows (hash-partitioned, multiple types)"
-echo "  multi_hash:  10,000 rows (hash-partitioned, compound key)"
-echo "  range_test:  20,000 rows (range-partitioned, no hash scan)"
-echo "  test:             4 rows (simple)"
-echo "  nulltest:         4 rows (null patterns)"
+echo ""
+echo "  Database: postgresscanner (non-colocated, default)"
+echo "    hash_test:     100,000 rows (hash-partitioned, single key)"
+echo "    wide_test:      50,000 rows (hash-partitioned, multiple types)"
+echo "    multi_hash:     10,000 rows (hash-partitioned, compound key)"
+echo "    range_single:   10,000 rows (range ASC, SPLIT AT VALUES)"
+echo "    range_ts:       20,000 rows (range ASC compound key, timeseries)"
+echo "    range_desc:     15,000 rows (range DESC compound key)"
+echo "    test:                4 rows (simple)"
+echo "    nulltest:            4 rows (null patterns)"
+echo ""
+echo "  Database: postgresscanner_colocated"
+echo "    coloc_test:     10,000 rows (colocated, single tablet)"
+echo "    coloc_wide:      5,000 rows (colocated, multiple types)"
+echo "    non_coloc_test: 10,000 rows (non-colocated in colocated db)"

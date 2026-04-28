@@ -1,0 +1,122 @@
+# name: test/sql/storage/attach_yugabyte_colocated.test
+# description: Test YugabyteDB colocated vs non-colocated table behavior
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# Attach to the colocated database
+statement ok
+ATTACH 'dbname=postgresscanner_colocated' AS ybc (TYPE POSTGRES)
+
+# === Colocated table: single tablet, no hash partitioning ===
+# yb_table_properties should return 0 hash key columns for colocated tables,
+# forcing single-threaded scan (no yb_hash_code ranges)
+
+query I
+SELECT count(*) FROM ybc.coloc_test
+----
+10000
+
+query II
+SELECT min(id), max(id) FROM ybc.coloc_test
+----
+1	10000
+
+query I
+SELECT sum(id) FROM ybc.coloc_test
+----
+50005000
+
+query III
+SELECT id, name, value FROM ybc.coloc_test WHERE id = 500
+----
+500	coloc_500	5000
+
+# === Colocated wide table: multiple types ===
+query I
+SELECT count(*) FROM ybc.coloc_wide
+----
+5000
+
+query I
+SELECT count(*) FROM ybc.coloc_wide WHERE col_bool = true
+----
+2500
+
+query I
+SELECT sum(col_int) FROM ybc.coloc_wide
+----
+1250025000000
+
+# === Non-colocated table in the same colocated database ===
+# This table opts out of colocation, so it gets its own tablets
+# and should use hash-code parallel scan
+
+query I
+SELECT count(*) FROM ybc.non_coloc_test
+----
+10000
+
+query I
+SELECT sum(id) FROM ybc.non_coloc_test
+----
+50005000
+
+query III
+SELECT id, name, value FROM ybc.non_coloc_test WHERE id = 7777
+----
+7777	nocoloc_7777	77770
+
+# === Cross-table join: colocated and non-colocated in same query ===
+query I
+SELECT count(*) FROM ybc.coloc_test c JOIN ybc.non_coloc_test n ON c.id = n.id
+----
+10000
+
+# === Write to colocated table ===
+statement ok
+DROP TABLE IF EXISTS ybc.coloc_write_test
+
+statement ok
+CREATE TABLE ybc.coloc_write_test (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO ybc.coloc_write_test SELECT g, 'data_' || g FROM generate_series(1, 1000) g
+----
+1000
+
+query I
+SELECT count(*) FROM ybc.coloc_write_test
+----
+1000
+
+statement ok
+DELETE FROM ybc.coloc_write_test WHERE id > 500
+
+query I
+SELECT count(*) FROM ybc.coloc_write_test
+----
+500
+
+statement ok
+DROP TABLE ybc.coloc_write_test
+
+# === Detach and re-attach to verify pool reset works for colocated db ===
+statement ok
+DETACH ybc
+
+statement ok
+ATTACH 'dbname=postgresscanner_colocated' AS ybc (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM ybc.coloc_test
+----
+10000
+
+statement ok
+DETACH ybc

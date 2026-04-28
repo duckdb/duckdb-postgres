@@ -1,0 +1,110 @@
+# name: test/sql/storage/attach_yugabyte_errors.test
+# description: Test error handling and schema mismatch resilience on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Non-existent table — should error gracefully, not crash ===
+statement error
+SELECT * FROM yb.this_table_does_not_exist
+----
+this_table_does_not_exist
+
+# === Non-existent schema ===
+statement error
+SELECT * FROM yb.fake_schema.fake_table
+----
+
+# === Create, query, drop, query again — stale catalog reference ===
+statement ok
+CREATE TABLE yb.ephemeral_test (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.ephemeral_test SELECT g, 'data_' || g FROM generate_series(1, 100) g
+----
+100
+
+query I
+SELECT count(*) FROM yb.ephemeral_test
+----
+100
+
+statement ok
+DROP TABLE yb.ephemeral_test
+
+statement error
+SELECT * FROM yb.ephemeral_test
+----
+
+# === Re-create with different schema — type change ===
+statement ok
+CREATE TABLE yb.ephemeral_test (id TEXT PRIMARY KEY, value DOUBLE)
+
+query I
+INSERT INTO yb.ephemeral_test VALUES ('key1', 3.14), ('key2', 2.71)
+----
+2
+
+query II
+SELECT id, value FROM yb.ephemeral_test ORDER BY id
+----
+key1	3.14
+key2	2.71
+
+statement ok
+DROP TABLE yb.ephemeral_test
+
+# === Invalid connection string ===
+statement error
+ATTACH 'dbname=this_database_does_not_exist host=localhost port=5433' AS bad_yb (TYPE POSTGRES)
+----
+
+# === Empty table scans ===
+statement ok
+CREATE TABLE yb.empty_hash (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+SELECT count(*) FROM yb.empty_hash
+----
+0
+
+query I
+SELECT * FROM yb.empty_hash
+----
+
+statement ok
+DROP TABLE yb.empty_hash
+
+# === Table with no primary key (heap-like on YugabyteDB) ===
+statement ok
+CREATE TABLE yb.no_pk (a INTEGER, b TEXT)
+
+query I
+INSERT INTO yb.no_pk SELECT g, 'val_' || g FROM generate_series(1, 100) g
+----
+100
+
+query I
+SELECT count(*) FROM yb.no_pk
+----
+100
+
+statement ok
+DROP TABLE yb.no_pk
+
+# === Verify the connection is still healthy after all error cases ===
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
