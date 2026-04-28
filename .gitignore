@@ -5,3 +5,5 @@ cmake-build-debug
 .vscode
 .cache
 duckdb_unittest_tempdir
+# CocoIndex Code (ccc)
+/.cocoindex_code/
