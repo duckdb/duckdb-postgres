@@ -26,20 +26,6 @@ struct YugabyteTserver {
 struct YugabyteTopology {
 	vector<YugabyteTserver> tservers;
 	bool direct_connect_available = false;
-
-	bool HasTopology() const {
-		return !tservers.empty();
-	}
-
-	idx_t ReachableCount() const {
-		idx_t count = 0;
-		for (auto &ts : tservers) {
-			if (ts.reachable) {
-				count++;
-			}
-		}
-		return count;
-	}
 };
 
 } // namespace duckdb

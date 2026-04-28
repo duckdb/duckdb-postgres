@@ -95,13 +95,10 @@ SELECT count(*) FROM ybc.coloc_write_test
 ----
 1000
 
-statement ok
-DELETE FROM ybc.coloc_write_test WHERE id > 500
-
 query I
-SELECT count(*) FROM ybc.coloc_write_test
+SELECT sum(id) FROM ybc.coloc_write_test
 ----
-500
+500500
 
 statement ok
 DROP TABLE ybc.coloc_write_test

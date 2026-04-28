@@ -42,17 +42,16 @@ SELECT count(*) FROM yb.multi_hash
 
 endloop
 
-# Concurrent writes to separate tables
-concurrentloop i 0 5
+# Create tables sequentially then write concurrently
+loop i 0 5
 
-statement maybe
-CREATE OR REPLACE TABLE yb.concurrent_${i} (id INTEGER PRIMARY KEY, val INTEGER);
-----
+statement ok
+CREATE OR REPLACE TABLE yb.concurrent_${i} (id INTEGER PRIMARY KEY, val INTEGER)
 
 endloop
 
-# Write to them
-loop i 0 5
+# Concurrent writes to separate tables
+concurrentloop i 0 5
 
 statement ok
 INSERT INTO yb.concurrent_${i} SELECT g, g FROM generate_series(1, 100) t(g)

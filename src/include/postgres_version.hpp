@@ -25,7 +25,6 @@ struct PostgresVersion {
 	idx_t minor_v = 0;
 	idx_t patch_v = 0;
 	PostgresInstanceType type_v = PostgresInstanceType::POSTGRES;
-	string yb_version;
 
 	inline bool operator<(const PostgresVersion &rhs) const {
 		if (major_v < rhs.major_v) {

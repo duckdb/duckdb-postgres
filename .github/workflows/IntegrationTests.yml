@@ -78,10 +78,10 @@ jobs:
 
     - name: Cache Key
       id: cache_key
-      working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
-        KEY="${{ runner.os }}-${{ runner.arch }}-${DUCKDB_VERSION}-yugabyte"
+        DUCKDB_VERSION=$(cd duckdb && git rev-parse --short HEAD)
+        EXT_VERSION=$(git rev-parse --short HEAD)
+        KEY="${{ runner.os }}-${{ runner.arch }}-${DUCKDB_VERSION}-${EXT_VERSION}-yugabyte"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
     - name: Restore Cache

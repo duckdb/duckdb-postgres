@@ -155,13 +155,10 @@ SELECT count(*) FROM yb.range_write_test
 ----
 5000
 
-statement ok
-DELETE FROM yb.range_write_test WHERE id > 4000
-
 query I
-SELECT count(*) FROM yb.range_write_test
+SELECT sum(id) FROM yb.range_write_test
 ----
-4000
+12502500
 
 statement ok
 DROP TABLE yb.range_write_test

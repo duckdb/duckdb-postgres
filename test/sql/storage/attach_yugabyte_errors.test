@@ -76,7 +76,7 @@ SELECT count(*) FROM yb.empty_hash
 ----
 0
 
-query I
+query II
 SELECT * FROM yb.empty_hash
 ----
 

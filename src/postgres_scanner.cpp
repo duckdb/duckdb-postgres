@@ -493,7 +493,7 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 						                    pg_catalog->isolation_level, bind_data.version.type_v);
 						return true;
 					} catch (...) {
-						break;
+						continue;
 					}
 				}
 			}
