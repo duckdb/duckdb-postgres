@@ -23,7 +23,9 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info), postgres_types(std::move(info.postgres_types)),
-      postgres_names(std::move(info.postgres_names)) {
+      postgres_names(std::move(info.postgres_names)), yb_num_tablets(info.yb_num_tablets),
+      yb_num_hash_key_columns(info.yb_num_hash_key_columns),
+      yb_hash_partition_columns(std::move(info.yb_hash_partition_columns)) {
 	D_ASSERT(postgres_types.size() == columns.LogicalColumnCount());
 	approx_num_pages.store(info.approx_num_pages, std::memory_order_release);
 }
@@ -54,6 +56,9 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 	result->names = postgres_names;
 	result->postgres_types = postgres_types;
 	result->read_only = transaction.IsReadOnly();
+	result->yb_num_tablets = yb_num_tablets;
+	result->yb_num_hash_key_columns = yb_num_hash_key_columns;
+	result->yb_hash_partition_columns = yb_hash_partition_columns;
 	PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result,
 	                                  approx_num_pages.load(std::memory_order_acquire));
 

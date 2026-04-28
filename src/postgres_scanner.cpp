@@ -148,6 +148,13 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 	if (version.type_v == PostgresInstanceType::REDSHIFT) {
 		bind_data.use_text_protocol = true;
 	}
+	if (version.type_v == PostgresInstanceType::YUGABYTE && bind_data.yb_num_tablets > 0) {
+		if (!bind_data.read_only || bind_data.use_text_protocol) {
+			bind_data.max_threads = 1;
+		} else {
+			bind_data.max_threads = bind_data.yb_num_tablets;
+		}
+	}
 }
 
 PostgresBindData::PostgresBindData(ClientContext &context) {

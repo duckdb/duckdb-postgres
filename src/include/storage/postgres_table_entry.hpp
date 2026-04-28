@@ -36,6 +36,9 @@ struct PostgresTableInfo {
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
 	int64_t approx_num_pages = 0;
+	idx_t yb_num_tablets = 0;
+	idx_t yb_num_hash_key_columns = 0;
+	vector<string> yb_hash_partition_columns;
 };
 
 class PostgresTableEntry : public TableCatalogEntry {
@@ -65,6 +68,9 @@ public:
 	vector<string> postgres_names;
 	//! The approximate number of pages a table consumes in Postgres
 	std::atomic<int64_t> approx_num_pages;
+	idx_t yb_num_tablets = 0;
+	idx_t yb_num_hash_key_columns = 0;
+	vector<string> yb_hash_partition_columns;
 };
 
 } // namespace duckdb
