@@ -47,6 +47,8 @@ public:
 	static std::string AcquireModeToString(PostgresPoolAcquireMode mode);
 	static void ValidatePoolAcquireMode(ClientContext &context, SetScope scope, Value &parameter);
 
+	std::unique_ptr<PostgresConnection> CreateConnectionToHost(const string &host, int32_t port);
+
 protected:
 	std::unique_ptr<PostgresConnection> CreateNewConnection() override;
 	bool CheckConnectionHealthy(PostgresConnection &conn) override;

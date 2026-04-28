@@ -67,6 +67,13 @@ std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateNewConnection(
 	return make_uniq<PostgresConnection>(std::move(conn));
 }
 
+std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateConnectionToHost(const string &host, int32_t port) {
+	string tserver_dsn = postgres_catalog.connection_string;
+	tserver_dsn += StringUtil::Format(" host='%s' port=%d", host, port);
+	auto conn = PostgresConnection::Open(tserver_dsn, postgres_catalog.attach_path);
+	return make_uniq<PostgresConnection>(std::move(conn));
+}
+
 bool PostgresConnectionPool::CheckConnectionHealthy(PostgresConnection &conn) {
 	if (!conn.IsOpen()) {
 		return false;

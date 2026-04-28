@@ -476,6 +476,27 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 	}
 
 	if (pg_catalog) {
+		if (pg_catalog->GetPostgresVersion().type_v == PostgresInstanceType::YUGABYTE &&
+		    pg_catalog->GetYugabyteTopology().direct_connect_available) {
+			auto &topology = pg_catalog->GetYugabyteTopology();
+			lock_guard<mutex> parallel_lock(lock);
+			idx_t ts_idx = batch_idx % topology.tservers.size();
+			for (idx_t i = 0; i < topology.tservers.size(); i++) {
+				auto &ts = topology.tservers[(ts_idx + i) % topology.tservers.size()];
+				if (ts.reachable) {
+					try {
+						auto conn = pg_catalog->GetConnectionPool().CreateConnectionToHost(ts.ip_address, ts.port);
+						lstate.connection = std::move(*conn);
+						PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode,
+						                    pg_catalog->isolation_level, bind_data.version.type_v);
+						return true;
+					} catch (...) {
+						break;
+					}
+				}
+			}
+		}
+
 		if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
 			return false;
 		}
