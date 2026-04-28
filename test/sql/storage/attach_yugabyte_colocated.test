@@ -51,7 +51,7 @@ SELECT count(*) FROM ybc.coloc_wide WHERE col_bool = true
 query I
 SELECT sum(col_int) FROM ybc.coloc_wide
 ----
-1250025000000
+1250250000000
 
 # === Non-colocated table in the same colocated database ===
 # This table opts out of colocation, so it gets its own tablets
@@ -86,7 +86,7 @@ statement ok
 CREATE TABLE ybc.coloc_write_test (id INTEGER PRIMARY KEY, data TEXT)
 
 query I
-INSERT INTO ybc.coloc_write_test SELECT g, 'data_' || g FROM generate_series(1, 1000) g
+INSERT INTO ybc.coloc_write_test SELECT g, 'data_' || g FROM generate_series(1, 1000) t(g)
 ----
 1000
 

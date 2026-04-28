@@ -15,7 +15,7 @@ SET threads=4
 statement ok
 ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
 
-# === range_single: ASC key with explicit SPLIT AT VALUES ===
+# === range_single: ASC range key ===
 # yb_num_hash_key_columns = 0, so no hash-code parallel scan.
 # Must still return correct results via single-threaded scan.
 
@@ -146,7 +146,7 @@ CREATE TABLE yb.range_write_test (
 query I
 INSERT INTO yb.range_write_test
 SELECT '2024-01-01'::TIMESTAMP + (g || ' seconds')::INTERVAL, g, 'data_' || g
-FROM generate_series(1, 5000) g
+FROM generate_series(1, 5000) t(g)
 ----
 5000
 

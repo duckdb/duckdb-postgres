@@ -20,7 +20,7 @@ statement ok
 CREATE TABLE yb.write_test (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
 
 query I
-INSERT INTO yb.write_test SELECT g, 'name_' || g, g * 1.5 FROM generate_series(1, 10000) g
+INSERT INTO yb.write_test SELECT g, 'name_' || g, g * 1.5 FROM generate_series(1, 10000) t(g)
 ----
 10000
 
@@ -115,7 +115,7 @@ CREATE TABLE yb.write_types (
 query I
 INSERT INTO yb.write_types
 SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0), '2024-01-01'::DATE + g
-FROM generate_series(1, 5000) g
+FROM generate_series(1, 5000) t(g)
 ----
 5000
 
@@ -142,7 +142,7 @@ statement ok
 CREATE TABLE yb.write_notxn (id INTEGER PRIMARY KEY, data TEXT)
 
 query I
-INSERT INTO yb.write_notxn SELECT g, 'notxn_' || g FROM generate_series(1, 5000) g
+INSERT INTO yb.write_notxn SELECT g, 'notxn_' || g FROM generate_series(1, 5000) t(g)
 ----
 5000
 
@@ -167,7 +167,7 @@ statement ok
 CREATE TABLE yb.write_after_reset (id INTEGER PRIMARY KEY, val INTEGER)
 
 query I
-INSERT INTO yb.write_after_reset SELECT g, g * 10 FROM generate_series(1, 1000) g
+INSERT INTO yb.write_after_reset SELECT g, g * 10 FROM generate_series(1, 1000) t(g)
 ----
 1000
 

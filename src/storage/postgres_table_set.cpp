@@ -124,9 +124,10 @@ static void LoadYugabyteTableProperties(PostgresTransaction &transaction, Postgr
                                         const string &schema_name) {
 	string qualified =
 	    KeywordHelper::WriteQuoted(schema_name, '"') + "." + KeywordHelper::WriteQuoted(table_info.GetTableName(), '"');
+	string escaped = StringUtil::Replace(qualified, "'", "''");
 
 	string props_query = StringUtil::Format(
-	    "SELECT num_tablets, num_hash_key_columns FROM yb_table_properties('%s'::regclass)", qualified);
+	    "SELECT num_tablets, num_hash_key_columns FROM yb_table_properties('%s'::regclass)", escaped);
 	try {
 		auto result = transaction.Query(props_query);
 		if (result && result->Count() > 0) {
@@ -145,7 +146,7 @@ static void LoadYugabyteTableProperties(PostgresTransaction &transaction, Postgr
 		                       "WHERE i.indrelid = '%s'::regclass AND i.indisprimary "
 		                       "ORDER BY array_position(i.indkey, a.attnum) "
 		                       "LIMIT %d",
-		                       qualified, table_info.yb_num_hash_key_columns);
+		                       escaped, table_info.yb_num_hash_key_columns);
 		try {
 			auto result = transaction.Query(pk_query);
 			if (result) {

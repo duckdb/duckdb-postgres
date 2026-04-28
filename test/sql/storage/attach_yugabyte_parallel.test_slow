@@ -13,6 +13,9 @@ statement ok
 SET threads=4
 
 statement ok
+SET pg_yb_parallel_scan=true
+
+statement ok
 ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
 
 # === 100k-row hash-partitioned table — exercises yb_hash_code() BETWEEN ranges ===

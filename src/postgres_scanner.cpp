@@ -152,7 +152,12 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 		bind_data.use_text_protocol = true;
 	}
 	if (version.type_v == PostgresInstanceType::YUGABYTE && bind_data.yb_num_tablets > 0) {
-		if (!bind_data.read_only || bind_data.use_text_protocol) {
+		bool yb_parallel = false;
+		Value yb_parallel_val;
+		if (context.TryGetCurrentSetting("pg_yb_parallel_scan", yb_parallel_val) && !yb_parallel_val.IsNull()) {
+			yb_parallel = BooleanValue::Get(yb_parallel_val);
+		}
+		if (!yb_parallel || !bind_data.read_only || bind_data.use_text_protocol) {
 			bind_data.max_threads = 1;
 		} else {
 			bind_data.max_threads = bind_data.yb_num_tablets;

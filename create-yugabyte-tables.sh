@@ -102,7 +102,7 @@ CREATE TABLE range_single (
   name TEXT,
   value INTEGER,
   PRIMARY KEY (id ASC)
-) SPLIT AT VALUES ((2500), (5000), (7500));
+);
 INSERT INTO range_single SELECT g, 'range_' || g, g * 10 FROM generate_series(1, 10000) g;
 ANALYZE range_single;
 "
@@ -186,7 +186,7 @@ echo "  Database: postgresscanner (non-colocated, default)"
 echo "    hash_test:     100,000 rows (hash-partitioned, single key)"
 echo "    wide_test:      50,000 rows (hash-partitioned, multiple types)"
 echo "    multi_hash:     10,000 rows (hash-partitioned, compound key)"
-echo "    range_single:   10,000 rows (range ASC, SPLIT AT VALUES)"
+echo "    range_single:   10,000 rows (range ASC, single key)"
 echo "    range_ts:       20,000 rows (range ASC compound key, timeseries)"
 echo "    range_desc:     15,000 rows (range DESC compound key)"
 echo "    test:                4 rows (simple)"

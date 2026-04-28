@@ -32,13 +32,22 @@ PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, LogicalOperator &op,
 class PostgresInsertGlobalState : public GlobalSinkState {
 public:
 	explicit PostgresInsertGlobalState(ClientContext &context, PostgresTableEntry &table, PostgresCopyFormat format)
-	    : table(table), insert_count(0), format(format) {
+	    : table(table), insert_count(0), rows_in_batch(0), yb_rows_per_transaction(0), format(format) {
+		auto &pg_catalog = table.catalog.Cast<PostgresCatalog>();
+		if (pg_catalog.GetPostgresVersion().type_v == PostgresInstanceType::YUGABYTE) {
+			Value val;
+			if (context.TryGetCurrentSetting("pg_yb_rows_per_transaction", val) && !val.IsNull()) {
+				yb_rows_per_transaction = UBigIntValue::Get(val);
+			}
+		}
 	}
 
 	PostgresTableEntry &table;
 	PostgresCopyState copy_state;
 	DataChunk varchar_chunk;
 	idx_t insert_count;
+	idx_t rows_in_batch;
+	idx_t yb_rows_per_transaction;
 	PostgresCopyFormat format;
 	vector<string> insert_column_names;
 	bool copy_is_active = false;
@@ -121,8 +130,12 @@ SinkResultType PostgresInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 	}
 	connection.CopyChunk(context.client, gstate.copy_state, chunk, gstate.varchar_chunk);
 	gstate.insert_count += chunk.size();
-	if (!keep_copy_alive) {
-		// if we are can't keep the copy alive we need to restart the copy during every sink
+	gstate.rows_in_batch += chunk.size();
+	if (gstate.yb_rows_per_transaction > 0 && gstate.rows_in_batch >= gstate.yb_rows_per_transaction) {
+		connection.CommitAndRestartCopy(context.client, gstate.copy_state, gstate.format, gstate.table.schema.name,
+		                                gstate.table.name, gstate.insert_column_names);
+		gstate.rows_in_batch = 0;
+	} else if (!keep_copy_alive) {
 		gstate.FinishCopyTo(connection);
 	}
 	return SinkResultType::NEED_MORE_INPUT;

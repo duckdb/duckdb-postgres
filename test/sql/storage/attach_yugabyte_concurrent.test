@@ -55,7 +55,7 @@ endloop
 loop i 0 5
 
 statement ok
-INSERT INTO yb.concurrent_${i} SELECT g, g FROM generate_series(1, 100) g
+INSERT INTO yb.concurrent_${i} SELECT g, g FROM generate_series(1, 100) t(g)
 
 endloop
 

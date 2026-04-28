@@ -11,12 +11,20 @@ PRAGMA enable_verification
 
 # Verify YB-specific settings are registered and can be set
 statement ok
+SET pg_yb_parallel_scan=true
+
+statement ok
 SET pg_yb_rows_per_transaction=5000
 
 statement ok
 SET pg_yb_disable_transactional_writes=true
 
 # Verify they can be read back
+query I
+SELECT current_setting('pg_yb_parallel_scan')
+----
+true
+
 query I
 SELECT current_setting('pg_yb_rows_per_transaction')
 ----
@@ -40,6 +48,9 @@ statement ok
 DETACH yb
 
 # Reset to defaults
+statement ok
+RESET pg_yb_parallel_scan
+
 statement ok
 RESET pg_yb_rows_per_transaction
 

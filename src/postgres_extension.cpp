@@ -306,6 +306,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          SetScope::GLOBAL);
 
 	// YugabyteDB-specific options
+	config.AddExtensionOption(
+	    "pg_yb_parallel_scan",
+	    "Enable hash-code parallel scanning on YugabyteDB. Workers use separate REPEATABLE READ "
+	    "transactions without a shared snapshot, so concurrent writes may cause inconsistent reads. "
+	    "Safe for read-only or append-only tables.",
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
 	config.AddExtensionOption("pg_yb_rows_per_transaction",
 	                          "Number of rows per transaction batch for COPY FROM on YugabyteDB (0 to disable)",
 	                          LogicalType::UBIGINT, Value::UBIGINT(10000));
