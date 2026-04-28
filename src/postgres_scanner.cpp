@@ -130,6 +130,9 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 		// see https://github.com/duckdb/postgres_scanner/issues/186
 		use_ctid_scan = false;
 	}
+	if (version.type_v == PostgresInstanceType::YUGABYTE) {
+		use_ctid_scan = false;
+	}
 	if (approx_num_pages < 0) {
 		// negative relpages (e.g. partitioned tables) cannot use ctid scan
 		use_ctid_scan = false;
