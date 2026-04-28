@@ -75,6 +75,9 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 	if (version.type_v == PostgresInstanceType::AURORA) {
 		return;
 	}
+	if (version.type_v == PostgresInstanceType::YUGABYTE) {
+		return;
+	}
 	// SET TRANSACTION SNAPSHOT requires REPEATABLE READ or SERIALIZABLE
 	auto pg_catalog = bind_data.GetCatalog();
 	if (pg_catalog && pg_catalog->isolation_level == PostgresIsolationLevel::READ_COMMITTED) {
