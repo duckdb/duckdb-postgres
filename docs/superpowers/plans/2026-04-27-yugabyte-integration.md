@@ -42,7 +42,7 @@
 - Modify: `src/include/postgres_version.hpp:15` (enum), `src/include/postgres_version.hpp:17-27` (struct fields)
 - Modify: `src/postgres_connection.cpp:160-176` (GetPostgresVersion)
 
-- [ ] **Step 1: Add YUGABYTE to PostgresInstanceType enum**
+- [x] **Step 1: Add YUGABYTE to PostgresInstanceType enum**
 
 In `src/include/postgres_version.hpp`, change line 15:
 
@@ -70,7 +70,7 @@ struct PostgresVersion {
 };
 ```
 
-- [ ] **Step 2: Add YugabyteDB detection in GetPostgresVersion**
+- [x] **Step 2: Add YugabyteDB detection in GetPostgresVersion**
 
 In `src/postgres_connection.cpp`, replace lines 160-176 with:
 
@@ -109,14 +109,14 @@ PostgresVersion PostgresConnection::GetPostgresVersion(ClientContext &context) {
 }
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 Expected: Clean build.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/include/postgres_version.hpp src/postgres_connection.cpp
@@ -131,7 +131,7 @@ Extract the YB version (e.g., 2025.2.0.0) for future feature gating."
 **Files:**
 - Modify: `src/postgres_scanner.cpp:118-139` (PrepareBind)
 
-- [ ] **Step 1: Add YUGABYTE check to disable CTID scan**
+- [x] **Step 1: Add YUGABYTE check to disable CTID scan**
 
 In `src/postgres_scanner.cpp`, in `PostgresScanFunction::PrepareBind`, add after the `version.major_v < 14` block (around line 136):
 
@@ -141,13 +141,13 @@ In `src/postgres_scanner.cpp`, in `PostgresScanFunction::PrepareBind`, add after
 	}
 ```
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/postgres_scanner.cpp
@@ -162,7 +162,7 @@ are meaningless and would produce incorrect parallel scan plans."
 **Files:**
 - Modify: `src/postgres_scanner.cpp:67-107` (PostgresGetSnapshot)
 
-- [ ] **Step 1: Add early return for YUGABYTE**
+- [x] **Step 1: Add early return for YUGABYTE**
 
 In `src/postgres_scanner.cpp`, in `PostgresGetSnapshot`, add after the Aurora check at line 76:
 
@@ -172,13 +172,13 @@ In `src/postgres_scanner.cpp`, in `PostgresGetSnapshot`, add after the Aurora ch
 	}
 ```
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/postgres_scanner.cpp
@@ -194,7 +194,7 @@ export/import is unnecessary and may not behave correctly."
 - Modify: `src/include/postgres_connection.hpp:26-34` (OwnedPostgresConnection)
 - Modify: `src/postgres_connection.cpp:205-226` (Reset)
 
-- [ ] **Step 1: Add instance_type to OwnedPostgresConnection**
+- [x] **Step 1: Add instance_type to OwnedPostgresConnection**
 
 In `src/include/postgres_connection.hpp`, add the include and field:
 
@@ -217,7 +217,7 @@ struct OwnedPostgresConnection {
 };
 ```
 
-- [ ] **Step 2: Make Reset instance-type-aware**
+- [x] **Step 2: Make Reset instance-type-aware**
 
 In `src/postgres_connection.cpp`, replace the `Reset` method (lines 205-226):
 
@@ -252,13 +252,13 @@ void PostgresConnection::Reset(const std::string &health_check_query) {
 }
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/include/postgres_connection.hpp src/postgres_connection.cpp
@@ -278,7 +278,7 @@ CLOSE ALL + UNLISTEN * instead."
 - Modify: `src/storage/postgres_table_entry.cpp:24-29` (constructor), `src/storage/postgres_table_entry.cpp:39-67` (GetScanFunction)
 - Modify: `src/postgres_scanner.cpp:109-145` (PrepareBind)
 
-- [ ] **Step 1: Add YB metadata fields to PostgresTableInfo**
+- [x] **Step 1: Add YB metadata fields to PostgresTableInfo**
 
 In `src/include/storage/postgres_table_entry.hpp`, add to `PostgresTableInfo` after `int64_t approx_num_pages`:
 
@@ -298,7 +298,7 @@ Add corresponding fields to `PostgresTableEntry` after `std::atomic<int64_t> app
 	vector<string> yb_hash_partition_columns;
 ```
 
-- [ ] **Step 2: Add YB fields to PostgresBindData**
+- [x] **Step 2: Add YB fields to PostgresBindData**
 
 In `src/include/postgres_scanner.hpp`, add after `idx_t max_threads = 1;`:
 
@@ -310,7 +310,7 @@ In `src/include/postgres_scanner.hpp`, add after `idx_t max_threads = 1;`:
 	vector<string> yb_hash_partition_columns;
 ```
 
-- [ ] **Step 3: Add YB property loading helpers in postgres_table_set.cpp**
+- [x] **Step 3: Add YB property loading helpers in postgres_table_set.cpp**
 
 In `src/storage/postgres_table_set.cpp`, add before `CreateEntries`:
 
@@ -356,7 +356,7 @@ static void LoadYugabyteTableProperties(PostgresTransaction &transaction, Postgr
 }
 ```
 
-- [ ] **Step 4: Call YB property loader from CreateEntries**
+- [x] **Step 4: Call YB property loader from CreateEntries**
 
 In `CreateEntries`, at the top get the version, and call the loader:
 
@@ -397,7 +397,7 @@ Add the include for the catalog at the top of the file:
 #include "storage/postgres_catalog.hpp"
 ```
 
-- [ ] **Step 5: Store YB metadata in PostgresTableEntry constructor**
+- [x] **Step 5: Store YB metadata in PostgresTableEntry constructor**
 
 In `src/storage/postgres_table_entry.cpp`, update the PostgresTableInfo constructor:
 
@@ -412,7 +412,7 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 }
 ```
 
-- [ ] **Step 6: Pass YB metadata through GetScanFunction**
+- [x] **Step 6: Pass YB metadata through GetScanFunction**
 
 In `src/storage/postgres_table_entry.cpp`, in `GetScanFunction`, add before the PrepareBind call:
 
@@ -424,7 +424,7 @@ In `src/storage/postgres_table_entry.cpp`, in `GetScanFunction`, add before the 
 	                                  approx_num_pages.load(std::memory_order_acquire));
 ```
 
-- [ ] **Step 7: Update PrepareBind to use tablet count for thread count**
+- [x] **Step 7: Update PrepareBind to use tablet count for thread count**
 
 In `src/postgres_scanner.cpp`, at the end of `PrepareBind`, add:
 
@@ -438,13 +438,13 @@ In `src/postgres_scanner.cpp`, at the end of `PrepareBind`, add:
 	}
 ```
 
-- [ ] **Step 8: Build and verify**
+- [x] **Step 8: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/include/storage/postgres_table_entry.hpp src/include/postgres_scanner.hpp \
@@ -466,7 +466,7 @@ meaningless relpages."
 **Files:**
 - Create: `src/include/yugabyte_topology.hpp`
 
-- [ ] **Step 1: Create the topology header**
+- [x] **Step 1: Create the topology header**
 
 Create `src/include/yugabyte_topology.hpp`:
 
@@ -518,7 +518,7 @@ struct YugabyteTopology {
 } // namespace duckdb
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/include/yugabyte_topology.hpp
@@ -531,7 +531,7 @@ git commit -m "feat: add YugabyteTserver and YugabyteTopology structs"
 - Modify: `src/include/storage/postgres_catalog.hpp:9-10,82-114` (includes, member, accessor)
 - Modify: `src/storage/postgres_catalog.cpp:1-25` (includes, constructor)
 
-- [ ] **Step 1: Add topology to PostgresCatalog header**
+- [x] **Step 1: Add topology to PostgresCatalog header**
 
 In `src/include/storage/postgres_catalog.hpp`:
 
@@ -552,7 +552,7 @@ Add in the private section after `string default_schema;`:
 	YugabyteTopology yb_topology;
 ```
 
-- [ ] **Step 2: Add discovery function and call from constructor**
+- [x] **Step 2: Add discovery function and call from constructor**
 
 In `src/storage/postgres_catalog.cpp`, add a static helper before the constructor:
 
@@ -604,13 +604,13 @@ Update the constructor -- add after the `GetPostgresVersion` call:
 	}
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/include/storage/postgres_catalog.hpp src/storage/postgres_catalog.cpp
@@ -626,7 +626,7 @@ Cache topology for the ATTACH lifetime."
 **Files:**
 - Modify: `src/postgres_scanner.cpp` (PostgresGlobalState, PostgresParallelStateNext, PostgresInitInternal, PostgresScanConnect, PostgresScanProgress, GetLocalState, PostgresInitGlobalState)
 
-- [ ] **Step 1: Add YB fields to PostgresGlobalState**
+- [x] **Step 1: Add YB fields to PostgresGlobalState**
 
 In `src/postgres_scanner.cpp`, add to `PostgresGlobalState` after `string snapshot;`:
 
@@ -637,7 +637,7 @@ In `src/postgres_scanner.cpp`, add to `PostgresGlobalState` after `string snapsh
 	idx_t yb_num_tasks = 0;
 ```
 
-- [ ] **Step 2: Add YugabyteDB hash-code WHERE in PostgresInitInternal**
+- [x] **Step 2: Add YugabyteDB hash-code WHERE in PostgresInitInternal**
 
 In `PostgresInitInternal`, replace the filter construction block (around lines 268-283):
 
@@ -662,7 +662,7 @@ In `PostgresInitInternal`, replace the filter construction block (around lines 2
 	}
 ```
 
-- [ ] **Step 3: Add YugabyteDB path to PostgresParallelStateNext**
+- [x] **Step 3: Add YugabyteDB path to PostgresParallelStateNext**
 
 Replace `PostgresParallelStateNext`:
 
@@ -705,7 +705,7 @@ static bool PostgresParallelStateNext(ClientContext &context, const FunctionData
 }
 ```
 
-- [ ] **Step 4: Initialize yb_num_tasks in PostgresInitGlobalState**
+- [x] **Step 4: Initialize yb_num_tasks in PostgresInitGlobalState**
 
 In `PostgresInitGlobalState`, add after the `PostgresGetSnapshot` call (around line 376):
 
@@ -721,7 +721,7 @@ In `PostgresInitGlobalState`, add after the `PostgresGetSnapshot` call (around l
 	return std::move(result);
 ```
 
-- [ ] **Step 5: Handle YB path in GetLocalState**
+- [x] **Step 5: Handle YB path in GetLocalState**
 
 In `GetLocalState`, replace the condition block (lines 452-458):
 
@@ -735,7 +735,7 @@ In `GetLocalState`, replace the condition block (lines 452-458):
 	}
 ```
 
-- [ ] **Step 6: Force REPEATABLE READ for YugabyteDB parallel scans**
+- [x] **Step 6: Force REPEATABLE READ for YugabyteDB parallel scans**
 
 Update `PostgresScanConnect` to accept instance type:
 
@@ -782,7 +782,7 @@ and:
 		                    PostgresIsolationLevel::REPEATABLE_READ, bind_data.version.type_v);
 ```
 
-- [ ] **Step 7: Update progress reporting for YugabyteDB**
+- [x] **Step 7: Update progress reporting for YugabyteDB**
 
 Replace `PostgresScanProgress`:
 
@@ -801,13 +801,13 @@ double PostgresScanProgress(ClientContext &context, const FunctionData *bind_dat
 }
 ```
 
-- [ ] **Step 8: Build and verify**
+- [x] **Step 8: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/postgres_scanner.cpp
@@ -826,7 +826,7 @@ reads via HLC-based MVCC."
 - Modify: `src/storage/postgres_connection_pool.cpp` (add tserver connection method)
 - Modify: `src/postgres_scanner.cpp` (TryOpenNewConnection -- route to tservers)
 
-- [ ] **Step 1: Add tserver connection method to pool**
+- [x] **Step 1: Add tserver connection method to pool**
 
 In `src/include/storage/postgres_connection_pool.hpp`, add to the public section:
 
@@ -845,7 +845,7 @@ std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateConnectionToHo
 }
 ```
 
-- [ ] **Step 2: Route parallel connections to tservers**
+- [x] **Step 2: Route parallel connections to tservers**
 
 In `src/postgres_scanner.cpp`, in `TryOpenNewConnection`, add YugabyteDB tserver routing. Replace the section after `used_main_thread` (the `if (pg_catalog)` block starting around line 422):
 
@@ -889,13 +889,13 @@ In `src/postgres_scanner.cpp`, in `TryOpenNewConnection`, add YugabyteDB tserver
 	return true;
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/include/storage/postgres_connection_pool.hpp src/storage/postgres_connection_pool.cpp \
@@ -918,7 +918,7 @@ Falls back to connection pool when tservers are not reachable."
 - Modify: `src/postgres_copy_to.cpp:26-70` (BeginCopyTo)
 - Modify: `src/include/postgres_connection.hpp:64-77` (add CommitAndRestartCopy)
 
-- [ ] **Step 1: Register new YugabyteDB settings**
+- [x] **Step 1: Register new YugabyteDB settings**
 
 In `src/postgres_extension.cpp`, add after the `pg_pool_health_check_query` block (around line 306):
 
@@ -932,7 +932,7 @@ In `src/postgres_extension.cpp`, add after the `pg_pool_health_check_query` bloc
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
 ```
 
-- [ ] **Step 2: Add bulk load GUC push in BeginCopyTo**
+- [x] **Step 2: Add bulk load GUC push in BeginCopyTo**
 
 In `src/postgres_copy_to.cpp`, at the start of `BeginCopyTo` (line 26), add:
 
@@ -950,7 +950,7 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
 	// ... rest of existing method unchanged ...
 ```
 
-- [ ] **Step 3: Add CommitAndRestartCopy helper**
+- [x] **Step 3: Add CommitAndRestartCopy helper**
 
 In `src/include/postgres_connection.hpp`, add to `PostgresConnection` public section:
 
@@ -973,13 +973,13 @@ void PostgresConnection::CommitAndRestartCopy(ClientContext &context, PostgresCo
 }
 ```
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 ```bash
 make -j$(nproc) -C build/release 2>&1 | tail -20
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/postgres_extension.cpp src/postgres_copy_to.cpp src/include/postgres_connection.hpp
@@ -998,28 +998,28 @@ Add CommitAndRestartCopy helper for batched transaction COPY FROM."
 
 **Files:** None (verification only)
 
-- [ ] **Step 1: Clean build**
+- [x] **Step 1: Clean build**
 
 ```bash
 cd /home/wdroste/build/duckdb-postgres && make clean && make -j$(nproc) -C build/release 2>&1 | tail -30
 ```
 Expected: Clean build, no errors.
 
-- [ ] **Step 2: Verify all YugabyteDB instance type checks**
+- [x] **Step 2: Verify all YugabyteDB instance type checks**
 
 ```bash
 grep -rn "PostgresInstanceType::YUGABYTE" src/ --include="*.cpp" --include="*.hpp"
 ```
 Expected: Consistent checks across all modified files.
 
-- [ ] **Step 3: Verify DISCARD ALL is properly gated**
+- [x] **Step 3: Verify DISCARD ALL is properly gated**
 
 ```bash
 grep -rn "DISCARD ALL" src/ --include="*.cpp"
 ```
 Expected: Only in the `else` branch of Reset.
 
-- [ ] **Step 4: Review commit log**
+- [x] **Step 4: Review commit log**
 
 ```bash
 git log --oneline feat/secret-options ^main | head -20
