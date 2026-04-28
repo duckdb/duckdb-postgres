@@ -43,25 +43,6 @@ jobs:
     needs: format-check
     runs-on: ubuntu-latest
 
-    services:
-      yugabyte:
-        image: yugabytedb/yugabyte:2024.2.3.0-b13
-        env:
-          YSQL_USER: yugabyte
-          YSQL_PASSWORD: yugabyte
-          YSQL_DB: yugabyte
-        ports:
-          - 5433:5433
-          - 7000:7000
-          - 9000:9000
-        options: >-
-          --health-cmd "PGPASSWORD=yugabyte psql -h localhost -p 5433 -U yugabyte -d yugabyte -c 'SELECT 1'"
-          --health-interval 15s
-          --health-timeout 10s
-          --health-retries 20
-          --health-start-period 120s
-          --name yugabyte
-
     env:
       GEN: ninja
       CC: 'ccache gcc'
@@ -87,6 +68,13 @@ jobs:
           cmake \
           ninja-build \
           postgresql-client
+
+    - name: Start YugabyteDB
+      run: |
+        docker run -d --name yugabyte \
+          -p 5433:5433 -p 7000:7000 -p 9000:9000 \
+          yugabytedb/yugabyte:2025.1.4.0-b103 \
+          bin/yugabyted start --daemon=false
 
     - name: Cache Key
       id: cache_key
@@ -124,20 +112,19 @@ jobs:
         PGUSER: yugabyte
         PGPASSWORD: yugabyte
       run: |
-        echo "Verifying YugabyteDB cluster is fully operational..."
-        for i in $(seq 1 30); do
+        echo "Waiting for YugabyteDB to accept connections..."
+        for i in $(seq 1 40); do
           if psql -d yugabyte -c "SELECT count(*) FROM yb_servers()" 2>/dev/null; then
             echo "YugabyteDB cluster is ready (attempt $i)"
-            break
+            psql -d yugabyte -c "SELECT host, port, node_type FROM yb_servers()"
+            exit 0
           fi
-          if [ "$i" -eq 30 ]; then
-            echo "ERROR: YugabyteDB did not become fully ready"
-            docker logs yugabyte 2>&1 | tail -50
-            exit 1
-          fi
-          echo "Waiting for cluster readiness (attempt $i/30)..."
+          echo "Attempt $i/40 — waiting 10s..."
           sleep 10
         done
+        echo "ERROR: YugabyteDB did not become ready after 400 seconds"
+        docker logs yugabyte 2>&1 | tail -100
+        exit 1
 
     - name: Setup YugabyteDB test data
       env:
