@@ -305,6 +305,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery(), nullptr,
 	                          SetScope::GLOBAL);
 
+	// YugabyteDB-specific options
+	config.AddExtensionOption("pg_yb_rows_per_transaction",
+	                          "Number of rows per transaction batch for COPY FROM on YugabyteDB (0 to disable)",
+	                          LogicalType::UBIGINT, Value::UBIGINT(10000));
+	config.AddExtensionOption("pg_yb_disable_transactional_writes",
+	                          "Disable transactional writes for bulk COPY FROM on YugabyteDB (no rollback on failure)",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
+
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;
 	OptimizerExtension::Register(config, std::move(postgres_optimizer));
