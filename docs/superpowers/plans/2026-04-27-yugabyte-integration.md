@@ -998,28 +998,28 @@ Add CommitAndRestartCopy helper for batched transaction COPY FROM."
 
 **Files:** None (verification only)
 
-- [x] **Step 1: Clean build**
+- [x] **Step 1: Clean build** ✓ ninja clean pass
 
 ```bash
 cd /home/wdroste/build/duckdb-postgres && make clean && make -j$(nproc) -C build/release 2>&1 | tail -30
 ```
 Expected: Clean build, no errors.
 
-- [x] **Step 2: Verify all YugabyteDB instance type checks**
+- [x] **Step 2: Verify all YugabyteDB instance type checks** ✓ 12 references across 4 files
 
 ```bash
 grep -rn "PostgresInstanceType::YUGABYTE" src/ --include="*.cpp" --include="*.hpp"
 ```
 Expected: Consistent checks across all modified files.
 
-- [x] **Step 3: Verify DISCARD ALL is properly gated**
+- [x] **Step 3: Verify DISCARD ALL is properly gated** ✓ only in else branch of Reset
 
 ```bash
 grep -rn "DISCARD ALL" src/ --include="*.cpp"
 ```
 Expected: Only in the `else` branch of Reset.
 
-- [x] **Step 4: Review commit log**
+- [x] **Step 4: Review commit log** ✓ 10 task commits on branch
 
 ```bash
 git log --oneline feat/secret-options ^main | head -20
