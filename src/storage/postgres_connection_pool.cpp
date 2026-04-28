@@ -19,17 +19,9 @@ static std::string GetHealthCheckQueryFromConfig(ClientContext &context) {
 	return PostgresConnectionPool::DefaultHealthCheckQuery();
 }
 
-static PostgresPoolAcquireMode GetAcquireModeFromConfig(ClientContext &context) {
-	Value mode_val;
-	if (context.TryGetCurrentSetting("pg_pool_acquire_mode", mode_val)) {
-		return PostgresConnectionPool::AcquireModeFromString(mode_val.ToString());
-	}
-	return PostgresPoolAcquireMode::FORCE;
-}
-
 PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context)
     : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(context)), postgres_catalog(postgres_catalog),
-      health_check_query(GetHealthCheckQueryFromConfig(context)), acquire_mode(GetAcquireModeFromConfig(context)) {
+      health_check_query(GetHealthCheckQueryFromConfig(context)) {
 }
 
 PostgresPoolConnection PostgresConnectionPool::ForceGetConnection() {
@@ -46,20 +38,7 @@ bool PostgresConnectionPool::TryGetConnection(PostgresPoolConnection &connection
 }
 
 PostgresPoolConnection PostgresConnectionPool::GetConnection() {
-	if (!PoolEnabled()) {
-		return ForceAcquire();
-	}
-	PostgresPoolAcquireMode mode = GetAcquireMode();
-	switch (mode) {
-	case PostgresPoolAcquireMode::FORCE:
-		return ForceAcquire();
-	case PostgresPoolAcquireMode::WAIT:
-		return WaitAcquire();
-	case PostgresPoolAcquireMode::TRY:
-		return TryAcquire();
-	default:
-		throw IOException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
-	}
+	return Acquire();
 }
 
 std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateNewConnection() {
@@ -90,16 +69,6 @@ void PostgresConnectionPool::SetHealthCheckQuery(const std::string &query) {
 	this->health_check_query = std::string(query.data(), query.length());
 }
 
-PostgresPoolAcquireMode PostgresConnectionPool::GetAcquireMode() {
-	std::lock_guard<std::mutex> guard(config_mutex);
-	return acquire_mode;
-}
-
-void PostgresConnectionPool::SetAcquireMode(PostgresPoolAcquireMode mode) {
-	std::lock_guard<std::mutex> guard(config_mutex);
-	this->acquire_mode = mode;
-}
-
 idx_t PostgresConnectionPool::DefaultPoolSize() {
 	idx_t detected = static_cast<idx_t>(std::thread::hardware_concurrency());
 	idx_t detected_adjusted = detected * 3 / 2;
@@ -114,6 +83,12 @@ std::string PostgresConnectionPool::DefaultHealthCheckQuery() {
 static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &ctx) {
 	dbconnector::pool::ConnectionPoolConfig config;
 
+	{
+		Value mode_val;
+		if (ctx.TryGetCurrentSetting("pg_pool_acquire_mode", mode_val)) {
+			config.acquire_mode = dbconnector::pool::AcquireModeHelpers::FromString(mode_val.ToString());
+		}
+	}
 	{
 		Value val;
 		if (ctx.TryGetCurrentSetting("pg_pool_max_connections", val) && !val.IsNull()) {
@@ -158,40 +133,14 @@ bool PostgresConnectionPool::PoolEnabled() {
 	return GetMaxConnections() > 0;
 }
 
-PostgresPoolAcquireMode PostgresConnectionPool::AcquireModeFromString(const std::string &mode_str) {
-	auto ms = StringUtil::Lower(mode_str);
-	if (ms == "force") {
-		return PostgresPoolAcquireMode::FORCE;
-	} else if (ms == "wait") {
-		return PostgresPoolAcquireMode::WAIT;
-	} else if (ms == "try") {
-		return PostgresPoolAcquireMode::TRY;
-	} else {
-		throw InvalidInputException("Invalid unsupported acquire mode: '%s'", mode_str);
-	}
-}
-
-std::string PostgresConnectionPool::AcquireModeToString(PostgresPoolAcquireMode mode) {
-	switch (mode) {
-	case PostgresPoolAcquireMode::FORCE:
-		return "force";
-	case PostgresPoolAcquireMode::WAIT:
-		return "wait";
-	case PostgresPoolAcquireMode::TRY:
-		return "try";
-	default:
-		throw InvalidInputException("Invalid unsupported acquire mode: %d" + static_cast<int>(mode));
-	}
-}
-
 void PostgresConnectionPool::ValidatePoolAcquireMode(ClientContext &context, SetScope scope, Value &parameter) {
-	PostgresPoolAcquireMode mode = AcquireModeFromString(parameter.ToString());
-	if (mode != PostgresPoolAcquireMode::FORCE) {
+	dbconnector::pool::AcquireMode mode = dbconnector::pool::AcquireModeHelpers::FromString(parameter.ToString());
+	if (mode != dbconnector::pool::AcquireMode::FORCE) {
 		Value pool_size_val;
 		if (context.TryGetCurrentSetting("pg_pool_max_connections", pool_size_val)) {
 			auto pool_size = pool_size_val.GetValue<uint64_t>();
 			if (pool_size == 0) {
-				std::string mode_str = AcquireModeToString(mode);
+				std::string mode_str = dbconnector::pool::AcquireModeHelpers::ToString(mode);
 				throw InvalidInputException(
 				    "pg_pool_pool_acquire_mode='%s' requires pg_pool_max_connections > 0 (pooling enabled)", mode_str);
 			}
