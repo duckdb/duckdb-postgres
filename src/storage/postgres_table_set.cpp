@@ -122,8 +122,8 @@ void PostgresTableSet::AddColumnOrConstraint(optional_ptr<PostgresTransaction> t
 
 static void LoadYugabyteTableProperties(PostgresTransaction &transaction, PostgresTableInfo &table_info,
                                         const string &schema_name) {
-	string qualified = KeywordHelper::WriteQuoted(schema_name, '"') + "." +
-	                   KeywordHelper::WriteQuoted(table_info.GetTableName(), '"');
+	string qualified =
+	    KeywordHelper::WriteQuoted(schema_name, '"') + "." + KeywordHelper::WriteQuoted(table_info.GetTableName(), '"');
 
 	string props_query = StringUtil::Format(
 	    "SELECT num_tablets, num_hash_key_columns FROM yb_table_properties('%s'::regclass)", qualified);
@@ -138,14 +138,14 @@ static void LoadYugabyteTableProperties(PostgresTransaction &transaction, Postgr
 	}
 
 	if (table_info.yb_num_hash_key_columns > 0) {
-		string pk_query = StringUtil::Format(
-		    "SELECT a.attname "
-		    "FROM pg_index i "
-		    "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
-		    "WHERE i.indrelid = '%s'::regclass AND i.indisprimary "
-		    "ORDER BY array_position(i.indkey, a.attnum) "
-		    "LIMIT %d",
-		    qualified, table_info.yb_num_hash_key_columns);
+		string pk_query =
+		    StringUtil::Format("SELECT a.attname "
+		                       "FROM pg_index i "
+		                       "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+		                       "WHERE i.indrelid = '%s'::regclass AND i.indisprimary "
+		                       "ORDER BY array_position(i.indkey, a.attnum) "
+		                       "LIMIT %d",
+		                       qualified, table_info.yb_num_hash_key_columns);
 		try {
 			auto result = transaction.Query(pk_query);
 			if (result) {

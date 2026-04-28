@@ -288,8 +288,8 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 	lstate.done = false;
 	if (bind_data->pages_approx > 0) {
 		filter = StringUtil::Format("WHERE ctid BETWEEN '(%d,0)'::tid AND '(%d,0)'::tid", task_min, task_max);
-	} else if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE &&
-	           bind_data->yb_num_hash_key_columns > 0 && !bind_data->yb_hash_partition_columns.empty()) {
+	} else if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE && bind_data->yb_num_hash_key_columns > 0 &&
+	           !bind_data->yb_hash_partition_columns.empty()) {
 		string hash_cols;
 		for (idx_t i = 0; i < bind_data->yb_hash_partition_columns.size(); i++) {
 			if (i > 0) {
@@ -297,8 +297,7 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 			}
 			hash_cols += KeywordHelper::WriteQuoted(bind_data->yb_hash_partition_columns[i], '"');
 		}
-		filter = StringUtil::Format("WHERE yb_hash_code(%s) BETWEEN %d AND %d",
-		                            hash_cols, task_min, task_max);
+		filter = StringUtil::Format("WHERE yb_hash_code(%s) BETWEEN %d AND %d", hash_cols, task_min, task_max);
 	}
 	if (!filter_string.empty()) {
 		if (filter.empty()) {
@@ -343,8 +342,8 @@ static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn
                                 AccessMode access_mode, PostgresIsolationLevel isolation_level,
                                 PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES) {
 	if (instance_type == PostgresInstanceType::YUGABYTE) {
-		conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(
-		    PostgresIsolationLevel::REPEATABLE_READ, AccessMode::READ_ONLY));
+		conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(PostgresIsolationLevel::REPEATABLE_READ,
+		                                                                    AccessMode::READ_ONLY));
 	} else {
 		conn.Execute(context, PostgresTransaction::GetBeginTransactionQuery(isolation_level, access_mode));
 		if (!snapshot.empty()) {
@@ -409,8 +408,8 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		PostgresGetSnapshot(context, bind_data.version, bind_data, *result);
 	}
 
-	if (bind_data.version.type_v == PostgresInstanceType::YUGABYTE &&
-	    bind_data.yb_num_hash_key_columns > 0 && bind_data.max_threads > 1) {
+	if (bind_data.version.type_v == PostgresInstanceType::YUGABYTE && bind_data.yb_num_hash_key_columns > 0 &&
+	    bind_data.max_threads > 1) {
 		result->yb_num_tasks = bind_data.max_threads;
 	}
 
@@ -425,17 +424,15 @@ static bool PostgresParallelStateNext(ClientContext &context, const FunctionData
 	lock_guard<mutex> parallel_lock(gstate.lock);
 	lstate.batch_idx = gstate.batch_idx++;
 
-	if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE &&
-	    bind_data->yb_num_hash_key_columns > 0 && gstate.yb_num_tasks > 0) {
+	if (bind_data->version.type_v == PostgresInstanceType::YUGABYTE && bind_data->yb_num_hash_key_columns > 0 &&
+	    gstate.yb_num_tasks > 0) {
 		if (gstate.yb_hash_idx >= gstate.yb_num_tasks) {
 			lstate.done = true;
 			return false;
 		}
 		idx_t range_size = 65536 / gstate.yb_num_tasks;
 		idx_t range_min = gstate.yb_hash_idx * range_size;
-		idx_t range_max = (gstate.yb_hash_idx == gstate.yb_num_tasks - 1)
-		                      ? 65535
-		                      : range_min + range_size - 1;
+		idx_t range_max = (gstate.yb_hash_idx == gstate.yb_num_tasks - 1) ? 65535 : range_min + range_size - 1;
 		gstate.yb_hash_idx++;
 		PostgresInitInternal(context, bind_data, lstate, range_min, range_max);
 		return true;

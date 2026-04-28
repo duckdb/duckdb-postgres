@@ -12,10 +12,10 @@
 
 namespace duckdb {
 
-static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection &conn,
-                                     const string &connection_string, YugabyteTopology &topology) {
-	auto result = conn.TryQuery(context,
-	    "SELECT host, port, node_type, cloud, region, zone, public_ip FROM yb_servers()");
+static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection &conn, const string &connection_string,
+                                     YugabyteTopology &topology) {
+	auto result =
+	    conn.TryQuery(context, "SELECT host, port, node_type, cloud, region, zone, public_ip FROM yb_servers()");
 	if (!result) {
 		return;
 	}
@@ -32,8 +32,7 @@ static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection 
 	}
 
 	for (auto &ts : topology.tservers) {
-		string probe_dsn = StringUtil::Format(
-		    "host='%s' port=%d connect_timeout=2", ts.ip_address, ts.port);
+		string probe_dsn = StringUtil::Format("host='%s' port=%d connect_timeout=2", ts.ip_address, ts.port);
 		PGconn *probe = PQconnectdb(probe_dsn.c_str());
 		if (probe && PQstatus(probe) == CONNECTION_OK) {
 			ts.reachable = true;
