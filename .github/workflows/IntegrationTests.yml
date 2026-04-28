@@ -38,6 +38,132 @@ jobs:
           clang-format --dump-config
           make format-check
 
+  linux-yugabyte:
+    name: YugabyteDB Tests
+    needs: format-check
+    runs-on: ubuntu-latest
+
+    services:
+      yugabyte:
+        image: yugabytedb/yugabyte:2024.2.3.0-b13
+        env:
+          YSQL_USER: yugabyte
+          YSQL_PASSWORD: yugabyte
+          YSQL_DB: yugabyte
+        ports:
+          - 5433:5433
+          - 7000:7000
+          - 9000:9000
+        options: >-
+          --health-cmd "PGPASSWORD=yugabyte psql -h localhost -p 5433 -U yugabyte -d yugabyte -c 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 20
+          --health-start-period 120s
+          --name yugabyte
+
+    env:
+      GEN: ninja
+      CC: 'ccache gcc'
+      CXX: 'ccache g++'
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      VCPKG_TARGET_TRIPLET: x64-linux-release
+      VCPKG_HOST_TRIPLET: x64-linux-release
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        submodules: 'true'
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
+        sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
+          build-essential \
+          ccache \
+          cmake \
+          ninja-build \
+          postgresql-client
+
+    - name: Cache Key
+      id: cache_key
+      working-directory: ./duckdb
+      run: |
+        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        KEY="${{ runner.os }}-${{ runner.arch }}-${DUCKDB_VERSION}-yugabyte"
+        echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
+
+    - name: Restore Cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11.1
+      with:
+        vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+    - name: Build extension
+      run: |
+        make release
+
+    - name: Save Cache
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/ccache
+        key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Wait for YugabyteDB readiness
+      env:
+        PGHOST: localhost
+        PGPORT: '5433'
+        PGUSER: yugabyte
+        PGPASSWORD: yugabyte
+      run: |
+        echo "Verifying YugabyteDB cluster is fully operational..."
+        for i in $(seq 1 30); do
+          if psql -d yugabyte -c "SELECT count(*) FROM yb_servers()" 2>/dev/null; then
+            echo "YugabyteDB cluster is ready (attempt $i)"
+            break
+          fi
+          if [ "$i" -eq 30 ]; then
+            echo "ERROR: YugabyteDB did not become fully ready"
+            docker logs yugabyte 2>&1 | tail -50
+            exit 1
+          fi
+          echo "Waiting for cluster readiness (attempt $i/30)..."
+          sleep 10
+        done
+
+    - name: Setup YugabyteDB test data
+      env:
+        PGHOST: localhost
+        PGPORT: '5433'
+        PGUSER: yugabyte
+        PGPASSWORD: yugabyte
+      run: |
+        source ./create-yugabyte-tables.sh
+
+    - name: Run YugabyteDB tests
+      env:
+        PGHOST: localhost
+        PGPORT: '5433'
+        PGUSER: yugabyte
+        PGPASSWORD: yugabyte
+        YUGABYTE_TEST_DATABASE_AVAILABLE: 1
+        LOCAL_EXTENSION_REPO: 'build/release/repository'
+      run: |
+        make test
+
+    - name: YugabyteDB logs on failure
+      if: failure()
+      run: |
+        docker logs yugabyte 2>&1 | tail -200
+
   linux-tests:
     name: Linux Tests
     needs: format-check

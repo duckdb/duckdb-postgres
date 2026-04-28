@@ -1,0 +1,143 @@
+# name: test/sql/storage/attach_yugabyte_write.test
+# description: Test INSERT/UPDATE/DELETE and bulk COPY write path on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Bulk insert — exercises COPY write path ===
+statement ok
+DROP TABLE IF EXISTS yb.write_test
+
+statement ok
+CREATE TABLE yb.write_test (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
+
+query I
+INSERT INTO yb.write_test SELECT g, 'name_' || g, g * 1.5 FROM generate_series(1, 10000) g
+----
+10000
+
+query I
+SELECT count(*) FROM yb.write_test
+----
+10000
+
+query III
+SELECT id, name, value FROM yb.write_test WHERE id = 5000
+----
+5000	name_5000	7500.0
+
+# Checksum to catch data corruption in COPY path
+query I
+SELECT sum(id) FROM yb.write_test
+----
+50005000
+
+# === INSERT INTO from another YB table (cross-table COPY) ===
+statement ok
+DROP TABLE IF EXISTS yb.write_copy
+
+statement ok
+CREATE TABLE yb.write_copy (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
+
+query I
+INSERT INTO yb.write_copy SELECT * FROM yb.write_test WHERE id <= 1000
+----
+1000
+
+query I
+SELECT count(*) FROM yb.write_copy
+----
+1000
+
+query I
+SELECT sum(id) FROM yb.write_copy
+----
+500500
+
+# === UPDATE ===
+statement ok
+UPDATE yb.write_test SET value = 999.0 WHERE id = 1
+
+query I
+SELECT value FROM yb.write_test WHERE id = 1
+----
+999.0
+
+# Bulk update
+statement ok
+UPDATE yb.write_test SET name = 'updated' WHERE id <= 100
+
+query I
+SELECT count(*) FROM yb.write_test WHERE name = 'updated'
+----
+100
+
+# === DELETE ===
+statement ok
+DELETE FROM yb.write_test WHERE id > 9000
+
+query I
+SELECT count(*) FROM yb.write_test
+----
+9000
+
+# Delete with condition
+statement ok
+DELETE FROM yb.write_test WHERE id % 2 = 0
+
+query I
+SELECT count(*) FROM yb.write_test
+----
+4500
+
+# === Multi-type table write ===
+statement ok
+DROP TABLE IF EXISTS yb.write_types
+
+statement ok
+CREATE TABLE yb.write_types (
+  id INTEGER PRIMARY KEY,
+  col_text TEXT,
+  col_bigint BIGINT,
+  col_double DOUBLE,
+  col_bool BOOLEAN,
+  col_date DATE
+)
+
+query I
+INSERT INTO yb.write_types
+SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0), '2024-01-01'::DATE + g
+FROM generate_series(1, 5000) g
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_types
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_types WHERE col_bool = true
+----
+2500
+
+# === Cleanup ===
+statement ok
+DROP TABLE yb.write_test
+
+statement ok
+DROP TABLE yb.write_copy
+
+statement ok
+DROP TABLE yb.write_types
+
+statement ok
+DETACH yb

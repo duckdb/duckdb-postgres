@@ -1,0 +1,81 @@
+# name: test/sql/storage/attach_yugabyte_concurrent.test
+# description: Test concurrent queries on YugabyteDB — connection pool under contention
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# Concurrent reads — should not crash or return wrong results
+concurrentloop i 0 10
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+endloop
+
+# Concurrent reads across different tables
+concurrentloop i 0 5
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+endloop
+
+# Concurrent writes to separate tables
+concurrentloop i 0 5
+
+statement maybe
+CREATE OR REPLACE TABLE yb.concurrent_${i} (id INTEGER PRIMARY KEY, val INTEGER);
+----
+
+endloop
+
+# Write to them
+loop i 0 5
+
+statement ok
+INSERT INTO yb.concurrent_${i} SELECT g, g FROM generate_series(1, 100) g
+
+endloop
+
+# Verify
+loop i 0 5
+
+query I
+SELECT count(*) FROM yb.concurrent_${i}
+----
+100
+
+endloop
+
+# Cleanup
+loop i 0 5
+
+statement ok
+DROP TABLE IF EXISTS yb.concurrent_${i}
+
+endloop
+
+statement ok
+DETACH yb
