@@ -1,0 +1,141 @@
+# name: test/sql/storage/attach_yugabyte_copy_batch.test
+# description: Test COPY batch splitting via pg_yb_rows_per_transaction on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Batch COPY: rows_per_transaction triggers CommitAndRestartCopy ===
+# Set a small batch size so 10k rows forces multiple commit cycles
+statement ok
+SET pg_yb_rows_per_transaction=1000
+
+statement ok
+DROP TABLE IF EXISTS yb.batch_test
+
+statement ok
+CREATE TABLE yb.batch_test (id INTEGER PRIMARY KEY, data TEXT)
+
+# 10k rows with batch size 1000 = ~10 commit cycles
+query I
+INSERT INTO yb.batch_test SELECT g, 'batch_' || g FROM generate_series(1, 10000) t(g)
+----
+10000
+
+# Verify all rows landed despite mid-stream commits
+query I
+SELECT count(*) FROM yb.batch_test
+----
+10000
+
+query I
+SELECT sum(id) FROM yb.batch_test
+----
+50005000
+
+query II
+SELECT min(id), max(id) FROM yb.batch_test
+----
+1	10000
+
+# === Batch COPY with very small batch (stress the restart path) ===
+statement ok
+SET pg_yb_rows_per_transaction=100
+
+statement ok
+DROP TABLE IF EXISTS yb.batch_small
+
+statement ok
+CREATE TABLE yb.batch_small (id INTEGER PRIMARY KEY, val DOUBLE)
+
+query I
+INSERT INTO yb.batch_small SELECT g, g * 1.5 FROM generate_series(1, 5000) t(g)
+----
+5000
+
+query I
+SELECT count(*) FROM yb.batch_small
+----
+5000
+
+query I
+SELECT sum(id) FROM yb.batch_small
+----
+12502500
+
+# === Batch COPY disabled (0 = single transaction) ===
+statement ok
+SET pg_yb_rows_per_transaction=0
+
+statement ok
+DROP TABLE IF EXISTS yb.batch_disabled
+
+statement ok
+CREATE TABLE yb.batch_disabled (id INTEGER PRIMARY KEY, name TEXT)
+
+query I
+INSERT INTO yb.batch_disabled SELECT g, 'no_batch_' || g FROM generate_series(1, 3000) t(g)
+----
+3000
+
+query I
+SELECT count(*) FROM yb.batch_disabled
+----
+3000
+
+# === Batch COPY combined with yb_disable_transactional_writes ===
+statement ok
+SET pg_yb_rows_per_transaction=500
+
+statement ok
+SET pg_yb_disable_transactional_writes=true
+
+statement ok
+DROP TABLE IF EXISTS yb.batch_notxn
+
+statement ok
+CREATE TABLE yb.batch_notxn (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.batch_notxn SELECT g, 'notxn_' || g FROM generate_series(1, 2000) t(g)
+----
+2000
+
+query I
+SELECT count(*) FROM yb.batch_notxn
+----
+2000
+
+query I
+SELECT sum(id) FROM yb.batch_notxn
+----
+2001000
+
+# === Cleanup ===
+statement ok
+RESET pg_yb_rows_per_transaction
+
+statement ok
+RESET pg_yb_disable_transactional_writes
+
+statement ok
+DROP TABLE yb.batch_test
+
+statement ok
+DROP TABLE yb.batch_small
+
+statement ok
+DROP TABLE yb.batch_disabled
+
+statement ok
+DROP TABLE yb.batch_notxn
+
+statement ok
+DETACH yb

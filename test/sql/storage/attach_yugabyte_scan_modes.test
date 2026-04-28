@@ -1,0 +1,244 @@
+# name: test/sql/storage/attach_yugabyte_scan_modes.test
+# description: Test all scan mode combinations on YugabyteDB — parallel vs serial, hash vs range vs colocated
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# === Mode 1: Default (pg_yb_parallel_scan=false) — all tables scan single-threaded ===
+statement ok
+SET threads=4
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# Hash table with parallel disabled — must still return correct results
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+# Range table — always single-threaded
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+# Multi-hash — single-threaded without parallel enabled
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+statement ok
+DETACH yb
+
+# === Mode 2: parallel enabled, threads=1 — degrades to single-thread gracefully ===
+statement ok
+SET pg_yb_parallel_scan=true
+
+statement ok
+SET threads=1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+statement ok
+DETACH yb
+
+# === Mode 3: parallel enabled, threads=2 ===
+statement ok
+SET threads=2
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+# Range table still single-threaded even with parallel enabled
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+statement ok
+DETACH yb
+
+# === Mode 4: parallel enabled, high thread count ===
+statement ok
+SET threads=16
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+# Compound hash key with many threads
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+query II
+SELECT region, count(*) FROM yb.multi_hash GROUP BY region ORDER BY region
+----
+region_0	2000
+region_1	2000
+region_2	2000
+region_3	2000
+region_4	2000
+
+statement ok
+DETACH yb
+
+# === Mode 5: filter pushdown combined with hash-code scan ===
+statement ok
+SET threads=4
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# Equality filter
+query I
+SELECT count(*) FROM yb.hash_test WHERE id = 42
+----
+1
+
+# Range filter
+query I
+SELECT count(*) FROM yb.hash_test WHERE id BETWEEN 10000 AND 20000
+----
+10001
+
+# String filter
+query I
+SELECT count(*) FROM yb.hash_test WHERE name LIKE 'row_1%'
+----
+11111
+
+# Compound filter
+query I
+SELECT count(*) FROM yb.hash_test WHERE id > 50000 AND name LIKE 'row_9%'
+----
+11111
+
+# NULL filter (no NULLs in hash_test)
+query I
+SELECT count(*) FROM yb.hash_test WHERE name IS NULL
+----
+0
+
+# Wide table filters with parallel
+query I
+SELECT count(*) FROM yb.wide_test WHERE col_bool = false AND col_int < 1000000
+----
+5
+
+statement ok
+DETACH yb
+
+# === Mode 6: parallel enabled but write transaction (INSERT...SELECT) ===
+# Source scan should be single-threaded because the transaction is read-write
+statement ok
+DROP TABLE IF EXISTS yb.scan_mode_write
+
+statement ok
+CREATE TABLE yb.scan_mode_write (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)
+
+query I
+INSERT INTO yb.scan_mode_write SELECT id, name, value FROM yb.hash_test WHERE id <= 5000
+----
+5000
+
+query I
+SELECT count(*) FROM yb.scan_mode_write
+----
+5000
+
+query I
+SELECT sum(id) FROM yb.scan_mode_write
+----
+12502500
+
+statement ok
+DROP TABLE yb.scan_mode_write
+
+statement ok
+DETACH yb
+
+# === Mode 7: parallel scan + colocated table (0 tablets → must fallback to serial) ===
+statement ok
+ATTACH 'dbname=postgresscanner_colocated' AS ybc (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM ybc.coloc_test
+----
+10000
+
+query I
+SELECT sum(id) FROM ybc.coloc_test
+----
+50005000
+
+statement ok
+DETACH ybc
+
+# === Mode 8: tserver probe timeout setting ===
+statement ok
+SET pg_yb_tserver_probe_timeout=1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
+
+# === Cleanup ===
+statement ok
+RESET pg_yb_parallel_scan
+
+statement ok
+RESET pg_yb_tserver_probe_timeout
+
+statement ok
+RESET threads

@@ -1,0 +1,198 @@
+# name: test/sql/storage/attach_yugabyte_catalog.test
+# description: Test catalog operations, system tables, schema handling on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === pg_catalog system table access ===
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_class
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_tables
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_namespace
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_attribute
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_type
+----
+true
+
+# === information_schema access ===
+query I
+SELECT count(*) > 0 FROM yb.information_schema.tables
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.information_schema.columns
+----
+true
+
+# === Verify our test tables appear in catalog ===
+query I
+SELECT count(*) FROM yb.pg_catalog.pg_tables WHERE tablename = 'hash_test'
+----
+1
+
+query I
+SELECT count(*) FROM yb.pg_catalog.pg_tables WHERE tablename = 'multi_hash'
+----
+1
+
+query I
+SELECT count(*) FROM yb.pg_catalog.pg_tables WHERE tablename = 'range_single'
+----
+1
+
+# === Schema operations ===
+statement ok
+DROP TABLE IF EXISTS yb.catalog_test
+
+statement ok
+CREATE TABLE yb.catalog_test (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
+
+# Table should appear in catalog
+query I
+SELECT count(*) FROM yb.pg_catalog.pg_tables WHERE tablename = 'catalog_test'
+----
+1
+
+# Column metadata should be accessible
+query I
+SELECT count(*) FROM yb.information_schema.columns WHERE table_name = 'catalog_test'
+----
+3
+
+query I
+INSERT INTO yb.catalog_test SELECT g, 'cat_' || g, g * 2.5 FROM generate_series(1, 100) t(g)
+----
+100
+
+query I
+SELECT count(*) FROM yb.catalog_test
+----
+100
+
+# === CREATE TABLE with various types ===
+statement ok
+DROP TABLE IF EXISTS yb.types_test
+
+statement ok
+CREATE TABLE yb.types_test (
+  id INTEGER PRIMARY KEY,
+  col_text TEXT,
+  col_varchar VARCHAR,
+  col_bigint BIGINT,
+  col_smallint SMALLINT,
+  col_double DOUBLE,
+  col_float FLOAT,
+  col_bool BOOLEAN,
+  col_date DATE,
+  col_timestamp TIMESTAMP
+)
+
+query I
+INSERT INTO yb.types_test VALUES (
+  1, 'hello', 'world', 9223372036854775807, 32767,
+  3.14159265358979, 2.71828, true, '2024-06-15', '2024-06-15 10:30:00'
+)
+----
+1
+
+query IIIIIIIIII
+SELECT * FROM yb.types_test WHERE id = 1
+----
+1	hello	world	9223372036854775807	32767	3.14159265358979	2.71828	true	2024-06-15	2024-06-15 10:30:00
+
+# === CREATE OR REPLACE TABLE ===
+statement ok
+CREATE OR REPLACE TABLE yb.catalog_test (id INTEGER PRIMARY KEY, new_col TEXT)
+
+query I
+SELECT count(*) FROM yb.information_schema.columns WHERE table_name = 'catalog_test'
+----
+2
+
+# === Read from one YB table, insert into another (cross-table COPY) ===
+statement ok
+DROP TABLE IF EXISTS yb.cross_copy
+
+statement ok
+CREATE TABLE yb.cross_copy (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)
+
+query I
+INSERT INTO yb.cross_copy SELECT id, name, value FROM yb.hash_test WHERE id <= 500
+----
+500
+
+query I
+SELECT count(*) FROM yb.cross_copy
+----
+500
+
+query I
+SELECT sum(id) FROM yb.cross_copy
+----
+125250
+
+# === Multi-schema support ===
+statement ok
+CREATE SCHEMA yb.test_schema
+
+statement ok
+CREATE TABLE yb.test_schema.schema_table (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.test_schema.schema_table SELECT g, 'schema_' || g FROM generate_series(1, 100) t(g)
+----
+100
+
+query I
+SELECT count(*) FROM yb.test_schema.schema_table
+----
+100
+
+query I
+SELECT sum(id) FROM yb.test_schema.schema_table
+----
+5050
+
+statement ok
+DROP TABLE yb.test_schema.schema_table
+
+statement ok
+DROP SCHEMA yb.test_schema
+
+# === Cleanup ===
+statement ok
+DROP TABLE yb.catalog_test
+
+statement ok
+DROP TABLE yb.types_test
+
+statement ok
+DROP TABLE yb.cross_copy
+
+statement ok
+DETACH yb

@@ -1,0 +1,98 @@
+# name: test/sql/storage/attach_yugabyte_pool.test
+# description: Test connection pool behavior on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# === Default pool settings ===
+statement ok
+SET pg_connection_cache=true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
+
+# === Pool with limit=1 (forces serial access) ===
+statement ok
+SET pg_connection_limit=1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+statement ok
+DETACH yb
+
+# === Pool with high limit ===
+statement ok
+SET pg_connection_limit=1000
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
+
+# === Pool disabled ===
+statement ok
+SET pg_connection_cache=false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+# Multiple queries without pool — each gets fresh connection through Reset path
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+statement ok
+DETACH yb
+
+# === Restore defaults ===
+statement ok
+RESET pg_connection_cache
+
+statement ok
+RESET pg_connection_limit
