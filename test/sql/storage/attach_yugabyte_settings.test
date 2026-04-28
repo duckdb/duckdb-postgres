@@ -9,9 +9,19 @@ require-env YUGABYTE_TEST_DATABASE_AVAILABLE
 statement ok
 PRAGMA enable_verification
 
-# Verify YB-specific settings are registered and can be set
+# First ATTACH to ensure extension is fully loaded and settings registered
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+statement ok
+DETACH yb
+
+# Now verify YB-specific settings are registered and can be set
 statement ok
 SET pg_yb_parallel_scan=true
+
+statement ok
+SET pg_yb_tserver_probe_timeout=5
 
 statement ok
 SET pg_yb_rows_per_transaction=5000
@@ -24,6 +34,11 @@ query I
 SELECT current_setting('pg_yb_parallel_scan')
 ----
 true
+
+query I
+SELECT current_setting('pg_yb_tserver_probe_timeout')
+----
+5
 
 query I
 SELECT current_setting('pg_yb_rows_per_transaction')
@@ -50,6 +65,9 @@ DETACH yb
 # Reset to defaults
 statement ok
 RESET pg_yb_parallel_scan
+
+statement ok
+RESET pg_yb_tserver_probe_timeout
 
 statement ok
 RESET pg_yb_rows_per_transaction

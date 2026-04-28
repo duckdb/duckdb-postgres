@@ -82,7 +82,7 @@ CREATE TABLE yb.write_types (
 
 query I
 INSERT INTO yb.write_types
-SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0), '2024-01-01'::DATE + g
+SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0), '2024-01-01'::DATE + INTERVAL (g) DAY
 FROM generate_series(1, 5000) t(g)
 ----
 5000

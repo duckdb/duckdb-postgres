@@ -149,13 +149,13 @@ SELECT count(*) FROM yb.hash_test WHERE id BETWEEN 10000 AND 20000
 query I
 SELECT count(*) FROM yb.hash_test WHERE name LIKE 'row_1%'
 ----
-11111
+11112
 
 # Compound filter
 query I
 SELECT count(*) FROM yb.hash_test WHERE id > 50000 AND name LIKE 'row_9%'
 ----
-11111
+10000
 
 # NULL filter (no NULLs in hash_test)
 query I

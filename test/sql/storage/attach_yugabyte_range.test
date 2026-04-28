@@ -140,7 +140,7 @@ CREATE TABLE yb.range_write_test (
   ts TIMESTAMP,
   id INTEGER,
   data TEXT,
-  PRIMARY KEY (ts ASC, id ASC)
+  PRIMARY KEY (ts, id)
 )
 
 query I

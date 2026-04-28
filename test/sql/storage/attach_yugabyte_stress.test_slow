@@ -9,6 +9,13 @@ require-env YUGABYTE_TEST_DATABASE_AVAILABLE
 statement ok
 PRAGMA enable_verification
 
+# ATTACH first to ensure extension settings are registered
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb_init (TYPE POSTGRES)
+
+statement ok
+DETACH yb_init
+
 statement ok
 SET pg_yb_parallel_scan=true
 
