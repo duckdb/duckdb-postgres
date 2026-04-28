@@ -31,6 +31,7 @@ struct OwnedPostgresConnection {
 
 	PGconn *connection;
 	mutex connection_lock;
+	PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES;
 };
 
 class PostgresConnection {

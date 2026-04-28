@@ -172,6 +172,21 @@ PostgresVersion PostgresConnection::GetPostgresVersion(ClientContext &context) {
 	if (StringUtil::Contains(pg_version_string, "Redshift")) {
 		version.type_v = PostgresInstanceType::REDSHIFT;
 	}
+	if (StringUtil::Contains(pg_version_string, "-YB-")) {
+		version.type_v = PostgresInstanceType::YUGABYTE;
+		auto yb_start = pg_version_string.find("-YB-");
+		if (yb_start != string::npos) {
+			yb_start += 4;
+			auto yb_end = pg_version_string.find(' ', yb_start);
+			if (yb_end == string::npos) {
+				yb_end = pg_version_string.size();
+			}
+			version.yb_version = pg_version_string.substr(yb_start, yb_end - yb_start);
+		}
+	}
+	if (connection) {
+		connection->instance_type = version.type_v;
+	}
 	return version;
 }
 
