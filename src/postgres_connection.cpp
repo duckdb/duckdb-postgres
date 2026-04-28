@@ -227,7 +227,13 @@ void PostgresConnection::Reset(const std::string &health_check_query) {
 		PGresult *res = PQexec(conn, "ROLLBACK");
 		PostgresResult res_holder(res);
 	}
-	{
+	if (connection->instance_type == PostgresInstanceType::YUGABYTE) {
+		PGresult *res = PQexec(conn, "RESET ALL; DEALLOCATE ALL; CLOSE ALL; UNLISTEN *");
+		PostgresResult res_holder(res);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK) {
+			return;
+		}
+	} else {
 		PGresult *res = PQexec(conn, "DISCARD ALL");
 		PostgresResult res_holder(res);
 		if (PQresultStatus(res) == PGRES_COMMAND_OK) {
