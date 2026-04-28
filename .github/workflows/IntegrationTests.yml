@@ -480,11 +480,8 @@ jobs:
     - name: Dependencies
       shell: bash
       run: |
-        choco install \
-          ccache \
-          make \
-          ninja \
-          -y --force --no-progress
+        choco install ccache make -y --force --no-progress
+        choco install ninja -y --force --no-progress || pip install ninja
 
     - name: Build Environment
       shell: bash
