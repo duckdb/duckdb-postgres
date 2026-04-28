@@ -15,6 +15,7 @@
 #include "postgres_connection.hpp"
 #include "storage/postgres_schema_set.hpp"
 #include "storage/postgres_connection_pool.hpp"
+#include "yugabyte_topology.hpp"
 
 namespace duckdb {
 class PostgresCatalog;
@@ -87,6 +88,10 @@ public:
 		return connection_pool;
 	}
 
+	const YugabyteTopology &GetYugabyteTopology() const {
+		return yb_topology;
+	}
+
 	void ClearCache();
 
 	//! Whether or not this catalog should search a specific type with the standard priority
@@ -111,6 +116,7 @@ private:
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
+	YugabyteTopology yb_topology;
 };
 
 } // namespace duckdb

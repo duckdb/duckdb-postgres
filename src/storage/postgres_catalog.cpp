@@ -1,4 +1,6 @@
 #include "storage/postgres_catalog.hpp"
+#include "yugabyte_topology.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
@@ -9,6 +11,39 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
+
+static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection &conn,
+                                     const string &connection_string, YugabyteTopology &topology) {
+	auto result = conn.TryQuery(context,
+	    "SELECT host, port, node_type, cloud, region, zone, public_ip FROM yb_servers()");
+	if (!result) {
+		return;
+	}
+	auto rows = result->Count();
+	for (idx_t r = 0; r < rows; r++) {
+		YugabyteTserver ts;
+		ts.host = result->GetString(r, 0);
+		ts.port = result->IsNull(r, 1) ? 5433 : static_cast<int32_t>(result->GetInt64(r, 1));
+		ts.cloud = result->IsNull(r, 3) ? "" : result->GetString(r, 3);
+		ts.region = result->IsNull(r, 4) ? "" : result->GetString(r, 4);
+		ts.zone = result->IsNull(r, 5) ? "" : result->GetString(r, 5);
+		ts.ip_address = result->IsNull(r, 6) ? ts.host : result->GetString(r, 6);
+		topology.tservers.push_back(std::move(ts));
+	}
+
+	for (auto &ts : topology.tservers) {
+		string probe_dsn = StringUtil::Format(
+		    "host='%s' port=%d connect_timeout=2", ts.ip_address, ts.port);
+		PGconn *probe = PQconnectdb(probe_dsn.c_str());
+		if (probe && PQstatus(probe) == CONNECTION_OK) {
+			ts.reachable = true;
+			topology.direct_connect_available = true;
+		}
+		if (probe) {
+			PQfinish(probe);
+		}
+	}
+}
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
@@ -22,6 +57,10 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
 
 	auto connection = connection_pool->GetConnection();
 	this->version = connection.GetConnection().GetPostgresVersion(context);
+
+	if (version.type_v == PostgresInstanceType::YUGABYTE) {
+		DiscoverYugabyteTopology(context, connection.GetConnection(), connection_string, yb_topology);
+	}
 }
 
 string EscapeConnectionString(const string &input) {
