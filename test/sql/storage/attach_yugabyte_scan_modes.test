@@ -175,6 +175,9 @@ DETACH yb
 # === Mode 6: parallel enabled but write transaction (INSERT...SELECT) ===
 # Source scan should be single-threaded because the transaction is read-write
 statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+statement ok
 DROP TABLE IF EXISTS yb.scan_mode_write
 
 statement ok

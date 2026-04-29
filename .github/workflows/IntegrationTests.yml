@@ -375,7 +375,7 @@ jobs:
         threadsan: [0, 1]
 
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CMAKE_BUILD_PARALLEL_LEVEL: 1
       CC: 'ccache gcc'
       CXX: 'ccache g++'
       CCACHE_DIR: ${{ github.workspace }}/ccache
@@ -397,6 +397,14 @@ jobs:
           build-essential \
           ccache \
           cmake
+
+    - name: Setup swap space
+      run: |
+        sudo fallocate -l 8G /swapfile
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
+        free -h
 
     - name: Cache Key
       id: cache_key
