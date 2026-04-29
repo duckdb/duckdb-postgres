@@ -69,13 +69,6 @@ void PostgresConnectionPool::SetHealthCheckQuery(const std::string &query) {
 	this->health_check_query = std::string(query.data(), query.length());
 }
 
-idx_t PostgresConnectionPool::DefaultPoolSize() {
-	idx_t detected = static_cast<idx_t>(std::thread::hardware_concurrency());
-	idx_t detected_adjusted = detected * 3 / 2;
-	idx_t default_num = static_cast<idx_t>(8);
-	return detected_adjusted > default_num ? detected_adjusted : default_num;
-}
-
 std::string PostgresConnectionPool::DefaultHealthCheckQuery() {
 	return "SELECT 1";
 }

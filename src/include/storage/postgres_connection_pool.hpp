@@ -37,7 +37,6 @@ public:
 	std::string GetHealthCheckQuery();
 	void SetHealthCheckQuery(const std::string &query);
 
-	static idx_t DefaultPoolSize();
 	static std::string DefaultHealthCheckQuery();
 	static void ValidatePoolAcquireMode(ClientContext &context, SetScope scope, Value &parameter);
 
