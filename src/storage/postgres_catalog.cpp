@@ -1,4 +1,6 @@
 #include "storage/postgres_catalog.hpp"
+#include "yugabyte_topology.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
@@ -9,6 +11,45 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
+
+static void DiscoverYugabyteTopology(ClientContext &context, PostgresConnection &conn, const string &connection_string,
+                                     YugabyteTopology &topology) {
+	auto result =
+	    conn.TryQuery(context, "SELECT host, port, node_type, cloud, region, zone, public_ip FROM yb_servers()");
+	if (!result) {
+		return;
+	}
+	auto rows = result->Count();
+	for (idx_t r = 0; r < rows; r++) {
+		YugabyteTserver ts;
+		ts.host = result->GetString(r, 0);
+		ts.port = result->IsNull(r, 1) ? 5433 : static_cast<int32_t>(result->GetInt64(r, 1));
+		ts.cloud = result->IsNull(r, 3) ? "" : result->GetString(r, 3);
+		ts.region = result->IsNull(r, 4) ? "" : result->GetString(r, 4);
+		ts.zone = result->IsNull(r, 5) ? "" : result->GetString(r, 5);
+		ts.ip_address = result->IsNull(r, 6) ? ts.host : result->GetString(r, 6);
+		topology.tservers.push_back(std::move(ts));
+	}
+
+	uint32_t probe_timeout = 2;
+	Value timeout_val;
+	if (context.TryGetCurrentSetting("pg_yb_tserver_probe_timeout", timeout_val) && !timeout_val.IsNull()) {
+		probe_timeout = UIntegerValue::Get(timeout_val);
+	}
+
+	for (auto &ts : topology.tservers) {
+		string probe_dsn = connection_string + StringUtil::Format(" host='%s' port=%d connect_timeout=%d",
+		                                                          ts.ip_address, ts.port, probe_timeout);
+		PGconn *probe = PQconnectdb(probe_dsn.c_str());
+		if (probe && PQstatus(probe) == CONNECTION_OK) {
+			ts.reachable = true;
+			topology.direct_connect_available = true;
+		}
+		if (probe) {
+			PQfinish(probe);
+		}
+	}
+}
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
@@ -22,6 +63,10 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
 
 	auto connection = connection_pool->GetConnection();
 	this->version = connection.GetConnection().GetPostgresVersion(context);
+
+	if (version.type_v == PostgresInstanceType::YUGABYTE) {
+		DiscoverYugabyteTopology(context, connection.GetConnection(), connection_string, yb_topology);
+	}
 }
 
 string EscapeConnectionString(const string &input) {
@@ -89,6 +134,7 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 		new_connection_info += AddConnectionOption(kv_secret, "port");
 		new_connection_info += AddConnectionOption(kv_secret, "dbname");
 		new_connection_info += AddConnectionOption(kv_secret, "passfile");
+		new_connection_info += AddConnectionOption(kv_secret, "options");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {

@@ -1,0 +1,164 @@
+# name: test/sql/storage/attach_yugabyte_write.test
+# description: Test INSERT/UPDATE/DELETE and bulk COPY write path on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Bulk insert — exercises COPY write path ===
+statement ok
+DROP TABLE IF EXISTS yb.write_test
+
+statement ok
+CREATE TABLE yb.write_test (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
+
+query I
+INSERT INTO yb.write_test SELECT g, 'name_' || g, g * 1.5 FROM generate_series(1, 10000) t(g)
+----
+10000
+
+query I
+SELECT count(*) FROM yb.write_test
+----
+10000
+
+query III
+SELECT id, name, value FROM yb.write_test WHERE id = 5000
+----
+5000	name_5000	7500.0
+
+# Checksum to catch data corruption in COPY path
+query I
+SELECT sum(id) FROM yb.write_test
+----
+50005000
+
+# === INSERT INTO from another YB table (cross-table COPY) ===
+statement ok
+DROP TABLE IF EXISTS yb.write_copy
+
+statement ok
+CREATE TABLE yb.write_copy (id INTEGER PRIMARY KEY, name TEXT, value DOUBLE)
+
+query I
+INSERT INTO yb.write_copy SELECT * FROM yb.write_test WHERE id <= 1000
+----
+1000
+
+query I
+SELECT count(*) FROM yb.write_copy
+----
+1000
+
+query I
+SELECT sum(id) FROM yb.write_copy
+----
+500500
+
+# NOTE: UPDATE/DELETE not tested here — the extension's UPDATE/DELETE path uses ctid
+# which YugabyteDB does not support. That requires a separate fix to use primary key
+# based deletes instead of ctid-based deletes.
+
+# === Multi-type table write ===
+statement ok
+DROP TABLE IF EXISTS yb.write_types
+
+statement ok
+CREATE TABLE yb.write_types (
+  id INTEGER PRIMARY KEY,
+  col_text TEXT,
+  col_bigint BIGINT,
+  col_double DOUBLE,
+  col_bool BOOLEAN,
+  col_date DATE
+)
+
+query I
+INSERT INTO yb.write_types
+SELECT g, 'text_' || g, g * 100000::BIGINT, g * 3.14, (g % 2 = 0), '2024-01-01'::DATE + INTERVAL (g) DAY
+FROM generate_series(1, 5000) t(g)
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_types
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_types WHERE col_bool = true
+----
+2500
+
+# === yb_disable_transactional_writes COPY path ===
+# When enabled, BeginCopyTo sends SET yb_disable_transactional_writes = true
+# This disables per-row transactions for bulk loads (faster but no atomicity)
+statement ok
+SET pg_yb_disable_transactional_writes=true
+
+statement ok
+DROP TABLE IF EXISTS yb.write_notxn
+
+statement ok
+CREATE TABLE yb.write_notxn (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.write_notxn SELECT g, 'notxn_' || g FROM generate_series(1, 5000) t(g)
+----
+5000
+
+query I
+SELECT count(*) FROM yb.write_notxn
+----
+5000
+
+query I
+SELECT sum(id) FROM yb.write_notxn
+----
+12502500
+
+statement ok
+RESET pg_yb_disable_transactional_writes
+
+# === Verify normal COPY still works after resetting the flag ===
+statement ok
+DROP TABLE IF EXISTS yb.write_after_reset
+
+statement ok
+CREATE TABLE yb.write_after_reset (id INTEGER PRIMARY KEY, val INTEGER)
+
+query I
+INSERT INTO yb.write_after_reset SELECT g, g * 10 FROM generate_series(1, 1000) t(g)
+----
+1000
+
+query I
+SELECT count(*) FROM yb.write_after_reset
+----
+1000
+
+# === Cleanup ===
+statement ok
+DROP TABLE yb.write_test
+
+statement ok
+DROP TABLE yb.write_copy
+
+statement ok
+DROP TABLE yb.write_types
+
+statement ok
+DROP TABLE yb.write_notxn
+
+statement ok
+DROP TABLE yb.write_after_reset
+
+statement ok
+DETACH yb

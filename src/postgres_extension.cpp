@@ -117,6 +117,8 @@ unique_ptr<BaseSecret> CreatePostgresSecretFunction(ClientContext &context, Crea
 			result->secret_map["port"] = named_param.second.ToString();
 		} else if (lower_name == "passfile") {
 			result->secret_map["passfile"] = named_param.second.ToString();
+		} else if (lower_name == "options") {
+			result->secret_map["options"] = named_param.second.ToString();
 		} else {
 			throw InternalException("Unknown named parameter passed to CreatePostgresSecretFunction: " + lower_name);
 		}
@@ -135,6 +137,7 @@ void SetPostgresSecretParameters(CreateSecretFunction &function) {
 	function.named_parameters["database"] = LogicalType::VARCHAR; // alias for dbname
 	function.named_parameters["dbname"] = LogicalType::VARCHAR;
 	function.named_parameters["passfile"] = LogicalType::VARCHAR;
+	function.named_parameters["options"] = LogicalType::VARCHAR;
 }
 
 void SetPostgresNullByteReplacement(ClientContext &context, SetScope scope, Value &parameter) {
@@ -301,6 +304,23 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                              CreatePoolNote("health_check_query=SELECT 42"),
 	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery(), nullptr,
 	                          SetScope::GLOBAL);
+
+	// YugabyteDB-specific options
+	config.AddExtensionOption(
+	    "pg_yb_parallel_scan",
+	    "Enable hash-code parallel scanning on YugabyteDB. Workers use separate REPEATABLE READ "
+	    "transactions without a shared snapshot, so concurrent writes may cause inconsistent reads. "
+	    "Safe for read-only or append-only tables.",
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("pg_yb_tserver_probe_timeout",
+	                          "Connect timeout in seconds for tserver reachability probes during ATTACH",
+	                          LogicalType::UINTEGER, Value::UINTEGER(2));
+	config.AddExtensionOption("pg_yb_rows_per_transaction",
+	                          "Number of rows per transaction batch for COPY FROM on YugabyteDB (0 to disable)",
+	                          LogicalType::UBIGINT, Value::UBIGINT(10000));
+	config.AddExtensionOption("pg_yb_disable_transactional_writes",
+	                          "Disable transactional writes for bulk COPY FROM on YugabyteDB (no rollback on failure)",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;

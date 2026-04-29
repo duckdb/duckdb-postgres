@@ -1,0 +1,116 @@
+# name: test/sql/storage/attach_yugabyte_reconnect.test
+# description: Test attach/detach/re-attach cycles and connection pool resilience on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# === Cycle 1: attach, query, detach ===
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
+
+# === Cycle 2: re-attach exercises connection pool Reset path ===
+# On YugabyteDB, DISCARD ALL would clobber session state — the replacement should preserve it
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+# Query a different table to exercise catalog reload after reconnect
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+statement ok
+DETACH yb
+
+# === Cycle 3: verify session state survives another pool recycle ===
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.test
+----
+4
+
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+statement ok
+DETACH yb
+
+# === Cycle 4: rapid attach/detach without queries ===
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+statement ok
+DETACH yb
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+statement ok
+DETACH yb
+
+# === Cycle 5: verify data after rapid cycling ===
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+statement ok
+DETACH yb
+
+# === Cycle 6: attach with connection pool settings ===
+statement ok
+SET pg_connection_cache=true
+
+statement ok
+SET pg_connection_limit=2
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb
+
+# === Cycle 7: re-attach after pool limit change ===
+statement ok
+SET pg_connection_limit=1000
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb

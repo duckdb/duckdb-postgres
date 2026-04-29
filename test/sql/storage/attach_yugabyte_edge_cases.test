@@ -1,0 +1,193 @@
+# name: test/sql/storage/attach_yugabyte_edge_cases.test
+# description: Edge cases and boundary conditions for YugabyteDB support
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Empty table scan (hash-partitioned) ===
+statement ok
+CREATE TABLE yb.edge_empty_hash (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+SELECT count(*) FROM yb.edge_empty_hash
+----
+0
+
+query II
+SELECT * FROM yb.edge_empty_hash
+----
+
+statement ok
+DROP TABLE yb.edge_empty_hash
+
+# === Single row table ===
+statement ok
+CREATE TABLE yb.edge_single (id INTEGER PRIMARY KEY, val TEXT)
+
+query I
+INSERT INTO yb.edge_single VALUES (1, 'only_row')
+----
+1
+
+query II
+SELECT * FROM yb.edge_single
+----
+1	only_row
+
+statement ok
+DROP TABLE yb.edge_single
+
+# === Table with all NULL columns (except PK) ===
+statement ok
+CREATE TABLE yb.edge_nulls (id INTEGER PRIMARY KEY, a TEXT, b INTEGER, c DOUBLE, d BOOLEAN)
+
+query I
+INSERT INTO yb.edge_nulls VALUES (1, NULL, NULL, NULL, NULL), (2, NULL, NULL, NULL, NULL)
+----
+2
+
+query I
+SELECT count(*) FROM yb.edge_nulls WHERE a IS NULL AND b IS NULL AND c IS NULL AND d IS NULL
+----
+2
+
+statement ok
+DROP TABLE yb.edge_nulls
+
+# === Large text values ===
+statement ok
+CREATE TABLE yb.edge_large_text (id INTEGER PRIMARY KEY, big_text TEXT)
+
+query I
+INSERT INTO yb.edge_large_text VALUES (1, repeat('x', 100000))
+----
+1
+
+query I
+SELECT length(big_text) FROM yb.edge_large_text WHERE id = 1
+----
+100000
+
+statement ok
+DROP TABLE yb.edge_large_text
+
+# === Special characters in data ===
+statement ok
+CREATE TABLE yb.edge_special (id INTEGER PRIMARY KEY, data TEXT)
+
+query I
+INSERT INTO yb.edge_special VALUES
+  (1, 'single''quote'),
+  (2, 'back\slash'),
+  (3, 'new
+line'),
+  (4, ''),
+  (5, 'tab	here'),
+  (6, 'unicode: 日本語'),
+  (7, 'emoji: 🎉')
+----
+7
+
+query I
+SELECT count(*) FROM yb.edge_special
+----
+7
+
+query I
+SELECT data FROM yb.edge_special WHERE id = 1
+----
+single'quote
+
+query I
+SELECT data FROM yb.edge_special WHERE id = 6
+----
+unicode: 日本語
+
+statement ok
+DROP TABLE yb.edge_special
+
+# === Boundary values for integer types ===
+statement ok
+CREATE TABLE yb.edge_bounds (id INTEGER PRIMARY KEY, big BIGINT, small SMALLINT)
+
+query I
+INSERT INTO yb.edge_bounds VALUES
+  (1, 9223372036854775807, 32767),
+  (2, -9223372036854775808, -32768),
+  (3, 0, 0)
+----
+3
+
+query III
+SELECT * FROM yb.edge_bounds WHERE id = 1
+----
+1	9223372036854775807	32767
+
+query III
+SELECT * FROM yb.edge_bounds WHERE id = 2
+----
+2	-9223372036854775808	-32768
+
+statement ok
+DROP TABLE yb.edge_bounds
+
+# === Table with many columns ===
+statement ok
+CREATE TABLE yb.edge_wide (
+  id INTEGER PRIMARY KEY,
+  c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT, c5 TEXT,
+  c6 TEXT, c7 TEXT, c8 TEXT, c9 TEXT, c10 TEXT,
+  c11 INTEGER, c12 INTEGER, c13 INTEGER, c14 INTEGER, c15 INTEGER,
+  c16 DOUBLE, c17 DOUBLE, c18 DOUBLE, c19 DOUBLE, c20 DOUBLE
+)
+
+query I
+INSERT INTO yb.edge_wide VALUES (
+  1, 'a','b','c','d','e','f','g','h','i','j',
+  1,2,3,4,5, 1.1,2.2,3.3,4.4,5.5
+)
+----
+1
+
+query I
+SELECT count(*) FROM yb.edge_wide
+----
+1
+
+statement ok
+DROP TABLE yb.edge_wide
+
+# === Concurrent attach to both colocated and non-colocated databases ===
+statement ok
+ATTACH 'dbname=postgresscanner_colocated' AS ybc (TYPE POSTGRES)
+
+# Query both databases in same session
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT count(*) FROM ybc.coloc_test
+----
+10000
+
+# Cross-database join (DuckDB handles this by materializing both sides)
+query I
+SELECT count(*) FROM yb.hash_test h JOIN ybc.coloc_test c ON h.id = c.id
+----
+10000
+
+statement ok
+DETACH ybc
+
+statement ok
+DETACH yb

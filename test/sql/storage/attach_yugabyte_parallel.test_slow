@@ -1,0 +1,161 @@
+# name: test/sql/storage/attach_yugabyte_parallel.test_slow
+# description: Test parallel hash-code scanning on YugabyteDB with substantial data volumes
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# ATTACH first to ensure extension settings are registered
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb_init (TYPE POSTGRES)
+
+statement ok
+DETACH yb_init
+
+statement ok
+SET threads=4
+
+statement ok
+SET pg_yb_parallel_scan=true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === 100k-row hash-partitioned table — exercises yb_hash_code() BETWEEN ranges ===
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+# Order-independent aggregation verifies no rows lost or duplicated across hash ranges
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+query I
+SELECT sum(value) FROM yb.hash_test
+----
+50000500000
+
+# Filter pushdown combined with hash-code parallel scan
+query I
+SELECT count(*) FROM yb.hash_test WHERE id > 50000
+----
+50000
+
+query I
+SELECT sum(id) FROM yb.hash_test WHERE id <= 1000
+----
+500500
+
+query I
+SELECT count(*) FROM yb.hash_test WHERE name LIKE 'row_99%'
+----
+1111
+
+# === Wide table — multiple column types through parallel COPY path ===
+
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+query I
+SELECT count(*) FROM yb.wide_test WHERE col_bool = true
+----
+25000
+
+query I
+SELECT count(*) FROM yb.wide_test WHERE col_int > 2500000000
+----
+25000
+
+# === Multi-column hash key parallel scan — 10k rows, compound partition key ===
+
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+query II
+SELECT region, count(*) FROM yb.multi_hash GROUP BY region ORDER BY region
+----
+region_0	2000
+region_1	2000
+region_2	2000
+region_3	2000
+region_4	2000
+
+# Cross-table join that forces parallel scan on both sides
+query I
+SELECT count(*) FROM yb.hash_test h JOIN yb.multi_hash m ON h.id = m.id
+----
+10000
+
+# === Range-partitioned tables — must NOT use hash-code parallel scan ===
+# These have yb_num_hash_key_columns = 0, so they fall back to single-thread
+
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+query I
+SELECT sum(id) FROM yb.range_single
+----
+50005000
+
+query I
+SELECT count(*) FROM yb.range_ts WHERE sensor_id = 0
+----
+200
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
+
+# === Vary thread counts to exercise different hash range splits ===
+
+statement ok
+DETACH yb
+
+statement ok
+SET threads=8
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+statement ok
+DETACH yb
+
+statement ok
+SET threads=1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# Single-thread should still work correctly
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+statement ok
+DETACH yb

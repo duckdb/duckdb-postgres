@@ -1,0 +1,147 @@
+# name: test/sql/storage/attach_yugabyte_stress.test_slow
+# description: Stress test — large scans, bulk writes, cross-table operations on YugabyteDB
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# ATTACH first to ensure extension settings are registered
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb_init (TYPE POSTGRES)
+
+statement ok
+DETACH yb_init
+
+statement ok
+SET pg_yb_parallel_scan=true
+
+statement ok
+SET threads=4
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === Full table scan with aggregation across all pre-loaded tables ===
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+query I
+SELECT count(*) FROM yb.range_ts
+----
+20000
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
+
+# === Total row count across all tables ===
+query I
+SELECT (SELECT count(*) FROM yb.hash_test) +
+       (SELECT count(*) FROM yb.wide_test) +
+       (SELECT count(*) FROM yb.multi_hash) +
+       (SELECT count(*) FROM yb.range_single) +
+       (SELECT count(*) FROM yb.range_ts) +
+       (SELECT count(*) FROM yb.range_desc)
+----
+205000
+
+# === Large bulk write and read-back ===
+statement ok
+DROP TABLE IF EXISTS yb.stress_write
+
+statement ok
+CREATE TABLE yb.stress_write (id INTEGER PRIMARY KEY, payload TEXT, value BIGINT)
+
+# Write 50k rows — exercises multiple COPY batches with default pg_yb_rows_per_transaction=10000
+query I
+INSERT INTO yb.stress_write SELECT g, 'payload_' || g, g * 100000::BIGINT FROM generate_series(1, 50000) t(g)
+----
+50000
+
+query I
+SELECT count(*) FROM yb.stress_write
+----
+50000
+
+query I
+SELECT sum(id) FROM yb.stress_write
+----
+1250025000
+
+query I
+SELECT sum(value) FROM yb.stress_write
+----
+125002500000000
+
+# === Complex query with JOIN, GROUP BY, ORDER BY ===
+query I
+SELECT count(*) FROM yb.hash_test h JOIN yb.stress_write s ON h.id = s.id
+----
+50000
+
+query II rowsort
+SELECT h.name, s.payload
+FROM yb.hash_test h JOIN yb.stress_write s ON h.id = s.id
+WHERE h.id IN (1, 50000)
+----
+row_1	payload_1
+row_50000	payload_50000
+
+# === Subquery with hash-code parallel scan ===
+query I
+SELECT count(*) FROM yb.hash_test WHERE id IN (SELECT id FROM yb.multi_hash)
+----
+10000
+
+# === UNION across hash and range tables ===
+query I
+SELECT count(*) FROM (
+  SELECT id FROM yb.hash_test WHERE id <= 1000
+  UNION ALL
+  SELECT id FROM yb.range_single WHERE id <= 1000
+)
+----
+2000
+
+# === Window function over parallel scan ===
+query I
+SELECT count(*) FROM (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY id) as rn
+  FROM yb.hash_test
+  WHERE id <= 100
+)
+----
+100
+
+# === Cleanup ===
+statement ok
+DROP TABLE yb.stress_write
+
+statement ok
+RESET pg_yb_parallel_scan
+
+statement ok
+DETACH yb

@@ -1,0 +1,120 @@
+# name: test/sql/storage/attach_yugabyte_basic.test
+# description: Basic YugabyteDB attach, scan, and detection tests
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# Attach to YugabyteDB
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# Hash-partitioned table: 100k rows
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query II
+SELECT min(id), max(id) FROM yb.hash_test
+----
+1	100000
+
+query III
+SELECT id, name, value FROM yb.hash_test WHERE id = 42
+----
+42	row_42	420
+
+# Aggregation over full table to verify no rows lost in scan
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+# Wide table with multiple types: 50k rows
+query I
+SELECT count(*) FROM yb.wide_test
+----
+50000
+
+query I
+SELECT count(*) FROM yb.wide_test WHERE col_bool = true
+----
+25000
+
+query I
+SELECT count(*) FROM yb.wide_test WHERE col_int > 2500000000
+----
+25000
+
+# Range-partitioned tables (no hash key — must NOT use yb_hash_code scan)
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+query I
+SELECT count(*) FROM yb.range_ts
+----
+20000
+
+query I
+SELECT count(DISTINCT sensor_id) FROM yb.range_ts
+----
+100
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
+
+# Scan with NULLs
+query I
+SELECT count(*) FROM yb.nulltest
+----
+4
+
+query I
+SELECT count(*) FROM yb.nulltest WHERE c1 IS NULL
+----
+2
+
+# Simple table scan
+query I
+SELECT count(*) FROM yb.test
+----
+4
+
+query I
+SELECT count(*) FROM yb.test WHERE i IS NOT NULL
+----
+3
+
+# Multi-column hash key table: 10k rows
+query I
+SELECT count(*) FROM yb.multi_hash
+----
+10000
+
+query I
+SELECT count(DISTINCT region) FROM yb.multi_hash
+----
+5
+
+# pg_catalog scan — exercises system table scan path on YugabyteDB
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_class
+----
+true
+
+query I
+SELECT count(*) > 0 FROM yb.pg_catalog.pg_tables
+----
+true
+
+statement ok
+DETACH yb

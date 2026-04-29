@@ -26,6 +26,12 @@ void PostgresCopyState::Initialize(ClientContext &context) {
 void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &state, PostgresCopyFormat format,
                                      const string &schema_name, const string &table_name,
                                      const vector<string> &column_names) {
+	Value yb_disable_txn_writes;
+	if (context.TryGetCurrentSetting("pg_yb_disable_transactional_writes", yb_disable_txn_writes) &&
+	    !yb_disable_txn_writes.IsNull() && BooleanValue::Get(yb_disable_txn_writes)) {
+		Execute(context, "SET yb_disable_transactional_writes = true");
+	}
+
 	string query = "COPY ";
 	if (!schema_name.empty()) {
 		query += KeywordHelper::WriteQuoted(schema_name, '"') + ".";
@@ -85,6 +91,15 @@ void PostgresConnection::CopyData(PostgresBinaryWriter &writer) {
 
 void PostgresConnection::CopyData(PostgresTextWriter &writer) {
 	CopyData(writer.stream.GetData(), writer.stream.GetPosition());
+}
+
+void PostgresConnection::CommitAndRestartCopy(ClientContext &context, PostgresCopyState &state,
+                                              PostgresCopyFormat format, const string &schema_name,
+                                              const string &table_name, const vector<string> &column_names) {
+	FinishCopyTo(state);
+	Execute(context, "COMMIT");
+	Execute(context, "BEGIN");
+	BeginCopyTo(context, state, format, schema_name, table_name, column_names);
 }
 
 void PostgresConnection::FinishCopyTo(PostgresCopyState &state) {

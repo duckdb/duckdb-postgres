@@ -50,6 +50,10 @@ public:
 	bool use_text_protocol = false;
 	idx_t max_threads = 1;
 
+	idx_t yb_num_tablets = 0;
+	idx_t yb_num_hash_key_columns = 0;
+	vector<string> yb_hash_partition_columns;
+
 public:
 	void SetTablePages(idx_t approx_num_pages);
 

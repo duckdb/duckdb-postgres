@@ -1,0 +1,167 @@
+# name: test/sql/storage/attach_yugabyte_range.test
+# description: Test range-partitioned tables on YugabyteDB — must NOT use yb_hash_code parallel scan
+# group: [storage]
+
+require postgres_scanner
+
+require-env YUGABYTE_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+SET threads=4
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS yb (TYPE POSTGRES)
+
+# === range_single: ASC range key ===
+# yb_num_hash_key_columns = 0, so no hash-code parallel scan.
+# Must still return correct results via single-threaded scan.
+
+query I
+SELECT count(*) FROM yb.range_single
+----
+10000
+
+query II
+SELECT min(id), max(id) FROM yb.range_single
+----
+1	10000
+
+query I
+SELECT sum(id) FROM yb.range_single
+----
+50005000
+
+query III
+SELECT id, name, value FROM yb.range_single WHERE id = 5000
+----
+5000	range_5000	50000
+
+# Filter pushdown on range key
+query I
+SELECT count(*) FROM yb.range_single WHERE id > 7500
+----
+2500
+
+query I
+SELECT count(*) FROM yb.range_single WHERE id BETWEEN 2500 AND 5000
+----
+2501
+
+# === range_ts: compound ASC range key (timeseries pattern) ===
+
+query I
+SELECT count(*) FROM yb.range_ts
+----
+20000
+
+query I
+SELECT count(DISTINCT sensor_id) FROM yb.range_ts
+----
+100
+
+query I
+SELECT count(*) FROM yb.range_ts WHERE sensor_id = 0
+----
+200
+
+# Range scan with timestamp filter (data is 1..20000 seconds past midnight)
+query I
+SELECT count(*) FROM yb.range_ts WHERE ts > '2024-01-01 02:46:40'
+----
+10000
+
+# Aggregation correctness
+query I
+SELECT sum(sensor_id) FROM yb.range_ts
+----
+990000
+
+# === range_desc: DESC ordering ===
+# Tests that DESC range keys don't confuse the scan path
+
+query I
+SELECT count(*) FROM yb.range_desc
+----
+15000
+
+query II
+SELECT min(id), max(id) FROM yb.range_desc
+----
+1	15000
+
+query I
+SELECT sum(id) FROM yb.range_desc
+----
+112507500
+
+query I
+SELECT count(*) FROM yb.range_desc WHERE id <= 5000
+----
+5000
+
+# === Contrast: hash table in same session should still use parallel scan ===
+# This proves the scan path selection is per-table, not per-connection
+
+query I
+SELECT count(*) FROM yb.hash_test
+----
+100000
+
+query I
+SELECT sum(id) FROM yb.hash_test
+----
+5000050000
+
+# === Mix range and hash in same query ===
+
+query I
+SELECT count(*)
+FROM yb.range_single r
+JOIN yb.hash_test h ON r.id = h.id
+----
+10000
+
+query I
+SELECT count(*)
+FROM yb.range_single r
+JOIN yb.multi_hash m ON r.id = m.id
+----
+10000
+
+# === Write to range table ===
+statement ok
+DROP TABLE IF EXISTS yb.range_write_test
+
+statement ok
+CREATE TABLE yb.range_write_test (
+  ts TIMESTAMP,
+  id INTEGER,
+  data TEXT,
+  PRIMARY KEY (ts, id)
+)
+
+query I
+INSERT INTO yb.range_write_test
+SELECT '2024-01-01'::TIMESTAMP + (g || ' seconds')::INTERVAL, g, 'data_' || g
+FROM generate_series(1, 5000) t(g)
+----
+5000
+
+query I
+SELECT count(*) FROM yb.range_write_test
+----
+5000
+
+query I
+SELECT sum(id) FROM yb.range_write_test
+----
+12502500
+
+statement ok
+DROP TABLE yb.range_write_test
+
+statement ok
+DETACH yb

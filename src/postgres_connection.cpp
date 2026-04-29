@@ -172,6 +172,13 @@ PostgresVersion PostgresConnection::GetPostgresVersion(ClientContext &context) {
 	if (StringUtil::Contains(pg_version_string, "Redshift")) {
 		version.type_v = PostgresInstanceType::REDSHIFT;
 	}
+	auto yb_pos = pg_version_string.find("-YB-");
+	if (yb_pos != string::npos) {
+		version.type_v = PostgresInstanceType::YUGABYTE;
+	}
+	if (connection) {
+		connection->instance_type = version.type_v;
+	}
 	return version;
 }
 
@@ -212,7 +219,13 @@ void PostgresConnection::Reset(const std::string &health_check_query) {
 		PGresult *res = PQexec(conn, "ROLLBACK");
 		PostgresResult res_holder(res);
 	}
-	{
+	if (connection->instance_type == PostgresInstanceType::YUGABYTE) {
+		PGresult *res = PQexec(conn, "RESET ALL; DEALLOCATE ALL; CLOSE ALL; UNLISTEN *");
+		PostgresResult res_holder(res);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK) {
+			return;
+		}
+	} else {
 		PGresult *res = PQexec(conn, "DISCARD ALL");
 		PostgresResult res_holder(res);
 		if (PQresultStatus(res) == PGRES_COMMAND_OK) {

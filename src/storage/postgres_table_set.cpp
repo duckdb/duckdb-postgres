@@ -12,6 +12,8 @@
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "postgres_conversion.hpp"
+#include "storage/postgres_catalog.hpp"
+#include "postgres_version.hpp"
 
 namespace duckdb {
 
@@ -118,7 +120,51 @@ void PostgresTableSet::AddColumnOrConstraint(optional_ptr<PostgresTransaction> t
 	}
 }
 
+static void LoadYugabyteTableProperties(PostgresTransaction &transaction, PostgresTableInfo &table_info,
+                                        const string &schema_name) {
+	string qualified =
+	    KeywordHelper::WriteQuoted(schema_name, '"') + "." + KeywordHelper::WriteQuoted(table_info.GetTableName(), '"');
+	string escaped = StringUtil::Replace(qualified, "'", "''");
+
+	string props_query = StringUtil::Format(
+	    "SELECT num_tablets, num_hash_key_columns FROM yb_table_properties('%s'::regclass)", escaped);
+	try {
+		auto result = transaction.Query(props_query);
+		if (result && result->Count() > 0) {
+			table_info.yb_num_tablets = result->IsNull(0, 0) ? 0 : result->GetInt64(0, 0);
+			table_info.yb_num_hash_key_columns = result->IsNull(0, 1) ? 0 : result->GetInt64(0, 1);
+		}
+	} catch (...) {
+		return;
+	}
+
+	if (table_info.yb_num_hash_key_columns > 0) {
+		string pk_query =
+		    StringUtil::Format("SELECT a.attname "
+		                       "FROM pg_index i "
+		                       "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+		                       "WHERE i.indrelid = '%s'::regclass AND i.indisprimary "
+		                       "ORDER BY array_position(i.indkey, a.attnum) "
+		                       "LIMIT %d",
+		                       escaped, table_info.yb_num_hash_key_columns);
+		try {
+			auto result = transaction.Query(pk_query);
+			if (result) {
+				for (idx_t r = 0; r < result->Count(); r++) {
+					table_info.yb_hash_partition_columns.push_back(result->GetString(r, 0));
+				}
+			}
+		} catch (...) {
+			table_info.yb_hash_partition_columns.clear();
+			table_info.yb_num_hash_key_columns = 0;
+		}
+	}
+}
+
 void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresResult &result, idx_t start, idx_t end) {
+	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
+	bool is_yugabyte = pg_catalog.GetPostgresVersion().type_v == PostgresInstanceType::YUGABYTE;
+
 	vector<unique_ptr<PostgresTableInfo>> tables;
 	unique_ptr<PostgresTableInfo> info;
 
@@ -137,6 +183,9 @@ void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresR
 		tables.push_back(std::move(info));
 	}
 	for (auto &tbl_info : tables) {
+		if (is_yugabyte) {
+			LoadYugabyteTableProperties(transaction, *tbl_info, schema.name);
+		}
 		auto table_entry = make_shared_ptr<PostgresTableEntry>(catalog, schema, *tbl_info);
 		CreateEntry(transaction, std::move(table_entry));
 	}
