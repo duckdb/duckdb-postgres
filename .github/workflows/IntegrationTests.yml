@@ -400,10 +400,12 @@ jobs:
 
     - name: Setup swap space
       run: |
-        sudo fallocate -l 8G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
+        if ! swapon --show | grep -q /swapfile; then
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+        fi
         free -h
 
     - name: Cache Key
