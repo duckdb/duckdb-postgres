@@ -398,16 +398,6 @@ jobs:
           ccache \
           cmake
 
-    - name: Setup swap space
-      run: |
-        if ! swapon --show | grep -q /swapfile; then
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-        fi
-        free -h
-
     - name: Cache Key
       id: cache_key
       working-directory: ./duckdb
