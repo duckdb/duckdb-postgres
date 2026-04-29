@@ -22,6 +22,7 @@
 #include "duckdb/common/error_data.hpp"
 #include "postgres_logging.hpp"
 #include "postgres_hstore.hpp"
+#include "postgres_oauth.hpp"
 
 using namespace duckdb;
 
@@ -154,7 +155,18 @@ static std::string CreatePoolNote(const std::string &option) {
 	       "\"FROM postgres_configure_pool(catalog_name='my_attached_postgres_db', " + option + ")\"";
 }
 
+static void SetOAuthToken(ClientContext &context, SetScope scope, Value &parameter) {
+	if (parameter.IsNull() || StringValue::Get(parameter).empty()) {
+		PostgresClearOAuthToken();
+	} else {
+		PostgresSetOAuthToken(StringValue::Get(parameter));
+	}
+}
+
 static void LoadInternal(ExtensionLoader &loader) {
+	// Register the OAuth bearer token hook before any connections are made
+	PostgresInitOAuthHook();
+
 	PostgresScanFunction postgres_fun;
 	loader.RegisterFunction(postgres_fun);
 
@@ -232,6 +244,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          LogicalType::VARCHAR, Value(), SetPostgresNullByteReplacement);
 	config.AddExtensionOption("pg_debug_show_queries", "DEBUG SETTING: print all queries sent to Postgres to stdout",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false), SetPostgresDebugQueryPrint);
+	config.AddExtensionOption("pg_oauth_token",
+	                          "OAuth bearer token for PostgreSQL OAUTHBEARER authentication. "
+	                          "Takes priority over the PGOAUTHTOKEN environment variable",
+	                          LogicalType::VARCHAR, Value(), SetOAuthToken);
 	config.AddExtensionOption("pg_use_text_protocol",
 	                          "Whether or not to use TEXT protocol to read data. This is slower, but provides better "
 	                          "compatibility with non-Postgres systems",
