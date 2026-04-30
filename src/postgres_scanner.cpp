@@ -6,6 +6,7 @@
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+#include "postgres_oauth.hpp"
 #include "postgres_filter_pushdown.hpp"
 #include "postgres_scanner.hpp"
 #include "postgres_result.hpp"
@@ -411,7 +412,10 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 			} else {
 				// we cannot use the main thread but we haven't initiated ANY scan yet
 				// we HAVE to open a new connection
-				lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection();
+				{
+					auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
+					lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection();
+				}
 				lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
 			}
 			used_main_thread = true;
@@ -420,8 +424,11 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 	}
 
 	if (pg_catalog) {
-		if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
-			return false;
+		{
+			auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
+			if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
+				return false;
+			}
 		}
 		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
 		PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode, pg_catalog->isolation_level);
