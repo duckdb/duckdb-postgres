@@ -1,6 +1,7 @@
 #include "storage/postgres_catalog.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
+#include "postgres_oauth.hpp"
 #include "postgres_connection.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
@@ -20,7 +21,11 @@ PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_strin
 		default_schema = "public";
 	}
 
-	auto connection = connection_pool->GetConnection();
+	PostgresPoolConnection connection;
+	{
+		auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
+		connection = connection_pool->GetConnection();
+	}
 	this->version = connection.GetConnection().GetPostgresVersion(context);
 }
 
