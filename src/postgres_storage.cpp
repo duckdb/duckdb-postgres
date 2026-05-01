@@ -51,10 +51,9 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	}
 	SecretStorageTable secret_storage_table(std::move(secret_storage_table_name),
 	                                        secret_storage_table_specified_explicitly);
-	auto connection_string = PostgresCatalog::GetConnectionString(context, attach_path, secret_name);
-	return make_uniq<PostgresCatalog>(db, std::move(connection_string), std::move(attach_path),
-	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level,
-	                                  std::move(secret_storage_table), context);
+	return make_uniq<PostgresCatalog>(context, db, std::move(attach_path), attach_options.access_mode,
+	                                  std::move(schema_to_load), isolation_level, secret_name,
+	                                  std::move(secret_storage_table));
 }
 
 static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,

@@ -42,7 +42,7 @@ PostgresPoolConnection PostgresConnectionPool::GetConnection() {
 }
 
 std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateNewConnection() {
-	auto conn = PostgresConnection::Open(postgres_catalog.connection_string, postgres_catalog.attach_path);
+	auto conn = PostgresConnection::Open(postgres_catalog.GetConnectionString(), postgres_catalog.attach_path);
 	return make_uniq<PostgresConnection>(std::move(conn));
 }
 

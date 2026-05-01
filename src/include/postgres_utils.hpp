@@ -11,6 +11,7 @@
 #include "duckdb.hpp"
 #include <libpq-fe.h>
 #include "postgres_version.hpp"
+#include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
 class PostgresSchemaEntry;
@@ -74,6 +75,9 @@ public:
 	static string QuotePostgresIdentifier(const string &text);
 
 	static PostgresVersion ExtractPostgresVersion(const string &version);
+
+	static string EscapeConnectionString(const string &input);
+	static string ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name);
 };
 
 } // namespace duckdb
