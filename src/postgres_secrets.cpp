@@ -68,7 +68,10 @@ static const std::unordered_map<std::string, std::string> connection_option_alia
 };
 
 static const std::vector<std::string> other_option_names = {
-  "uri"
+  "uri",
+  "aws_rds_iam_auth_enabled",
+  "aws_rds_iam_token_expiration_seconds",
+  "aws_region"
 };
 // clang-format on
 
@@ -97,7 +100,6 @@ unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, C
 		}
 		result->secret_map[name] = named_param.second.ToString();
 	}
-	//! Set redact keys
 	result->redact_keys = {"password", "sslpassword", "oauth_client_secret", "uri"};
 	return std::move(result);
 }
@@ -109,9 +111,11 @@ void PostgresSecrets::SetSecretParameters(CreateSecretFunction &function) {
 	for (auto &en : connection_option_aliases) {
 		function.named_parameters[en.first] = LogicalType::VARCHAR;
 	}
-	for (const std::string &name : other_option_names) {
-		function.named_parameters[name] = LogicalType::VARCHAR;
-	}
+	// other options
+	function.named_parameters["uri"] = LogicalType::VARCHAR;
+	function.named_parameters["aws_rds_iam_auth_enabled"] = LogicalType::BOOLEAN;
+	function.named_parameters["aws_rds_iam_token_expiration_seconds"] = LogicalType::UBIGINT;
+	function.named_parameters["aws_region"] = LogicalType::VARCHAR;
 }
 
 } // namespace duckdb

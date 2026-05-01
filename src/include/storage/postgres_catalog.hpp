@@ -9,9 +9,11 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
+#include "postgres_aws.hpp"
 #include "postgres_connection.hpp"
 #include "storage/postgres_schema_set.hpp"
 #include "storage/postgres_connection_pool.hpp"
@@ -23,12 +25,11 @@ class PostgresSchemaEntry;
 
 class PostgresCatalog : public Catalog {
 public:
-	explicit PostgresCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
-	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-	                         SecretStorageTable secret_storage_table_p, ClientContext &context);
+	explicit PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path, AccessMode access_mode,
+	                         string schema_to_load, PostgresIsolationLevel isolation_level, const string &secret_name,
+	                         SecretStorageTable secret_storage_table_p);
 	~PostgresCatalog();
 
-	string connection_string;
 	string attach_path;
 	AccessMode access_mode;
 	PostgresIsolationLevel isolation_level;
@@ -42,7 +43,7 @@ public:
 		return default_schema.empty() ? "public" : default_schema;
 	}
 
-	static string GetConnectionString(ClientContext &context, const string &attach_path, string secret_name);
+	string GetConnectionString();
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 
@@ -109,12 +110,21 @@ private:
 
 	void RegisterSecretStorage();
 
+	static unique_ptr<SecretEntry> GetSecretEntry(ClientContext &ctx, const std::string &secret_name);
+	static string CreateConnectionString(optional_ptr<SecretEntry> secret_entry, const string &attach_path);
+
 private:
 	PostgresVersion version;
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
 	SecretStorageTable secret_storage_table;
+
+	PostgresAwsRdsTokenConfig rds_token_config;
+	std::mutex rds_token_mutex;
+	std::string rds_token;
+	std::chrono::steady_clock::time_point rds_token_last_refreshed;
+	std::string connection_string;
 };
 
 } // namespace duckdb

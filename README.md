@@ -52,6 +52,51 @@ D SELECT * FROM postgres_db.uuids;
 
 For more information on how to use the connector, refer to the [Postgres documentation on the website](https://duckdb.org/docs/extensions/postgres).
 
+### AWS RDS IAM Authentication
+
+The extension supports AWS RDS IAM-based authentication, which allows you to connect to RDS/Aurora PostgreSQL instances using IAM database authentication instead of static passwords. This feature automatically generates temporary authentication tokens using the AWS SDK.
+
+#### Requirements
+
+- RDS instance with IAM database authentication enabled
+- IAM user/role with `rds-db:connect` permission for the RDS instance
+- AWS credentials configured (via `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or IAM role)
+
+#### Usage
+
+To use RDS IAM authentication, create a Postgres secret with the `AWS_RDS_IAM_AUTH_ENABLED` parameter set to `TRUE`:
+
+```sql
+CREATE SECRET rds_secret (
+    TYPE POSTGRES,
+    HOST 'my-db-instance.xxxxxx.us-west-2.rds.amazonaws.com',
+    PORT '5432',
+    USER 'my_iam_user',
+    DATABASE 'postgres',
+    SSLMODE 'require',
+    AWS_RDS_IAM_AUTH_ENABLED TRUE,
+    AWS_REGION 'us-west-2'
+);
+
+ATTACH '' AS rds_db (TYPE POSTGRES, SECRET rds_secret);
+```
+
+#### Secret Parameters for RDS IAM Authentication
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `HOST` | VARCHAR | Yes | RDS/Aurora instance hostname |
+| `PORT` | VARCHAR | Yes | RDS/Aurora instance port (typically 5432) |
+| `USER` | VARCHAR | Yes | IAM database username |
+| `AWS_RDS_IAM_AUTH_ENABLED` | BOOLEAN | Yes | Enable RDS IAM authentication |
+| `AWS_RDS_IAM_TOKEN_EXPIRATION_SECONDS` | BIGINT | No | Token expiration time in seconds, default: 900 (15 min) |
+| `AWS_REGION` | VARCHAR | Yes | AWS region |
+
+#### Important Notes
+
+- **Token Expiration**: RDS auth tokens expire after 15 minutes max. The extension caches tokens for `AWS_RDS_IAM_TOKEN_EXPIRATION_SECONDS - 60` seconds, so new pool connections reuse the cached token rather than obtaining new IAM token each time.
+- **AWS Credentials**: The extension uses the [default credentials provider chain](https://docs.aws.amazon.com/sdk-for-cpp/v1/developer-guide/credproviders.html#credproviders-default-credentials-provider-chain), the credential providers are currently NOT configurable.
+
 ## Building & Loading the Extension
 
 The DuckDB submodule must be initialized prior to building.

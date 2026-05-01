@@ -1,0 +1,36 @@
+# name: test/sql/storage/attach_rds_iam.test
+# description: Test attaching to AWS RDS using IAM authentication
+# group: [storage]
+
+require postgres_scanner
+
+require-env AWS_RDS_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+CREATE TEMPORARY SECRET rds_secret (
+	TYPE POSTGRES,
+	HOST 'database-1-instance-1.xxxxxxxxxxx.eu-west-1.rds.amazonaws.com',
+  PORT '5432',
+  USER 'postgres',
+  DATABASE 'postgres',
+  SSLMODE 'require',
+  AWS_RDS_IAM_AUTH_ENABLED TRUE,
+  AWS_REGION 'eu-west-1'
+);
+
+statement ok
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret)
+
+query I
+FROM postgres_query('rds_attached', 'SELECT current_user')
+----
+postgres
+
+statement ok
+DROP SECRET rds_secret
+
+statement ok
+DETACH rds_attached

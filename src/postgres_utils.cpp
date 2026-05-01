@@ -537,4 +537,33 @@ string PostgresUtils::QuotePostgresIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
 }
 
+string PostgresUtils::EscapeConnectionString(const string &input) {
+	string result = "'";
+	for (auto c : input) {
+		if (c == '\\') {
+			result += "\\\\";
+		} else if (c == '\'') {
+			result += "\\'";
+		} else {
+			result += c;
+		}
+	}
+	result += "'";
+	return result;
+}
+
+string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
+	Value input_val = kv_secret.TryGetValue(name);
+	if (input_val.IsNull()) {
+		// not provided
+		return string();
+	}
+	string result;
+	result += name;
+	result += "=";
+	result += EscapeConnectionString(input_val.ToString());
+	result += " ";
+	return result;
+}
+
 } // namespace duckdb

@@ -4,6 +4,7 @@
 #include "postgres_connection.hpp"
 #include "postgres_secrets.hpp"
 #include "storage/postgres_secret_storage.hpp"
+#include "postgres_utils.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -11,50 +12,6 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
-
-PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
-                                 AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-                                 SecretStorageTable secret_storage_table_p, ClientContext &context)
-    : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
-      access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
-      secret_storage_table(std::move(secret_storage_table_p)),
-      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
-	if (default_schema.empty()) {
-		default_schema = "public";
-	}
-
-	auto connection = connection_pool->GetConnection();
-	this->version = connection.GetConnection().GetPostgresVersion(context);
-}
-
-string EscapeConnectionString(const string &input) {
-	string result = "'";
-	for (auto c : input) {
-		if (c == '\\') {
-			result += "\\\\";
-		} else if (c == '\'') {
-			result += "\\'";
-		} else {
-			result += c;
-		}
-	}
-	result += "'";
-	return result;
-}
-
-string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
-	Value input_val = kv_secret.TryGetValue(name);
-	if (input_val.IsNull()) {
-		// not provided
-		return string();
-	}
-	string result;
-	result += name;
-	result += "=";
-	result += EscapeConnectionString(input_val.ToString());
-	result += " ";
-	return result;
-}
 
 unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {
 	auto &secret_manager = SecretManager::Get(context);
@@ -71,16 +28,44 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 	return nullptr;
 }
 
-string PostgresCatalog::GetConnectionString(ClientContext &context, const string &attach_path, string secret_name) {
-	// if no secret is specified we default to the unnamed postgres secret, if it exists
-	bool explicit_secret = !secret_name.empty();
-	if (!explicit_secret) {
-		// look up settings from the default unnamed postgres secret if none is provided
-		secret_name = "__default_postgres";
+PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path_p,
+                                 AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
+                                 const string &secret_name, SecretStorageTable secret_storage_table_p)
+    : Catalog(db_p), attach_path(std::move(attach_path_p)), access_mode(access_mode), isolation_level(isolation_level),
+      secret_storage_table(std::move(secret_storage_table_p)), schemas(*this, schema_to_load),
+      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)), default_schema(schema_to_load) {
+	auto secret_entry = GetSecretEntry(ctx, secret_name);
+	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(secret_entry);
+	if (!rds_token_config.enabled) {
+		this->connection_string = CreateConnectionString(secret_entry, attach_path);
 	}
 
+	if (default_schema.empty()) {
+		default_schema = "public";
+	}
+
+	auto connection = connection_pool->GetConnection();
+	this->version = connection.GetConnection().GetPostgresVersion(ctx);
+}
+
+unique_ptr<SecretEntry> PostgresCatalog::GetSecretEntry(ClientContext &ctx, const std::string &secret_name) {
+	std::string name = secret_name;
+	// if no secret is specified we default to the unnamed postgres secret, if it exists
+	bool explicit_secret = !name.empty();
+	if (!explicit_secret) {
+		// look up settings from the default unnamed postgres secret if none is provided
+		name = "__default_postgres";
+	}
+	auto secret_entry = GetSecret(ctx, name);
+	if (!secret_entry && explicit_secret) {
+		// secret not found and one was explicitly provided - throw an error
+		throw BinderException("Secret with name \"%s\" not found", secret_name);
+	}
+	return secret_entry;
+}
+
+string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_entry, const string &attach_path) {
 	string connection_string = attach_path;
-	auto secret_entry = GetSecret(context, secret_name);
 	if (secret_entry) {
 		// secret found - read data
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
@@ -105,14 +90,38 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 
 		string new_connection_info;
 		for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
-			new_connection_info += AddConnectionOption(kv_secret, opt_name);
+			new_connection_info += PostgresUtils::ExtractConnectionOption(kv_secret, opt_name);
 		}
 		connection_string = new_connection_info + connection_string;
-	} else if (explicit_secret) {
-		// secret not found and one was explicitly provided - throw an error
-		throw BinderException("Secret with name \"%s\" not found", secret_name);
 	}
 	return connection_string;
+}
+
+string PostgresCatalog::GetConnectionString() {
+	if (!rds_token_config.enabled) {
+		return connection_string;
+	}
+
+	// AWS RDS IAM token hadling below
+	std::lock_guard<std::mutex> rds_token_lock(rds_token_mutex);
+
+	auto now = std::chrono::steady_clock::now();
+	bool expired = false;
+	if (rds_token.empty()) {
+		expired = true;
+	} else {
+		int64_t age_seconds = std::chrono::duration_cast<std::chrono::seconds>(now - rds_token_last_refreshed).count();
+		int64_t max_age = static_cast<int64_t>(rds_token_config.expiration_seconds) - 60;
+		expired = age_seconds > max_age;
+	}
+
+	if (expired) {
+		this->rds_token = PostgresAws::GenerateRdsAuthToken(rds_token_config);
+		this->rds_token_last_refreshed = now;
+		this->connection_string = rds_token_config.base_connection_string +
+		                          "password=" + PostgresUtils::EscapeConnectionString(rds_token) + " " + attach_path;
+	}
+	return std::string(connection_string.data(), connection_string.length());
 }
 
 PostgresCatalog::~PostgresCatalog() = default;
