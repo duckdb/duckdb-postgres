@@ -7,7 +7,7 @@
 namespace duckdb {
 
 // clang-format off
-static const std::vector<std::string> key_names = {
+static const std::vector<std::string> connection_option_names = {
   "host",
   "hostaddr",
   "port",
@@ -61,23 +61,27 @@ static const std::vector<std::string> key_names = {
   "oauth_scope"
 };
 
-static const std::unordered_map<std::string, std::string> key_aliases = {
+static const std::unordered_map<std::string, std::string> connection_option_aliases = {
   {"database", "dbname"},
   {"hostname", "host"},
   {"username", "user"}
 };
+
+static const std::vector<std::string> other_option_names = {
+  "uri"
+};
 // clang-format on
 
 static const std::string &ResolveAlias(const std::string &input_name) {
-	auto it = key_aliases.find(input_name);
-	if (it == key_aliases.end()) {
+	auto it = connection_option_aliases.find(input_name);
+	if (it == connection_option_aliases.end()) {
 		return input_name;
 	}
 	return it->second;
 }
 
-const std::vector<std::string> &PostgresSecrets::KeyNames() {
-	return key_names;
+const std::vector<std::string> &PostgresSecrets::ConnectionOptionNames() {
+	return connection_option_names;
 }
 
 unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, CreateSecretInput &input) {
@@ -86,22 +90,27 @@ unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, C
 	for (const auto &named_param : input.options) {
 		auto input_name = StringUtil::Lower(named_param.first);
 		auto name = ResolveAlias(input_name);
-		if (std::find(key_names.begin(), key_names.end(), name) == key_names.end()) {
+		if (std::find(connection_option_names.begin(), connection_option_names.end(), name) ==
+		        connection_option_names.end() &&
+		    std::find(other_option_names.begin(), other_option_names.end(), name) == other_option_names.end()) {
 			throw InternalException("Unknown named parameter for a Postgres secret: '" + named_param.first + "'");
 		}
 		result->secret_map[name] = named_param.second.ToString();
 	}
 	//! Set redact keys
-	result->redact_keys = {"password", "sslpassword", "oauth_client_secret"};
+	result->redact_keys = {"password", "sslpassword", "oauth_client_secret", "uri"};
 	return std::move(result);
 }
 
 void PostgresSecrets::SetSecretParameters(CreateSecretFunction &function) {
-	for (const std::string &name : key_names) {
+	for (const std::string &name : connection_option_names) {
 		function.named_parameters[name] = LogicalType::VARCHAR;
 	}
-	for (auto &en : key_aliases) {
+	for (auto &en : connection_option_aliases) {
 		function.named_parameters[en.first] = LogicalType::VARCHAR;
+	}
+	for (const std::string &name : other_option_names) {
+		function.named_parameters[name] = LogicalType::VARCHAR;
 	}
 }
 

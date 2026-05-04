@@ -71,20 +71,39 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 
 string PostgresCatalog::GetConnectionString(ClientContext &context, const string &attach_path, string secret_name) {
 	// if no secret is specified we default to the unnamed postgres secret, if it exists
-	string connection_string = attach_path;
 	bool explicit_secret = !secret_name.empty();
 	if (!explicit_secret) {
 		// look up settings from the default unnamed postgres secret if none is provided
 		secret_name = "__default_postgres";
 	}
 
+	string connection_string = attach_path;
 	auto secret_entry = GetSecret(context, secret_name);
 	if (secret_entry) {
 		// secret found - read data
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
+
+		// if URI is specified, we use it as a connection string
+		Value uri_val = kv_secret.TryGetValue("uri");
+		if (!uri_val.IsNull()) {
+			// no other options can be specified along with the URI
+			for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
+				if (!kv_secret.TryGetValue(opt_name).IsNull()) {
+					throw BinderException("Options with name \"%s\" cannot be specified when 'URI' option is specified",
+					                      opt_name);
+				}
+			}
+			// attach path must be empty
+			if (!attach_path.empty()) {
+				throw BinderException("ATTACH path must be empty when 'URI' option is specified, was: \"%s\"",
+				                      attach_path);
+			}
+			return uri_val.ToString();
+		}
+
 		string new_connection_info;
-		for (const string key_name : PostgresSecrets::KeyNames()) {
-			new_connection_info += AddConnectionOption(kv_secret, key_name);
+		for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
+			new_connection_info += AddConnectionOption(kv_secret, opt_name);
 		}
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {
