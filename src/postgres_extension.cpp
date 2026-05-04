@@ -5,6 +5,7 @@
 #include "postgres_storage.hpp"
 #include "postgres_scanner_extension.hpp"
 #include "postgres_binary_copy.hpp"
+#include "postgres_secrets.hpp"
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
@@ -96,47 +97,6 @@ static void SetPostgresDebugQueryPrint(ClientContext &context, SetScope scope, V
 	PostgresConnection::DebugSetPrintQueries(BooleanValue::Get(parameter));
 }
 
-unique_ptr<BaseSecret> CreatePostgresSecretFunction(ClientContext &context, CreateSecretInput &input) {
-	// apply any overridden settings
-	vector<string> prefix_paths;
-	auto result = make_uniq<KeyValueSecret>(prefix_paths, "postgres", "config", input.name);
-	for (const auto &named_param : input.options) {
-		auto lower_name = StringUtil::Lower(named_param.first);
-
-		if (lower_name == "host") {
-			result->secret_map["host"] = named_param.second.ToString();
-		} else if (lower_name == "user") {
-			result->secret_map["user"] = named_param.second.ToString();
-		} else if (lower_name == "database") {
-			result->secret_map["dbname"] = named_param.second.ToString();
-		} else if (lower_name == "dbname") {
-			result->secret_map["dbname"] = named_param.second.ToString();
-		} else if (lower_name == "password") {
-			result->secret_map["password"] = named_param.second.ToString();
-		} else if (lower_name == "port") {
-			result->secret_map["port"] = named_param.second.ToString();
-		} else if (lower_name == "passfile") {
-			result->secret_map["passfile"] = named_param.second.ToString();
-		} else {
-			throw InternalException("Unknown named parameter passed to CreatePostgresSecretFunction: " + lower_name);
-		}
-	}
-
-	//! Set redact keys
-	result->redact_keys = {"password"};
-	return std::move(result);
-}
-
-void SetPostgresSecretParameters(CreateSecretFunction &function) {
-	function.named_parameters["host"] = LogicalType::VARCHAR;
-	function.named_parameters["port"] = LogicalType::VARCHAR;
-	function.named_parameters["password"] = LogicalType::VARCHAR;
-	function.named_parameters["user"] = LogicalType::VARCHAR;
-	function.named_parameters["database"] = LogicalType::VARCHAR; // alias for dbname
-	function.named_parameters["dbname"] = LogicalType::VARCHAR;
-	function.named_parameters["passfile"] = LogicalType::VARCHAR;
-}
-
 void SetPostgresNullByteReplacement(ClientContext &context, SetScope scope, Value &parameter) {
 	if (parameter.IsNull()) {
 		return;
@@ -192,8 +152,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	loader.RegisterSecretType(secret_type);
 
-	CreateSecretFunction postgres_secret_function = {"postgres", "config", CreatePostgresSecretFunction};
-	SetPostgresSecretParameters(postgres_secret_function);
+	CreateSecretFunction postgres_secret_function = {"postgres", "config", PostgresSecrets::CreateFunction};
+	PostgresSecrets::SetSecretParameters(postgres_secret_function);
 	loader.RegisterFunction(postgres_secret_function);
 
 	dbconnector::pool::ConnectionPoolConfig default_pool_config;

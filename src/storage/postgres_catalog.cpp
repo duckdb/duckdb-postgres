@@ -2,6 +2,7 @@
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
+#include "postgres_secrets.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -82,14 +83,9 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 		// secret found - read data
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
 		string new_connection_info;
-
-		new_connection_info += AddConnectionOption(kv_secret, "user");
-		new_connection_info += AddConnectionOption(kv_secret, "password");
-		new_connection_info += AddConnectionOption(kv_secret, "host");
-		new_connection_info += AddConnectionOption(kv_secret, "port");
-		new_connection_info += AddConnectionOption(kv_secret, "dbname");
-		new_connection_info += AddConnectionOption(kv_secret, "passfile");
-
+		for (const string key_name : PostgresSecrets::KeyNames()) {
+			new_connection_info += AddConnectionOption(kv_secret, key_name);
+		}
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {
 		// secret not found and one was explicitly provided - throw an error
