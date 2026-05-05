@@ -1,0 +1,144 @@
+# name: test/sql/storage/limit_pushdown.test
+# description: Test LIMIT pushdown behavior - LIMIT is always pushed to Postgres with single-task execution
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CREATE OR REPLACE TABLE s.ordered_tbl AS SELECT generate_series AS i FROM generate_series(0, 99999)
+
+# Verify table has expected row count
+query I
+SELECT count(*) FROM s.ordered_tbl
+----
+100000
+
+statement ok
+SET explain_output='optimized_only'
+
+# Test 1: Default settings - LIMIT should be pushed down (not in DuckDB plan)
+query II
+EXPLAIN SELECT * FROM s.ordered_tbl LIMIT 5;
+----
+logical_opt	<!REGEX>:.*LIMIT.*
+
+# Verify correct results with default settings
+query I
+SELECT * FROM s.ordered_tbl LIMIT 5
+----
+0
+1
+2
+3
+4
+
+# Test 2: With pg_pages_per_task=1 (would normally cause parallel splitting)
+# LIMIT should still be pushed down because we force single-task execution
+statement ok
+SET pg_pages_per_task=1
+
+query II
+EXPLAIN SELECT * FROM s.ordered_tbl LIMIT 5;
+----
+logical_opt	<!REGEX>:.*LIMIT.*
+
+query I
+SELECT * FROM s.ordered_tbl LIMIT 5
+----
+0
+1
+2
+3
+4
+
+# Test 3: LIMIT with OFFSET
+query I
+SELECT * FROM s.ordered_tbl LIMIT 5 OFFSET 10
+----
+10
+11
+12
+13
+14
+
+# Test 4: LIMIT with ORDER BY 
+query I
+SELECT * FROM s.ordered_tbl ORDER BY i DESC LIMIT 5
+----
+99999
+99998
+99997
+99996
+99995
+
+# Test 5: LIMIT with WHERE clause
+query I
+SELECT * FROM s.ordered_tbl WHERE i >= 1000 LIMIT 5
+----
+1000
+1001
+1002
+1003
+1004
+
+# Test 6: LIMIT 1 should return exactly 1 row
+query I
+SELECT count(*) FROM (SELECT * FROM s.ordered_tbl LIMIT 1)
+----
+1
+
+# Test 7: Larger LIMIT values
+query I
+SELECT count(*) FROM (SELECT * FROM s.ordered_tbl LIMIT 100)
+----
+100
+
+query I
+SELECT count(*) FROM (SELECT * FROM s.ordered_tbl LIMIT 1000)
+----
+1000
+
+# Test 8: LIMIT with very small pages_per_task 
+statement ok
+SET pg_pages_per_task=1
+
+query I
+SELECT count(*) FROM (SELECT * FROM s.ordered_tbl LIMIT 50)
+----
+50
+
+# Test 9: Within a transaction
+statement ok
+BEGIN
+
+query I
+SELECT * FROM s.ordered_tbl LIMIT 3
+----
+0
+1
+2
+
+statement ok
+COMMIT
+
+# Test 10: Reset to default and verify behavior is consistent
+statement ok
+RESET pg_pages_per_task
+
+query I
+SELECT * FROM s.ordered_tbl LIMIT 5
+----
+0
+1
+2
+3
+4
+
+# Cleanup
+statement ok
+DROP TABLE IF EXISTS s.ordered_tbl
