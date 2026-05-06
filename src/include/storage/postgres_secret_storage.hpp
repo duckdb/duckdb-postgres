@@ -38,7 +38,7 @@ public:
 	unique_ptr<SecretEntry> GetSecretByName(const string &name,
 	                                        optional_ptr<CatalogTransaction> transaction = nullptr) override;
 
-	void InitializeSecretsTable(PostgresConnection &connection);
+	static string InitializeSecretsTable(PostgresConnection &connection, const std::string &secrets_table_name);
 
 private:
 	string SerializeSecret(const BaseSecret &secret);

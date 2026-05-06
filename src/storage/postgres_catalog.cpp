@@ -118,24 +118,8 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 PostgresCatalog::~PostgresCatalog() = default;
 
 void PostgresCatalog::Initialize(bool load_builtin) {
-	if (!secrets_table_name.empty()) {
-		// Register the PostgresSecretStorage for this catalog
-		auto &secret_manager = SecretManager::Get(GetAttached().GetDatabase());
-
-		// Create a storage name based on the attached database name
-		string dbname = GetAttached().GetName();
-		string storage_name = "postgres_" + dbname;
-
-		// Register the secret storage
-		try {
-			auto secret_storage = make_uniq<PostgresSecretStorage>(storage_name, std::move(dbname), secrets_table_name);
-			auto connection = connection_pool->GetConnection();
-			secret_storage->InitializeSecretsTable(connection.GetConnection());
-			secret_manager.LoadSecretStorage(std::move(secret_storage));
-		} catch (InvalidConfigurationException &) {
-			// Storage already exists - this is fine, reuse the existing one
-		}
-	}
+	(void)load_builtin;
+	RegisterSecretStorage();
 }
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
@@ -211,6 +195,49 @@ DatabaseSize PostgresCatalog::GetDatabaseSize(ClientContext &context) {
 
 void PostgresCatalog::ClearCache() {
 	schemas.ClearEntries();
+}
+
+void PostgresCatalog::RegisterSecretStorage() {
+	if (secrets_table_name.empty()) {
+		return;
+	}
+
+	// Create the storage table in this PG catalog
+	string dbname = GetAttached().GetName();
+	auto connection = connection_pool->GetConnection();
+	string create_table_error =
+	    PostgresSecretStorage::InitializeSecretsTable(connection.GetConnection(), secrets_table_name);
+	if (!create_table_error.empty()) {
+		throw IOException("Error initializing secrets storage table, name: \"%s\" in attached database: \"%s\": %s",
+		                  secrets_table_name, dbname, create_table_error);
+	}
+
+	// Create a storage name based on the attached database name
+	string storage_name = "postgres_" + dbname;
+	auto &secret_manager = SecretManager::Get(GetAttached().GetDatabase());
+
+	// Register the secret storage, name and tie-break clashes handling needs
+	// to be improved in secret manager.
+	for (;;) {
+		try {
+			auto secret_storage = make_uniq<PostgresSecretStorage>(storage_name, std::move(dbname), secrets_table_name);
+			secret_manager.LoadSecretStorage(std::move(secret_storage));
+		} catch (const InvalidConfigurationException &e) {
+			string error = e.what();
+			if (error.find("already registered") != std::string::npos) {
+				// Storage already exists - this is fine, reuse the existing one
+				return;
+			}
+			if (error.find("tie break score collides") != std::string::npos) {
+				// Got a tie break offset clash, lets try again, static offset source is incremented
+				// in the constructor of the PostgresSecretStorage.
+				continue;
+			}
+
+			// Some other error has happened
+			throw;
+		}
+	}
 }
 
 } // namespace duckdb

@@ -106,6 +106,8 @@ public:
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
+	void RegisterSecretStorage();
+
 private:
 	PostgresVersion version;
 	PostgresSchemaSet schemas;

@@ -144,7 +144,18 @@ unique_ptr<SecretEntry> PostgresSecretStorage::StoreSecret(unique_ptr<const Base
 		    secrets_table_name, escaped_name, escaped_type, serialized);
 	}
 
-	postgres_transaction.Query(query);
+	PostgresConnection &conn = postgres_transaction.GetConnection();
+	string err_msg;
+	conn.TryQuery(postgres_transaction.GetContext(), query, &err_msg);
+
+	// Report the error filtering out the secret
+	if (!err_msg.empty()) {
+		size_t pos = err_msg.find(serialized);
+		if (pos != std::string::npos) {
+			err_msg.replace(pos, serialized.length(), "<serialized_secret>");
+		}
+		throw IOException(err_msg);
+	}
 
 	// Return the secret entry
 	auto secret_entry = make_uniq<SecretEntry>(std::move(secret));
@@ -278,18 +289,27 @@ unique_ptr<SecretEntry> PostgresSecretStorage::GetSecretByName(const string &nam
 	return secret_entry;
 }
 
-void PostgresSecretStorage::InitializeSecretsTable(PostgresConnection &connection) {
-	// Create a table to store secrets if it doesn't exist
+string PostgresSecretStorage::InitializeSecretsTable(PostgresConnection &connection,
+                                                     const std::string &secrets_table_name) {
+	// Check whether the table exists, 'to_regclass' should require the least priviliges
+	auto res = connection.Query(nullptr, "SELECT to_regclass('" + secrets_table_name + "')");
+	if (!res->IsNull(0, 0)) {
+		return std::string();
+	}
+
+	// Create the table to store secrets
 	string create_table_query = R"(
-		CREATE TABLE IF NOT EXISTS )" +
-	                            secrets_table_name + R"( (
+		CREATE TABLE )" + secrets_table_name +
+	                            R"( (
 			secret_name VARCHAR PRIMARY KEY,
 			secret_type VARCHAR NOT NULL,
 			serialized_secret BYTEA NOT NULL
 		)
 	)";
 
-	connection.Execute(nullptr, create_table_query);
+	string err_msg;
+	connection.TryQuery(nullptr, create_table_query, &err_msg);
+	return err_msg;
 }
 
 string PostgresSecretStorage::SerializeSecret(const BaseSecret &secret) {
