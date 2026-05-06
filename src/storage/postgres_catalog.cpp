@@ -3,7 +3,7 @@
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_secrets.hpp"
-#include "postgres_secret_storage.hpp"
+#include "storage/postgres_secret_storage.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -14,9 +14,10 @@ namespace duckdb {
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-                                 ClientContext &context)
+                                 string secrets_table_name_p, ClientContext &context)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
       access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
+      secrets_table_name(std::move(secrets_table_name_p)),
       connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
@@ -117,19 +118,23 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 PostgresCatalog::~PostgresCatalog() = default;
 
 void PostgresCatalog::Initialize(bool load_builtin) {
-	// Register the PostgresSecretStorage for this catalog
-	auto &db_instance = GetAttached().GetDatabase();
-	auto &secret_manager = SecretManager::Get(db_instance);
+	if (!secrets_table_name.empty()) {
+		// Register the PostgresSecretStorage for this catalog
+		auto &secret_manager = SecretManager::Get(GetAttached().GetDatabase());
 
-	// Create a storage name based on the attached database name
-	string storage_name = "postgres_" + GetAttached().GetName();
+		// Create a storage name based on the attached database name
+		string dbname = GetAttached().GetName();
+		string storage_name = "postgres_" + dbname;
 
-	// Register the secret storage
-	try {
-		auto storage = make_uniq<PostgresSecretStorage>(storage_name, *this, secret_manager);
-		secret_manager.LoadSecretStorage(std::move(storage));
-	} catch (InvalidConfigurationException &) {
-		// Storage already exists - this is fine, reuse the existing one
+		// Register the secret storage
+		try {
+			auto secret_storage = make_uniq<PostgresSecretStorage>(storage_name, std::move(dbname), secrets_table_name);
+			auto connection = connection_pool->GetConnection();
+			secret_storage->InitializeSecretsTable(connection.GetConnection());
+			secret_manager.LoadSecretStorage(std::move(secret_storage));
+		} catch (InvalidConfigurationException &) {
+			// Storage already exists - this is fine, reuse the existing one
+		}
 	}
 }
 

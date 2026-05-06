@@ -20,6 +20,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	string secret_name;
 	string schema_to_load;
 	PostgresIsolationLevel isolation_level = PostgresIsolationLevel::REPEATABLE_READ;
+	string secrets_table_name;
 	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
 		if (lower_name == "secret") {
@@ -40,13 +41,16 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 				                            "REPEATABLE READ or SERIALIZABLE",
 				                            param);
 			}
+		} else if (lower_name == "secrets_table") {
+			secrets_table_name = entry.second.ToString();
 		} else {
 			throw BinderException("Unrecognized option for Postgres attach: %s", entry.first);
 		}
 	}
 	auto connection_string = PostgresCatalog::GetConnectionString(context, attach_path, secret_name);
 	return make_uniq<PostgresCatalog>(db, std::move(connection_string), std::move(attach_path),
-	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level, context);
+	                                  attach_options.access_mode, std::move(schema_to_load), isolation_level,
+	                                  std::move(secrets_table_name), context);
 }
 
 static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,

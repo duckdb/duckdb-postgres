@@ -24,7 +24,7 @@ class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
 	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-	                         ClientContext &context);
+	                         string secrets_table_name_p, ClientContext &context);
 	~PostgresCatalog();
 
 	string connection_string;
@@ -111,6 +111,7 @@ private:
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
+	string secrets_table_name;
 };
 
 } // namespace duckdb
