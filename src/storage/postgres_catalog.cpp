@@ -3,6 +3,7 @@
 #include "storage/postgres_transaction.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_secrets.hpp"
+#include "storage/postgres_secret_storage.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -13,9 +14,10 @@ namespace duckdb {
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-                                 ClientContext &context)
+                                 SecretStorageTable secret_storage_table_p, ClientContext &context)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
       access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
+      secret_storage_table(std::move(secret_storage_table_p)),
       connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
@@ -116,6 +118,8 @@ string PostgresCatalog::GetConnectionString(ClientContext &context, const string
 PostgresCatalog::~PostgresCatalog() = default;
 
 void PostgresCatalog::Initialize(bool load_builtin) {
+	(void)load_builtin;
+	RegisterSecretStorage();
 }
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
@@ -191,6 +195,64 @@ DatabaseSize PostgresCatalog::GetDatabaseSize(ClientContext &context) {
 
 void PostgresCatalog::ClearCache() {
 	schemas.ClearEntries();
+}
+
+void PostgresCatalog::RegisterSecretStorage() {
+	// SECRET_STORAGE_TABLE = '' is specified, in this case
+	// we don't even proble the DB
+	if (secret_storage_table.DisabledByUser()) {
+		return;
+	}
+
+	// Look up whether the table exists in DB
+	auto connection = connection_pool->GetConnection();
+	bool secret_storage_table_exists = secret_storage_table.Exists(connection.GetConnection());
+
+	string attached_database_name = GetAttached().GetName();
+
+	if (!secret_storage_table_exists) {
+		if (!secret_storage_table.specified_explicitly) {
+			// Table does not exist and SECRET_STORAGE_TABLE was not specified by user -
+			// no secret storage is registered in this case
+			return;
+		}
+
+		// Table does not exist and was requested by user - creating it in this PG catalog
+		string create_table_error = secret_storage_table.Create(connection.GetConnection());
+		if (!create_table_error.empty()) {
+			throw IOException("Error initializing secrets storage table, name: \"%s\" in attached database: \"%s\": %s",
+			                  secret_storage_table.name, attached_database_name, create_table_error);
+		}
+	}
+
+	// At this point we are sure that table exists, lets register a secret storage
+	// that will read/write this table
+	auto &secret_manager = SecretManager::Get(GetAttached().GetDatabase());
+	auto secret_storage_name = "postgres_" + attached_database_name;
+
+	// Register the secret storage, name and tie-break clashes handling needs
+	// to be improved in secret manager.
+	for (;;) {
+		try {
+			auto secret_storage = make_uniq<PostgresSecretStorage>(secret_storage_name, attached_database_name,
+			                                                       secret_storage_table.name);
+			secret_manager.LoadSecretStorage(std::move(secret_storage));
+		} catch (const InvalidConfigurationException &e) {
+			string error = e.what();
+			if (error.find("already registered") != std::string::npos) {
+				// Storage already exists - this is fine, reuse the existing one
+				return;
+			}
+			if (error.find("tie break score collides") != std::string::npos) {
+				// Got a tie break offset clash, lets try again, static offset source is incremented
+				// in the constructor of the PostgresSecretStorage.
+				continue;
+			}
+
+			// Some other error has happened
+			throw;
+		}
+	}
 }
 
 } // namespace duckdb

@@ -14,6 +14,7 @@ add_library(
   postgres_optimizer.cpp
   postgres_schema_entry.cpp
   postgres_schema_set.cpp
+  postgres_secret_storage.cpp
   postgres_table_entry.cpp
   postgres_table_set.cpp
   postgres_transaction.cpp
