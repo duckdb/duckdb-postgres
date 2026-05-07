@@ -16,6 +16,18 @@ namespace duckdb {
 
 class PostgresCatalog;
 
+struct SecretStorageTable {
+	static string default_name;
+
+	string name;
+	bool specified_explicitly;
+
+	SecretStorageTable(string name_p, bool specified_explicitly_p);
+	bool Exists(PostgresConnection &connection);
+	string Create(PostgresConnection &connection);
+	bool DisabledByUser();
+};
+
 class PostgresSecretStorage : public SecretStorage {
 public:
 	PostgresSecretStorage(const string &storage_name, string attached_database_name_p, string secrets_table_name_p);
@@ -38,7 +50,7 @@ public:
 	unique_ptr<SecretEntry> GetSecretByName(const string &name,
 	                                        optional_ptr<CatalogTransaction> transaction = nullptr) override;
 
-	static string InitializeSecretsTable(PostgresConnection &connection, const std::string &secrets_table_name);
+	static string GetSecretStorageName(PostgresCatalog &catalog);
 
 private:
 	string SerializeSecret(const BaseSecret &secret);

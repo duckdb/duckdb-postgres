@@ -14,10 +14,10 @@ namespace duckdb {
 
 PostgresCatalog::PostgresCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-                                 string secrets_table_name_p, ClientContext &context)
+                                 SecretStorageTable secret_storage_table_p, ClientContext &context)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
       access_mode(access_mode), isolation_level(isolation_level), schemas(*this, schema_to_load),
-      secrets_table_name(std::move(secrets_table_name_p)),
+      secret_storage_table(std::move(secret_storage_table_p)),
       connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, context)), default_schema(schema_to_load) {
 	if (default_schema.empty()) {
 		default_schema = "public";
@@ -198,29 +198,44 @@ void PostgresCatalog::ClearCache() {
 }
 
 void PostgresCatalog::RegisterSecretStorage() {
-	if (secrets_table_name.empty()) {
+	// SECRET_STORAGE_TABLE = '' is specified, in this case
+	// we don't even proble the DB
+	if (secret_storage_table.DisabledByUser()) {
 		return;
 	}
 
-	// Create the storage table in this PG catalog
-	string dbname = GetAttached().GetName();
+	// Look up whether the table exists in DB
 	auto connection = connection_pool->GetConnection();
-	string create_table_error =
-	    PostgresSecretStorage::InitializeSecretsTable(connection.GetConnection(), secrets_table_name);
-	if (!create_table_error.empty()) {
-		throw IOException("Error initializing secrets storage table, name: \"%s\" in attached database: \"%s\": %s",
-		                  secrets_table_name, dbname, create_table_error);
+	bool secret_storage_table_exists = secret_storage_table.Exists(connection.GetConnection());
+
+	string attached_database_name = GetAttached().GetName();
+
+	if (!secret_storage_table_exists) {
+		if (!secret_storage_table.specified_explicitly) {
+			// Table does not exist and SECRET_STORAGE_TABLE was not specified by user -
+			// no secret storage is registered in this case
+			return;
+		}
+
+		// Table does not exist and was requested by user - creating it in this PG catalog
+		string create_table_error = secret_storage_table.Create(connection.GetConnection());
+		if (!create_table_error.empty()) {
+			throw IOException("Error initializing secrets storage table, name: \"%s\" in attached database: \"%s\": %s",
+			                  secret_storage_table.name, attached_database_name, create_table_error);
+		}
 	}
 
-	// Create a storage name based on the attached database name
-	string storage_name = "postgres_" + dbname;
+	// At this point we are sure that table exists, lets register a secret storage
+	// that will read/write this table
 	auto &secret_manager = SecretManager::Get(GetAttached().GetDatabase());
+	auto secret_storage_name = "postgres_" + attached_database_name;
 
 	// Register the secret storage, name and tie-break clashes handling needs
 	// to be improved in secret manager.
 	for (;;) {
 		try {
-			auto secret_storage = make_uniq<PostgresSecretStorage>(storage_name, std::move(dbname), secrets_table_name);
+			auto secret_storage = make_uniq<PostgresSecretStorage>(secret_storage_name, attached_database_name,
+			                                                       secret_storage_table.name);
 			secret_manager.LoadSecretStorage(std::move(secret_storage));
 		} catch (const InvalidConfigurationException &e) {
 			string error = e.what();

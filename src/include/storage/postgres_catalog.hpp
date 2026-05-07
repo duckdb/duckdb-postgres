@@ -15,6 +15,7 @@
 #include "postgres_connection.hpp"
 #include "storage/postgres_schema_set.hpp"
 #include "storage/postgres_connection_pool.hpp"
+#include "storage/postgres_secret_storage.hpp"
 
 namespace duckdb {
 class PostgresCatalog;
@@ -24,7 +25,7 @@ class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
 	                         AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
-	                         string secrets_table_name_p, ClientContext &context);
+	                         SecretStorageTable secret_storage_table_p, ClientContext &context);
 	~PostgresCatalog();
 
 	string connection_string;
@@ -113,7 +114,7 @@ private:
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
-	string secrets_table_name;
+	SecretStorageTable secret_storage_table;
 };
 
 } // namespace duckdb

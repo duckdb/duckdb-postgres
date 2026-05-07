@@ -14,6 +14,81 @@
 
 namespace duckdb {
 
+string SecretStorageTable::default_name = "duckdb_secrets";
+
+SecretStorageTable::SecretStorageTable(string name_p, bool specified_explicitly_p)
+    : name(specified_explicitly_p ? std::move(name_p) : default_name), specified_explicitly(specified_explicitly_p) {
+}
+
+bool SecretStorageTable::Exists(PostgresConnection &connection) {
+	if (name.empty()) {
+		return false;
+	}
+
+	// Check whether the table exists, 'to_regclass' should require the least priviliges
+	{
+		string query = StringUtil::Format("SELECT to_regclass('%s')", name);
+		string err_msg;
+		auto res = connection.TryQuery(nullptr, query, &err_msg);
+		if (err_msg.empty()) {
+			return !res->IsNull(0, 0);
+		}
+	}
+
+	// 'to_regclass()' has returned an error, either the name is invalid
+	// or we are talking with a Postgres-lookalike that does not have 'to_regclass()',
+	// lets try the SQL standard way instead
+	{
+		string query = R"(SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 
+				CASE WHEN ')" +
+		               name + R"(' LIKE '%.%'
+				THEN split_part(')" +
+		               name + R"(', '.', 1)
+				ELSE 'public'
+				END
+			AND table_name = 
+				CASE
+				WHEN ')" +
+		               name + R"(' LIKE '%.%'
+				THEN split_part(')" +
+		               name + R"(', '.', 2)
+				ELSE ')" +
+		               name + R"('
+				END
+	))";
+		string err_msg;
+		auto res = connection.TryQuery(nullptr, query, &err_msg);
+		if (!err_msg.empty()) {
+			// Information schema query also errored, giving up
+			return false;
+		}
+		return res->GetBool(0, 0);
+	}
+}
+
+string SecretStorageTable::Create(PostgresConnection &connection) {
+	// Create the table to store secrets, 'IF NOT EXISTS' added due to the race on the
+	// existence pre-check in PostgresCatalog::Initialize
+	string create_table_query = StringUtil::Format(R"(
+		CREATE TABLE IF NOT EXISTS %s (
+			secret_name VARCHAR PRIMARY KEY,
+			secret_type VARCHAR NOT NULL,
+			serialized_secret BYTEA NOT NULL
+		)
+	)",
+	                                               name);
+	string err_msg;
+	connection.TryQuery(nullptr, create_table_query, &err_msg);
+	return err_msg;
+}
+
+bool SecretStorageTable::DisabledByUser() {
+	return specified_explicitly && name.empty();
+}
+
 // Helper function to escape SQL strings
 static string EscapeSQLString(const string &str) {
 	string result;
@@ -50,7 +125,11 @@ optional_ptr<PostgresCatalog> PostgresSecretStorage::GetPostgresCatalog(ClientCo
 	if (!attached_db) {
 		return nullptr;
 	}
-	return &attached_db->GetCatalog().Cast<PostgresCatalog>();
+	auto &catalog = attached_db->GetCatalog();
+	if (catalog.GetCatalogType() != "postgres") {
+		return nullptr;
+	}
+	return &catalog.Cast<PostgresCatalog>();
 }
 
 unique_ptr<const BaseSecret> PostgresSecretStorage::DeserializeSecret(PostgresCatalog &postgres_catalog,
@@ -287,29 +366,6 @@ unique_ptr<SecretEntry> PostgresSecretStorage::GetSecretByName(const string &nam
 	secret_entry->storage_mode = storage_name;
 	secret_entry->persist_type = SecretPersistType::PERSISTENT;
 	return secret_entry;
-}
-
-string PostgresSecretStorage::InitializeSecretsTable(PostgresConnection &connection,
-                                                     const std::string &secrets_table_name) {
-	// Check whether the table exists, 'to_regclass' should require the least priviliges
-	auto res = connection.Query(nullptr, "SELECT to_regclass('" + secrets_table_name + "')");
-	if (!res->IsNull(0, 0)) {
-		return std::string();
-	}
-
-	// Create the table to store secrets
-	string create_table_query = R"(
-		CREATE TABLE )" + secrets_table_name +
-	                            R"( (
-			secret_name VARCHAR PRIMARY KEY,
-			secret_type VARCHAR NOT NULL,
-			serialized_secret BYTEA NOT NULL
-		)
-	)";
-
-	string err_msg;
-	connection.TryQuery(nullptr, create_table_query, &err_msg);
-	return err_msg;
 }
 
 string PostgresSecretStorage::SerializeSecret(const BaseSecret &secret) {
