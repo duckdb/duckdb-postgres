@@ -18,17 +18,22 @@ extern "C" {
 
 namespace duckdb {
 
-//! Global mutex protecting the token string
-static std::mutex oauth_token_mutex;
-//! The in-memory token set via the DuckDB setting
-static std::string oauth_token_value;
-
 //! Previous hook in the chain (if any)
 static PQauthDataHook_type prev_hook = nullptr;
 
 struct OAuthTokenState {
 	char *token_copy;
 };
+
+//! Managed by SetThreadLocalOAuthTokenFromSessionOption
+static thread_local std::string oauth_token;
+
+OAuthTokenHolder::~OAuthTokenHolder() {
+	if (!oauth_token.empty()) {
+		SecureZero(&oauth_token[0], oauth_token.length());
+		oauth_token.clear();
+	}
+}
 
 static void OAuthTokenCleanup(PGconn *conn, PGoauthBearerRequest *request) {
 	auto *ts = static_cast<OAuthTokenState *>(request->user);
@@ -47,12 +52,8 @@ static int OAuthBearerTokenHook(PGauthData type, PGconn *conn, void *data) {
 	if (type == PQAUTHDATA_OAUTH_BEARER_TOKEN) {
 		const char *token = nullptr;
 
-		// Priority 1: DuckDB setting (more secure, in-process memory only)
-		std::string token_str;
-		{
-			std::lock_guard<std::mutex> lock(oauth_token_mutex);
-			token_str = oauth_token_value;
-		}
+		// Priority 1: thread-local token set by the calling thread from the 'pg_oauth_token' option
+		std::string token_str = oauth_token;
 
 		// Priority 2: Environment variable PGOAUTHTOKEN
 		if (token_str.empty()) {
@@ -96,20 +97,13 @@ void PostgresInitOAuthHook() {
 	PQsetAuthDataHook(OAuthBearerTokenHook);
 }
 
-void PostgresSetOAuthToken(const string &token) {
-	std::lock_guard<std::mutex> lock(oauth_token_mutex);
-	if (!oauth_token_value.empty()) {
-		SecureZero(&oauth_token_value[0], oauth_token_value.size());
+OAuthTokenHolder SetThreadLocalOAuthTokenFromSessionOption(ClientContext &ctx) {
+	Value val;
+	if (ctx.TryGetCurrentSetting("pg_oauth_token", val) && !val.IsNull()) {
+		std::string token = StringValue::Get(val);
+		oauth_token = std::string(token.data(), token.length());
 	}
-	oauth_token_value = token;
-}
-
-void PostgresClearOAuthToken() {
-	std::lock_guard<std::mutex> lock(oauth_token_mutex);
-	if (!oauth_token_value.empty()) {
-		SecureZero(&oauth_token_value[0], oauth_token_value.size());
-	}
-	oauth_token_value.clear();
+	return OAuthTokenHolder();
 }
 
 } // namespace duckdb
