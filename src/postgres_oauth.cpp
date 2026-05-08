@@ -5,13 +5,6 @@
 #include <mutex>
 #include <string>
 
-#ifdef _WIN32
-#include <windows.h>
-#define SecureZero(ptr, len) SecureZeroMemory(ptr, len)
-#else
-#define SecureZero(ptr, len) explicit_bzero(ptr, len)
-#endif
-
 extern "C" {
 #include "libpq-fe.h"
 }
@@ -27,6 +20,13 @@ struct OAuthTokenState {
 
 //! Managed by SetThreadLocalOAuthTokenFromSessionOption
 static thread_local std::string oauth_token;
+
+static void SecureZero(void *ptr, size_t len) {
+	volatile unsigned char *p = (volatile unsigned char *)ptr;
+	while (len--) {
+		*p++ = 0;
+	}
+}
 
 OAuthTokenHolder::~OAuthTokenHolder() {
 	if (!oauth_token.empty()) {
