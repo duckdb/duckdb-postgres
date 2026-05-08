@@ -1,6 +1,7 @@
 #include "storage/postgres_catalog.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
+#include "postgres_oauth.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_secrets.hpp"
 #include "storage/postgres_secret_storage.hpp"
@@ -44,7 +45,11 @@ PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, str
 		default_schema = "public";
 	}
 
-	auto connection = connection_pool->GetConnection();
+	PostgresPoolConnection connection;
+	{
+		auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(ctx);
+		connection = connection_pool->GetConnection();
+	}
 	this->version = connection.GetConnection().GetPostgresVersion(ctx);
 }
 

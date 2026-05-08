@@ -3,6 +3,7 @@
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/catalog/catalog_entry/index_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
+#include "postgres_oauth.hpp"
 #include "postgres_result.hpp"
 
 namespace duckdb {
@@ -11,6 +12,7 @@ PostgresTransaction::PostgresTransaction(PostgresCatalog &postgres_catalog, Tran
                                          ClientContext &context)
     : Transaction(manager, context), access_mode(postgres_catalog.access_mode),
       isolation_level(postgres_catalog.isolation_level) {
+	auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
 	connection = postgres_catalog.GetConnectionPool().GetConnection();
 }
 
