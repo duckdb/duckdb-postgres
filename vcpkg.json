@@ -5,7 +5,9 @@
     {
       "name": "aws-sdk-cpp",
       "features": [
-        "rds"
+        "rds",
+        "sso",
+        "sts"
       ]
     }
   ],
