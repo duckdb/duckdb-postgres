@@ -157,12 +157,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	RegisterHstoreFunctions(loader);
 
 	// Register the new type
-	SecretType secret_type;
-	secret_type.name = "postgres";
-	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
-	secret_type.default_provider = "config";
-
-	loader.RegisterSecretType(secret_type);
+	loader.RegisterSecretType(PostgresSecrets::CreateType());
+	loader.RegisterSecretType(PostgresSecrets::CreateRdsType());
 
 	CreateSecretFunction postgres_secret_function = {"postgres", "config", PostgresSecrets::CreateFunction};
 	PostgresSecrets::SetSecretParameters(postgres_secret_function);

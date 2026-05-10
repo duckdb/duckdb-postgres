@@ -16,6 +16,10 @@ namespace duckdb {
 struct PostgresSecrets {
 	static const std::vector<std::string> &ConnectionOptionNames();
 
+	static SecretType CreateType();
+
+	static SecretType CreateRdsType();
+
 	static unique_ptr<BaseSecret> CreateFunction(ClientContext &context, CreateSecretInput &input);
 
 	static void SetSecretParameters(CreateSecretFunction &function);

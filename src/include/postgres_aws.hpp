@@ -17,17 +17,18 @@
 namespace duckdb {
 
 struct PostgresAwsRdsTokenConfig {
-	bool enabled = false;
-	std::string hostname;
-	std::string port;
-	std::string username;
-	std::string region;
-	std::uint64_t expiration_seconds = 900; // 15 min;
+	static const int64_t expiration_seconds = 900; // 15 min, this value is fixed, also used in duckdb-aws
+
+	std::string rds_secret_name;
 	std::string base_connection_string;
+
+	bool Enabled();
+	int64_t MaxAgeSeconds();
 };
 
 struct PostgresAws {
-	static std::string GenerateRdsAuthToken(const PostgresAwsRdsTokenConfig &token_config);
+	static std::string GenerateRdsAuthToken(AttachedDatabase &attached_db,
+	                                        const PostgresAwsRdsTokenConfig &token_config);
 
 	static PostgresAwsRdsTokenConfig ExtractTokenConfigFromSecret(optional_ptr<SecretEntry> secret_entry);
 };
