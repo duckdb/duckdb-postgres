@@ -11,7 +11,6 @@ add_definitions(
 
 find_package(OpenSSL REQUIRED)
 find_package(PostgreSQL REQUIRED)
-find_package(AWSSDK REQUIRED COMPONENTS rds)
 
 if(NOT MSVC)
     add_compile_options(
@@ -55,7 +54,6 @@ target_link_libraries(${LOADABLE_EXTENSION_NAME}
     OpenSSL::SSL
     OpenSSL::Crypto
     PostgreSQL::PostgreSQL
-    ${AWSSDK_LINK_LIBRARIES}
     ${CURL_LIBRARIES})
 set_property(TARGET ${EXTENSION_NAME} PROPERTY C_STANDARD 99)
 set_property(TARGET ${LOADABLE_EXTENSION_NAME} PROPERTY C_STANDARD 99)

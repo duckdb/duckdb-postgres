@@ -1,15 +1,7 @@
 {
   "dependencies": [
     "openssl",
-    "libpq",
-    {
-      "name": "aws-sdk-cpp",
-      "features": [
-        "rds",
-        "sso",
-        "sts"
-      ]
-    }
+    "libpq"
   ],
   "vcpkg-configuration": {
     "overlay-ports": [

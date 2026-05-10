@@ -10,15 +10,32 @@ statement ok
 PRAGMA enable_verification
 
 statement ok
-CREATE TEMPORARY SECRET rds_secret (
-	TYPE POSTGRES,
-	HOST 'database-1-instance-1.xxxxxxxxxxx.eu-west-1.rds.amazonaws.com',
+LOAD postgres
+
+statement ok
+LOAD aws
+
+statement ok
+CREATE SECRET rds_template_secret (
+  TYPE rds,
+  PROVIDER credential_chain,
+  CHAIN 'env;sso;',
+  PROFILE 'DatabaseAdministrator-xxx',
+  REGION 'eu-west-1',
+  RDS_USER 'postgres',
+  RDS_HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  RDS_PORT '5432'
+);
+
+statement ok
+CREATE SECRET rds_secret (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
   PORT '5432',
   USER 'postgres',
   DATABASE 'postgres',
-  SSLMODE 'require',
-  AWS_RDS_IAM_AUTH_ENABLED TRUE,
-  AWS_REGION 'eu-west-1'
+  SSLMODE require,
+  AWS_RDS_SECRET rds_template_secret
 );
 
 statement ok
