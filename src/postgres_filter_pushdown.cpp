@@ -76,7 +76,11 @@ string PostgresFilterPushdown::TransformConstantFilter(string &column_name, Cons
 		constant_string = TransformLiteral(constant_filter.constant);
 	}
 	auto operator_string = TransformComparison(constant_filter.comparison_type);
-	return StringUtil::Format("%s %s %s", column_name, operator_string, constant_string);
+	string comparison = StringUtil::Format("%s %s %s", column_name, operator_string, constant_string);
+	if (constant_filter.constant.type().id() == LogicalTypeId::VARCHAR) {
+		comparison += " COLLATE \"C\"";
+	}
+	return comparison;
 }
 
 string PostgresFilterPushdown::TransformFilter(string &column_name, TableFilter &filter, column_t column_id) {
