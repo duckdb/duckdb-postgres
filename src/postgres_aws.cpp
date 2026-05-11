@@ -117,7 +117,7 @@ PostgresAwsRdsTokenConfig PostgresAws::ExtractTokenConfigFromSecret(optional_ptr
 	}
 
 	// Build the base connection string (without password)
-	for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
+	for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
 		if (opt_name == "password" || opt_name == "passfile") {
 			continue;
 		}
