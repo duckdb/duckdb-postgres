@@ -24,17 +24,22 @@ string PostgresTableSet::GetInitializeQuery(const string &schema, const string &
 SELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,
     pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,
     attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,
-    NULL constraint_type, NULL constraint_key
+    NULL constraint_type, NULL constraint_key,
+    col_desc.description AS column_comment,
+    tbl_desc.description AS table_comment
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid
 JOIN pg_type ON atttypid=pg_type.oid
+LEFT JOIN pg_description col_desc ON col_desc.objoid=pg_class.oid AND col_desc.objsubid=pg_attribute.attnum
+LEFT JOIN pg_description tbl_desc ON tbl_desc.objoid=pg_class.oid AND tbl_desc.objsubid=0
 WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') ${CONDITION}
 UNION ALL
 SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,
     NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,
     pg_constraint.oid AS constraint_id, contype AS constraint_type,
-    conkey AS constraint_key
+    conkey AS constraint_key,
+    NULL AS column_comment, NULL AS table_comment
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)
@@ -61,6 +66,7 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	type_info.type_modifier = result.GetInt64(row, column_index + 2);
 	type_info.array_dimensions = result.GetInt64(row, column_index + 3);
 	bool is_not_null = result.GetBool(row, column_index + 5);
+	string column_comment = result.IsNull(row, 12) ? "" : result.GetString(row, 12);
 	string default_value;
 
 	PostgresType postgres_type;
@@ -68,6 +74,9 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	table_info.postgres_types.push_back(std::move(postgres_type));
 	table_info.postgres_names.push_back(column_name);
 	ColumnDefinition column(std::move(column_name), std::move(column_type));
+	if (!column_comment.empty()) {
+		column.SetComment(Value(column_comment));
+	}
 	if (!default_value.empty()) {
 		auto expressions = Parser::ParseExpressionList(default_value);
 		if (expressions.empty()) {
@@ -130,6 +139,10 @@ void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresR
 			}
 			info = make_uniq<PostgresTableInfo>(schema, table_name);
 			info->approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
+			// Read table-level comment from column 13
+			if (!result.IsNull(row, 13)) {
+				info->create_info->comment = Value(result.GetString(row, 13));
+			}
 		}
 		AddColumnOrConstraint(&transaction, &schema, result, row, *info);
 	}
@@ -169,6 +182,10 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 		AddColumnOrConstraint(&transaction, &schema, *result, row, *table_info);
 	}
 	table_info->approx_num_pages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
+	// Read table-level comment
+	if (!result->IsNull(0, 13)) {
+		table_info->create_info->comment = Value(result->GetString(0, 13));
+	}
 	return table_info;
 }
 
@@ -185,6 +202,10 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &cont
 		AddColumnOrConstraint(nullptr, nullptr, *result, row, *table_info);
 	}
 	table_info->approx_num_pages = result->IsNull(0, 2) ? 0 : result->GetInt64(0, 2);
+	// Read table-level comment
+	if (!result->IsNull(0, 13)) {
+		table_info->create_info->comment = Value(result->GetString(0, 13));
+	}
 	return table_info;
 }
 
@@ -422,5 +443,4 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 	}
 	ClearEntries();
 }
-
 } // namespace duckdb
