@@ -1,0 +1,73 @@
+# name: test/sql/storage/attach_types_table_row.test
+# description: Test scanning columns whose type is a relation's implicit row composite
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types CASCADE;
+
+statement ok
+CREATE SCHEMA row_types;
+
+statement ok
+CREATE TABLE row_types.widget(id INT, label VARCHAR);
+
+statement ok
+INSERT INTO row_types.widget VALUES (1, 'hello');
+
+# view whose column is a table-aliased row variable
+statement ok
+CALL postgres_execute('s', 'CREATE VIEW row_types.widget_row AS SELECT w FROM row_types.widget AS w');
+
+statement ok
+CALL pg_clear_cache();
+
+query II
+SELECT w.id, w.label FROM row_types.widget_row
+----
+1	hello
+
+# table column declared with another relation's row type
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE row_types.wrapper(id INT, payload row_types.widget)');
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO row_types.wrapper VALUES (1, ROW(2, ''nested''))');
+
+statement ok
+CALL pg_clear_cache();
+
+query III
+SELECT id, payload.id, payload.label FROM row_types.wrapper
+----
+1	2	nested
+
+# text protocol
+statement ok
+SET pg_use_text_protocol=true;
+
+statement ok
+CALL pg_clear_cache();
+
+query II
+SELECT w.id, w.label FROM row_types.widget_row
+----
+1	hello
+
+statement ok
+SET pg_use_text_protocol=false;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types CASCADE;
