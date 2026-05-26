@@ -245,14 +245,10 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		if (!context) {
 			throw InternalException("Context is destroyed!?");
 		}
-		optional_ptr<SchemaCatalogEntry> lookup_schema = schema.get();
-		if (!type_info.type_schema.empty() && type_info.type_schema != schema->name) {
-			auto other_schema =
-			    schema->ParentCatalog().GetSchema(*context, type_info.type_schema, OnEntryNotFound::RETURN_NULL);
-			if (other_schema) {
-				lookup_schema = other_schema;
-			}
-		}
+		optional_ptr<SchemaCatalogEntry> lookup_schema =
+		    type_info.type_schema != schema->name
+		        ? schema->ParentCatalog().GetSchema(*context, type_info.type_schema, OnEntryNotFound::THROW_EXCEPTION)
+		        : schema.get();
 		auto entry = lookup_schema->GetEntry(CatalogTransaction(lookup_schema->ParentCatalog(), *context),
 		                                     CatalogType::TYPE_ENTRY, pgtypename);
 		if (!entry) {

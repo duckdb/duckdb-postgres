@@ -63,9 +63,7 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	type_info.array_dimensions = result.GetInt64(row, column_index + 3);
 	bool is_not_null = result.GetBool(row, column_index + 5);
 	idx_t type_schema_index = column_index + 9;
-	if (!result.IsNull(row, type_schema_index)) {
-		type_info.type_schema = result.GetString(row, type_schema_index);
-	}
+	type_info.type_schema = result.GetString(row, type_schema_index);
 	string default_value;
 
 	PostgresType postgres_type;

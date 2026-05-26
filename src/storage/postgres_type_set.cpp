@@ -118,9 +118,7 @@ void PostgresTypeSet::CreateCompositeType(PostgresTransaction &transaction, Post
 		auto type_name = result.GetString(row, 3);
 		PostgresTypeData type_data;
 		type_data.type_name = result.GetString(row, 4);
-		if (!result.IsNull(row, 5)) {
-			type_data.type_schema = result.GetString(row, 5);
-		}
+		type_data.type_schema = result.GetString(row, 5);
 		PostgresType child_type;
 		child_types.push_back(
 		    make_pair(type_name, PostgresUtils::TypeToLogicalType(&transaction, &schema, type_data, child_type)));
