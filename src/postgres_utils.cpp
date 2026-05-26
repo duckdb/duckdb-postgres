@@ -143,6 +143,7 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		PostgresTypeData child_type_info;
 		child_type_info.type_name = pgtypename.substr(1);
 		child_type_info.type_modifier = type_info.type_modifier;
+		child_type_info.type_schema = type_info.type_schema;
 		PostgresType child_pg_type;
 		auto child_type = PostgresUtils::TypeToLogicalType(transaction, schema, child_type_info, child_pg_type);
 		// populate the child OID from the actual Postgres type name
@@ -244,8 +245,12 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		if (!context) {
 			throw InternalException("Context is destroyed!?");
 		}
-		auto entry = schema->GetEntry(CatalogTransaction(schema->ParentCatalog(), *context), CatalogType::TYPE_ENTRY,
-		                              pgtypename);
+		optional_ptr<SchemaCatalogEntry> lookup_schema =
+		    type_info.type_schema != schema->name
+		        ? schema->ParentCatalog().GetSchema(*context, type_info.type_schema, OnEntryNotFound::THROW_EXCEPTION)
+		        : schema.get();
+		auto entry = lookup_schema->GetEntry(CatalogTransaction(lookup_schema->ParentCatalog(), *context),
+		                                     CatalogType::TYPE_ENTRY, pgtypename);
 		if (!entry) {
 			// unsupported so fallback to varchar
 			postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
