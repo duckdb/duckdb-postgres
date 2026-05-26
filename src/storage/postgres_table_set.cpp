@@ -24,17 +24,18 @@ string PostgresTableSet::GetInitializeQuery(const string &schema, const string &
 SELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,
     pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,
     attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,
-    NULL constraint_type, NULL constraint_key
+    NULL constraint_type, NULL constraint_key, type_ns.nspname AS type_schema
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid
 JOIN pg_type ON atttypid=pg_type.oid
+JOIN pg_namespace type_ns ON pg_type.typnamespace = type_ns.oid
 WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') ${CONDITION}
 UNION ALL
 SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,
     NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,
     pg_constraint.oid AS constraint_id, contype AS constraint_type,
-    conkey AS constraint_key
+    conkey AS constraint_key, NULL AS type_schema
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)
@@ -61,6 +62,10 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	type_info.type_modifier = result.GetInt64(row, column_index + 2);
 	type_info.array_dimensions = result.GetInt64(row, column_index + 3);
 	bool is_not_null = result.GetBool(row, column_index + 5);
+	idx_t type_schema_index = column_index + 9;
+	if (!result.IsNull(row, type_schema_index)) {
+		type_info.type_schema = result.GetString(row, type_schema_index);
+	}
 	string default_value;
 
 	PostgresType postgres_type;

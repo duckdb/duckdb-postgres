@@ -71,3 +71,65 @@ SET pg_use_text_protocol=false;
 
 statement ok
 DROP SCHEMA IF EXISTS row_types CASCADE;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types_a CASCADE;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types_b CASCADE;
+
+statement ok
+CREATE SCHEMA row_types_a;
+
+statement ok
+CREATE SCHEMA row_types_b;
+
+statement ok
+CREATE TABLE row_types_a.widget(id INT, label VARCHAR);
+
+statement ok
+INSERT INTO row_types_a.widget VALUES (1, 'hello');
+
+# view in schema B whose column is row type of a relation in schema A
+statement ok
+CALL postgres_execute('s', 'CREATE VIEW row_types_b.widget_view AS SELECT w FROM row_types_a.widget AS w');
+
+# table in schema B whose column is declared with schema A's row type
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE row_types_b.wrapper(id INT, payload row_types_a.widget)');
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO row_types_b.wrapper VALUES (1, ROW(2, ''nested''))');
+
+statement ok
+CALL pg_clear_cache();
+
+query II
+SELECT w.id, w.label FROM row_types_b.widget_view
+----
+1	hello
+
+query III
+SELECT id, payload.id, payload.label FROM row_types_b.wrapper
+----
+1	2	nested
+
+statement ok
+SET pg_use_text_protocol=true;
+
+statement ok
+CALL pg_clear_cache();
+
+query II
+SELECT w.id, w.label FROM row_types_b.widget_view
+----
+1	hello
+
+statement ok
+SET pg_use_text_protocol=false;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types_a CASCADE;
+
+statement ok
+DROP SCHEMA IF EXISTS row_types_b CASCADE;
