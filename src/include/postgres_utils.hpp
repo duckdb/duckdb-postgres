@@ -20,6 +20,7 @@ class PostgresTransaction;
 struct PostgresTypeData {
 	int64_t type_modifier = 0;
 	string type_name;
+	string type_schema;
 	idx_t array_dimensions = 0;
 };
 

@@ -84,14 +84,18 @@ void PostgresTypeSet::InitializeEnums(PostgresTransaction &transaction, Postgres
 
 string PostgresTypeSet::GetInitializeCompositesQuery(const string &schema) {
 	string base_query = R"(
-SELECT n.oid, t.typrelid AS id, t.typname as type, pg_attribute.attname, sub_type.typname
+SELECT n.oid, t.typrelid AS id, t.typname as type, pg_attribute.attname, sub_type.typname,
+       sub_type_ns.nspname AS sub_type_schema
 FROM pg_type t
 JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 JOIN pg_class ON pg_class.oid = t.typrelid
 JOIN pg_attribute ON attrelid=t.typrelid
 JOIN pg_type sub_type ON (pg_attribute.atttypid=sub_type.oid)
-WHERE pg_class.relkind = 'c'
+JOIN pg_catalog.pg_namespace sub_type_ns ON sub_type_ns.oid = sub_type.typnamespace
+WHERE pg_class.relkind IN ('c', 'r', 'v', 'm', 'f', 'p')
 AND t.typtype='c'
+AND pg_attribute.attnum > 0
+AND NOT pg_attribute.attisdropped
 ${CONDITION}
 ORDER BY n.oid, t.oid, attrelid, attnum;
 )";
@@ -114,6 +118,7 @@ void PostgresTypeSet::CreateCompositeType(PostgresTransaction &transaction, Post
 		auto type_name = result.GetString(row, 3);
 		PostgresTypeData type_data;
 		type_data.type_name = result.GetString(row, 4);
+		type_data.type_schema = result.GetString(row, 5);
 		PostgresType child_type;
 		child_types.push_back(
 		    make_pair(type_name, PostgresUtils::TypeToLogicalType(&transaction, &schema, type_data, child_type)));

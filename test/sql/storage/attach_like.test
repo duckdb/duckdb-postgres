@@ -1,0 +1,51 @@
+# name: test/sql/storage/attach_like.test
+# description: Test LIKE statement
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+statement ok
+USE s1
+
+statement ok
+CREATE OR REPLACE TABLE like_test (col1 VARCHAR)
+
+statement ok
+INSERT INTO like_test VALUES ('foo8bar'),('foo9bar'),('Здра9вейте')
+
+query I
+FROM like_test WHERE col1 LIKE 'foo8%';
+----
+foo8bar
+
+query I
+FROM like_test WHERE col1 LIKE 'foo9%';
+----
+foo9bar
+
+query I
+FROM like_test WHERE col1 LIKE 'Здра%';
+----
+Здра9вейте
+
+query I
+FROM like_test WHERE col1 LIKE 'Здра9%';
+----
+Здра9вейте
+
+statement ok
+DROP TABLE like_test
+
+statement ok
+USE memory
+
+statement ok
+DETACH s1

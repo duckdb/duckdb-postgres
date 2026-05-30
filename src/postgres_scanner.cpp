@@ -579,7 +579,7 @@ static BindInfo PostgresGetBindInfo(const optional_ptr<FunctionData> bind_data_p
 	auto &bind_data = bind_data_p->Cast<PostgresBindData>();
 	auto table = bind_data.GetTable();
 	BindInfo info(ScanType::EXTERNAL);
-	info.table = bind_data.GetTable().get();
+	info.table = table.get();
 	return info;
 }
 

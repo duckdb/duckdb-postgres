@@ -1,5 +1,7 @@
 #define DUCKDB_BUILD_LOADABLE_EXTENSION
 #include "duckdb.hpp"
+#include <openssl/crypto.h>
+#include <openssl/ssl.h>
 
 #include "postgres_scanner.hpp"
 #include "postgres_storage.hpp"
@@ -116,6 +118,12 @@ static std::string CreatePoolNote(const std::string &option) {
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
+	// Prevent a race with OpenSSL init that manifests itself with
+	// the following message on the first connection attempt:
+	// "port 5432 failed: could not create SSL context: unknown option"
+	OPENSSL_init_crypto(0, nullptr);
+	OPENSSL_init_ssl(0, nullptr);
+
 	// Register the OAuth bearer token hook before any connections are made
 	PostgresInitOAuthHook();
 
@@ -149,12 +157,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	RegisterHstoreFunctions(loader);
 
 	// Register the new type
-	SecretType secret_type;
-	secret_type.name = "postgres";
-	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
-	secret_type.default_provider = "config";
-
-	loader.RegisterSecretType(secret_type);
+	loader.RegisterSecretType(PostgresSecrets::CreateType());
+	loader.RegisterSecretType(PostgresSecrets::CreateRdsType());
 
 	CreateSecretFunction postgres_secret_function = {"postgres", "config", PostgresSecrets::CreateFunction};
 	PostgresSecrets::SetSecretParameters(postgres_secret_function);

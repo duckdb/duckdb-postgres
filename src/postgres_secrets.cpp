@@ -69,9 +69,7 @@ static const std::unordered_map<std::string, std::string> connection_option_alia
 
 static const std::vector<std::string> other_option_names = {
   "uri",
-  "aws_rds_iam_auth_enabled",
-  "aws_rds_iam_token_expiration_seconds",
-  "aws_region"
+  "aws_rds_secret"
 };
 // clang-format on
 
@@ -85,6 +83,22 @@ static const std::string &ResolveAlias(const std::string &input_name) {
 
 const std::vector<std::string> &PostgresSecrets::ConnectionOptionNames() {
 	return connection_option_names;
+}
+
+SecretType PostgresSecrets::CreateType() {
+	SecretType secret_type;
+	secret_type.name = "postgres";
+	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
+	secret_type.default_provider = "config";
+	return secret_type;
+}
+
+SecretType PostgresSecrets::CreateRdsType() {
+	SecretType secret_type;
+	secret_type.name = "rds";
+	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
+	secret_type.default_provider = "credential_chain";
+	return secret_type;
 }
 
 unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, CreateSecretInput &input) {
@@ -113,9 +127,7 @@ void PostgresSecrets::SetSecretParameters(CreateSecretFunction &function) {
 	}
 	// other options
 	function.named_parameters["uri"] = LogicalType::VARCHAR;
-	function.named_parameters["aws_rds_iam_auth_enabled"] = LogicalType::BOOLEAN;
-	function.named_parameters["aws_rds_iam_token_expiration_seconds"] = LogicalType::UBIGINT;
-	function.named_parameters["aws_region"] = LogicalType::VARCHAR;
+	function.named_parameters["aws_rds_secret"] = LogicalType::VARCHAR;
 }
 
 } // namespace duckdb

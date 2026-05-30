@@ -1,0 +1,42 @@
+# name: test/sql/storage/attach_comments.test
+# description: Test that Postgres table and column comments are propagated through DuckDB metadata
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s;
+
+statement ok
+DROP TABLE IF EXISTS t1
+
+statement ok
+CREATE TABLE t1 (id INTEGER, name VARCHAR);
+
+statement ok
+COMMENT ON TABLE t1 IS 'this is a table comment';
+
+statement ok
+COMMENT ON COLUMN t1.name IS 'this is a column comment';
+
+query I
+SELECT comment FROM duckdb_tables() WHERE table_name = 't1'
+----
+this is a table comment
+
+query II
+SELECT column_name, comment FROM duckdb_columns() WHERE table_name = 't1' ORDER BY column_name
+----
+id	NULL
+name	this is a column comment
+
+statement ok
+DROP TABLE t1

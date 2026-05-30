@@ -17,8 +17,7 @@ namespace duckdb {
 unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {
 	auto &secret_manager = SecretManager::Get(context);
 	auto transaction = CatalogTransaction::GetSystemCatalogTransaction(context);
-	// FIXME: this should be adjusted once the `GetSecretByName` API supports this use case
-	auto secret_entry = secret_manager.GetSecretByName(transaction, secret_name, "memory");
+	auto secret_entry = secret_manager.GetSecretByName(transaction, secret_name);
 	if (secret_entry) {
 		return secret_entry;
 	}
@@ -33,11 +32,11 @@ PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, str
                                  AccessMode access_mode, string schema_to_load, PostgresIsolationLevel isolation_level,
                                  const string &secret_name, SecretStorageTable secret_storage_table_p)
     : Catalog(db_p), attach_path(std::move(attach_path_p)), access_mode(access_mode), isolation_level(isolation_level),
-      secret_storage_table(std::move(secret_storage_table_p)), schemas(*this, schema_to_load),
-      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)), default_schema(schema_to_load) {
+      schemas(*this, schema_to_load), connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)),
+      default_schema(schema_to_load), secret_storage_table(std::move(secret_storage_table_p)) {
 	auto secret_entry = GetSecretEntry(ctx, secret_name);
 	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(secret_entry);
-	if (!rds_token_config.enabled) {
+	if (!rds_token_config.Enabled()) {
 		this->connection_string = CreateConnectionString(secret_entry, attach_path);
 	}
 
@@ -79,7 +78,7 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 		Value uri_val = kv_secret.TryGetValue("uri");
 		if (!uri_val.IsNull()) {
 			// no other options can be specified along with the URI
-			for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
+			for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
 				if (!kv_secret.TryGetValue(opt_name).IsNull()) {
 					throw BinderException("Options with name \"%s\" cannot be specified when 'URI' option is specified",
 					                      opt_name);
@@ -94,7 +93,7 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 		}
 
 		string new_connection_info;
-		for (const string opt_name : PostgresSecrets::ConnectionOptionNames()) {
+		for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
 			new_connection_info += PostgresUtils::ExtractConnectionOption(kv_secret, opt_name);
 		}
 		connection_string = new_connection_info + connection_string;
@@ -103,7 +102,7 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 }
 
 string PostgresCatalog::GetConnectionString() {
-	if (!rds_token_config.enabled) {
+	if (!rds_token_config.Enabled()) {
 		return connection_string;
 	}
 
@@ -116,12 +115,11 @@ string PostgresCatalog::GetConnectionString() {
 		expired = true;
 	} else {
 		int64_t age_seconds = std::chrono::duration_cast<std::chrono::seconds>(now - rds_token_last_refreshed).count();
-		int64_t max_age = static_cast<int64_t>(rds_token_config.expiration_seconds) - 60;
-		expired = age_seconds > max_age;
+		expired = age_seconds > rds_token_config.MaxAgeSeconds();
 	}
 
 	if (expired) {
-		this->rds_token = PostgresAws::GenerateRdsAuthToken(rds_token_config);
+		this->rds_token = PostgresAws::GenerateRdsAuthToken(GetAttached(), rds_token_config);
 		this->rds_token_last_refreshed = now;
 		this->connection_string = rds_token_config.base_connection_string +
 		                          "password=" + PostgresUtils::EscapeConnectionString(rds_token) + " " + attach_path;
