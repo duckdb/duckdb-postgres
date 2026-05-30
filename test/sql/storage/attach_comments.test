@@ -22,10 +22,10 @@ statement ok
 CREATE TABLE t1 (id INTEGER, name VARCHAR);
 
 statement ok
-COMMENT ON TABLE t1 IS 'this is a table comment';
+SELECT postgres_query('postgresscanner', 'COMMENT ON TABLE t1 IS ''this is a table comment''');
 
 statement ok
-COMMENT ON COLUMN t1.name IS 'this is a column comment';
+SELECT postgres_query('postgresscanner', 'COMMENT ON COLUMN t1.name IS ''this is a column comment''');
 
 query I
 SELECT comment FROM duckdb_tables() WHERE table_name = 't1'
