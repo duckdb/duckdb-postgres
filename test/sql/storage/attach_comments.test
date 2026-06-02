@@ -16,16 +16,16 @@ statement ok
 USE s;
 
 statement ok
-DROP TABLE IF EXISTS t1
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS t1')
 
 statement ok
-CREATE TABLE t1 (id INTEGER, name VARCHAR);
+CALL postgres_execute('s', 'CREATE TABLE t1 (id INTEGER, name VARCHAR)')
 
 statement ok
-FROM postgres_query('postgresscanner', 'COMMENT ON TABLE t1 IS ''this is a table comment''');
+CALL postgres_execute('s', 'COMMENT ON TABLE t1 IS ''this is a table comment''')
 
 statement ok
-FROM postgres_query('postgresscanner', 'COMMENT ON COLUMN t1.name IS ''this is a column comment''');
+name	this is a column comment
 
 query I
 SELECT comment FROM duckdb_tables() WHERE table_name = 't1'
@@ -39,4 +39,4 @@ id	NULL
 name	this is a column comment
 
 statement ok
-DROP TABLE t1
+CALL postgres_execute('s', 'DROP TABLE t1')
