@@ -8,9 +8,8 @@
 
 #pragma once
 
-#include "duckdb/planner/table_filter.hpp"
-#include "duckdb/planner/filter/conjunction_filter.hpp"
-#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 
 namespace duckdb {
 
@@ -21,10 +20,13 @@ public:
 
 private:
 	static string TransformCTIDLiteral(const Value &val);
-	static string TransformConstantFilter(string &column_name, ConstantFilter &filter, column_t column_id);
-	static string TransformFilter(string &column_name, TableFilter &filter, column_t column_id);
+	static string TransformConstantFilter(const string &column_name, ExpressionType comparison_type,
+	                                      const Value &constant, column_t column_id);
+	static string TransformFilter(const string &column_name, const TableFilter &filter, column_t column_id);
+	static string TransformExpression(const string &column_name, const Expression &expr, column_t column_id);
+	static string TransformExpressionSubject(const string &column_name, const Expression &expr);
 	static string TransformComparison(ExpressionType type);
-	static string CreateExpression(string &column_name, vector<unique_ptr<TableFilter>> &filters, string op,
+	static string CreateExpression(const string &column_name, const vector<unique_ptr<Expression>> &filters, string op,
 	                               column_t column_id);
 };
 

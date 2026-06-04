@@ -1,3 +1,7 @@
+#include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/common/vector/map_vector.hpp"
+#include "duckdb/common/vector/string_vector.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
 #include "postgres_binary_reader.hpp"
 #include "postgres_scanner.hpp"
 

@@ -6,8 +6,16 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
+require-env POSTGRES_TEST_TEMPORARY_DISABLED
+
 statement ok
 PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS loader (TYPE POSTGRES);
+
+statement ok
+DETACH loader;
 
 statement ok
 SET pg_pool_max_connections = 8
@@ -26,7 +34,7 @@ SELECT catalog_name, max_connections, cache_hits, cache_misses, try_failures, th
 FROM postgres_configure_pool()
 ORDER BY catalog_name
 ----
-s	8	1	1	0	FALSE	0	60000	1	30000	SELECT 1
+s	8	2	1	0	FALSE	0	60000	1	30000	SELECT 1
 s1	8	1	1	0	FALSE	0	60000	1	30000	SELECT 1
 
 query II

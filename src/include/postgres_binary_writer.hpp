@@ -11,6 +11,9 @@
 #include "duckdb.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/serializer/memory_stream.hpp"
+#include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/common/vector/map_vector.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
 #include "postgres_conversion.hpp"
 
 namespace duckdb {
@@ -427,9 +430,9 @@ public:
 			WriteRawInteger<int32_t>(0);                     // data size (nop for now)
 			WriteRawInteger<uint32_t>(child_entries.size()); // column count
 			for (auto &child : child_entries) {
-				auto value_oid = PostgresUtils::ToPostgresOid(child->GetType());
+				auto value_oid = PostgresUtils::ToPostgresOid(child.GetType());
 				WriteRawInteger<uint32_t>(value_oid); // value oid
-				WriteValue(*child, r);
+				WriteValue(child, r);
 			}
 			auto end_position = stream.GetPosition();
 			// after writing all list elements update the field size
