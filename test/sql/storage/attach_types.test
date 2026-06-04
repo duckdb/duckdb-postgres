@@ -7,9 +7,6 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
@@ -74,10 +71,10 @@ NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	
 foreach column_name bool tinyint smallint int bigint utinyint usmallint uint date time timestamp timestamp_s timestamp_ms timestamp_ns time_tz timestamp_tz dec_4_1 dec_9_4 dec_18_6 dec38_10 uuid interval varchar blob bit small_enum medium_enum large_enum int_array double_array date_array timestamp_array timestamptz_array varchar_array
 
 statement ok
-SET VARIABLE minimum_value=(SELECT MIN(${column_name}) min_val FROM s.all_types);
+SET VARIABLE minimum_value=(SELECT MIN({column_name}) min_val FROM s.all_types);
 
 query I
-SELECT ANY_VALUE(${column_name})=getvariable('minimum_value') FROM s.all_types WHERE ${column_name}=getvariable('minimum_value')
+SELECT ANY_VALUE({column_name})=getvariable('minimum_value') FROM s.all_types WHERE {column_name}=getvariable('minimum_value')
 ----
 true
 

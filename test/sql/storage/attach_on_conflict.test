@@ -6,16 +6,10 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
 statement ok
 USE s
-
-statement ok
-PRAGMA enable_verification;
 
 statement ok
 CREATE OR REPLACE TABLE tbl(

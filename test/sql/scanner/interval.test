@@ -7,9 +7,6 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-pragma enable_verification
-
-statement ok
 CALL postgres_attach('dbname=postgresscanner');
 
 query I

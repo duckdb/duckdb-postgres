@@ -1,4 +1,4 @@
-# name: test/sql/scanner/tpch.test
+# name: test/sql/scanner/tpch.test_slow
 # description: Run TPC-H queries over Postgres tables
 # group: [scanner]
 
@@ -8,25 +8,23 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
-require-env POSTGRES_TEST_SLOW
-
 statement ok
 CALL postgres_attach('dbname=postgresscanner', source_schema='tpch', filter_pushdown=true);
 
 loop i 1 9
 
 query I
-PRAGMA tpch(${i})
+PRAGMA tpch({i})
 ----
-<FILE>:duckdb/extension/tpch/dbgen/answers/sf0.01/q0${i}.csv
+<FILE>:duckdb/extension/tpch/dbgen/answers/sf0.01/q0{i}.csv
 
 endloop
 
 loop i 10 23
 
 query I
-PRAGMA tpch(${i})
+PRAGMA tpch({i})
 ----
-<FILE>:duckdb/extension/tpch/dbgen/answers/sf0.01/q${i}.csv
+<FILE>:duckdb/extension/tpch/dbgen/answers/sf0.01/q{i}.csv
 
 endloop
