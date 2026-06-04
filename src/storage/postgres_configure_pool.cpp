@@ -142,7 +142,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 	auto &lstate = input.local_state->Cast<LocalState>();
 
 	if (lstate.exec_state == ExecState::EXHAUSTED) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 
@@ -225,7 +225,7 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		row_idx++;
 	}
 
-	output.SetCardinality(row_idx);
+	output.SetChildCardinality(row_idx);
 	lstate.exec_state = ExecState::EXHAUSTED;
 }
 

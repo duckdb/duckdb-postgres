@@ -81,6 +81,12 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
+	bool Supports(RemoteCapability capability) const override {
+		return capability == RemoteCapability::IS_REMOTE || capability == RemoteCapability::CONNECT;
+	}
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, const string &sql) override;
+	string GetConnectDisplay() override;
+
 	PostgresConnectionPool &GetConnectionPool() {
 		return *connection_pool;
 	}

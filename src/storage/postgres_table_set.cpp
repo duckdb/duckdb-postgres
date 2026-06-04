@@ -386,7 +386,7 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 			                      "only constant DEFAULT expressions are supported");
 		}
 		const ConstantExpression &default_const_expr = default_expr.Cast<ConstantExpression>();
-		std::string sql_str = default_const_expr.value.ToSQLString();
+		std::string sql_str = default_const_expr.GetValue().ToSQLString();
 		sql += " DEFAULT ";
 		sql += sql_str;
 	}

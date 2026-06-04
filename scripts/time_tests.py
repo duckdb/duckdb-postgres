@@ -51,10 +51,6 @@ def run_and_time_unit_tests():
     env_vars['LOCAL_EXTENSION_REPO'] = extension_repo_path
 
     test_files = sorted(test_files)
-    for test_file_full_path in test_files:
-        print(test_file_full_path)
-
-    sys.exit(1)
 
     for test_file_full_path in test_files:
         # Get the path relative to the project root, as required by the unittest executable

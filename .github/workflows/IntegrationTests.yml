@@ -118,7 +118,7 @@ jobs:
       run: |
         source ./create-postgres-tables.sh
         psql -d postgresscanner -c "SELECT 42"
-        make test
+        ./build/release/test/unittest 'test/sql/*'
 
   linux-pgbouncer:
     name: Linux PgBouncer
@@ -228,7 +228,7 @@ jobs:
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        make test
+        ./build/release/test/unittest 'test/sql/*'
 
     - name: Run tests directly
       env:
@@ -242,7 +242,7 @@ jobs:
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        make test
+        ./build/release/test/unittest 'test/sql/*'
 
     - name: Upload log
       if: always()
@@ -283,7 +283,9 @@ jobs:
         sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
           build-essential \
           ccache \
-          cmake
+          cmake \
+          mold \
+          ninja-build
 
     - name: Cache Key
       id: cache_key
@@ -341,7 +343,7 @@ jobs:
       run: |
         source ./create-postgres-tables.sh
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        make test
+        ./build/relassert/test/unittest 'test/sql/*'
 
   windows-tests:
     name: Windows Tests
@@ -466,4 +468,4 @@ jobs:
       shell: bash
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        make test
+        ./build/release/test/unittest 'test/sql/*'

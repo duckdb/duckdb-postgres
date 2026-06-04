@@ -119,13 +119,13 @@ SinkResultType PostgresUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 		D_ASSERT(expressions[i]->GetExpressionType() == ExpressionType::BOUND_REF);
 		auto &binding = expressions[i]->Cast<BoundReferenceExpression>();
-		gstate.insert_chunk.data[i].Reference(chunk.data[binding.index]);
+		gstate.insert_chunk.data[i].Reference(chunk.data[binding.Index()]);
 	}
 	// convert our row ids back into ctids
 	auto &row_identifiers = chunk.data[chunk.ColumnCount() - 1];
 	auto &ctid_vector = gstate.insert_chunk.data[gstate.insert_chunk.ColumnCount() - 1];
-	auto row_data = FlatVector::GetData<row_t>(row_identifiers);
-	auto varchar_data = FlatVector::GetData<string_t>(ctid_vector);
+	auto row_data = FlatVector::GetDataMutable<row_t>(row_identifiers);
+	auto varchar_data = FlatVector::GetDataMutable<string_t>(ctid_vector);
 
 	for (idx_t r = 0; r < chunk.size(); r++) {
 		// extract the ctid from the row id
@@ -140,7 +140,7 @@ SinkResultType PostgresUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 		ctid_string += ")'";
 		varchar_data[r] = StringVector::AddString(ctid_vector, ctid_string);
 	}
-	gstate.insert_chunk.SetCardinality(chunk);
+	gstate.insert_chunk.SetChildCardinality(chunk.size());
 
 	auto &transaction = PostgresTransaction::Get(context.client, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
@@ -180,7 +180,7 @@ SinkFinalizeType PostgresUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 SourceResultType PostgresUpdate::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                  OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresUpdateGlobalState>();
-	chunk.SetCardinality(1);
+	chunk.SetChildCardinality(1);
 	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.update_count));
 
 	return SourceResultType::FINISHED;

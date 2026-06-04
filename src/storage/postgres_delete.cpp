@@ -61,7 +61,7 @@ SinkResultType PostgresDelete::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	chunk.Flatten();
 	auto &row_identifiers = chunk.data[row_id_index];
-	auto row_data = FlatVector::GetData<row_t>(row_identifiers);
+	auto row_data = FlatVector::GetDataMutable<row_t>(row_identifiers);
 	for (idx_t i = 0; i < chunk.size(); i++) {
 		if (!gstate.ctid_list.empty()) {
 			gstate.ctid_list += ",";
@@ -99,7 +99,7 @@ SinkFinalizeType PostgresDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 SourceResultType PostgresDelete::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
                                                  OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresDeleteGlobalState>();
-	chunk.SetCardinality(1);
+	chunk.SetChildCardinality(1);
 	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.delete_count));
 
 	return SourceResultType::FINISHED;
@@ -129,7 +129,7 @@ PhysicalOperator &PostgresCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	auto &bound_ref = op.expressions[0]->Cast<BoundReferenceExpression>();
 	PostgresCatalog::MaterializePostgresScans(plan);
 
-	auto &delete_op = planner.Make<PostgresDelete>(op, op.table, bound_ref.index);
+	auto &delete_op = planner.Make<PostgresDelete>(op, op.table, bound_ref.Index());
 	delete_op.children.push_back(plan);
 	return delete_op;
 }

@@ -12,4 +12,4 @@ PRAGMA enable_verification
 statement error
 ATTACH 'dbname=dbdoesnotexistx' AS s1 (TYPE POSTGRES)
 ----
-does not exist
+dbdoesnotexistx

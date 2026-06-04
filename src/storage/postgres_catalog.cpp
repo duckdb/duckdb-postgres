@@ -9,10 +9,49 @@
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
+
+unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, const string &sql) {
+	vector<unique_ptr<ParsedExpression>> args;
+	args.push_back(make_uniq<ConstantExpression>(Value(GetName())));
+	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	auto func_ref = make_uniq<TableFunctionRef>();
+	func_ref->function = make_uniq<FunctionExpression>("postgres_query", std::move(args));
+	return func_ref;
+}
+
+string PostgresCatalog::GetConnectDisplay() {
+	// `postgres://<host>[:<port>]` — standard postgres URI shorthand. dbname is already shown
+	// via current_database in the prompt, so it's omitted here.
+	string host, port;
+	for (auto &pair : StringUtil::Split(connection_string, " ")) {
+		auto eq = pair.find('=');
+		if (eq == string::npos) {
+			continue;
+		}
+		auto key = pair.substr(0, eq);
+		auto val = pair.substr(eq + 1);
+		if (key == "host") {
+			host = val;
+		} else if (key == "port") {
+			port = val;
+		}
+	}
+	string result = "postgres://";
+	if (!host.empty()) {
+		result += host;
+	}
+	if (!port.empty()) {
+		result += ":" + port;
+	}
+	return result;
+}
 
 unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {
 	auto &secret_manager = SecretManager::Get(context);

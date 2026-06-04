@@ -168,22 +168,19 @@ void PostgresHstoreGetFun(DataChunk &args, ExpressionState &state, Vector &resul
 	auto &hstore_vector = args.data[0];
 	auto &key_vector = args.data[1];
 
-	BinaryExecutor::ExecuteWithNulls<string_t, string_t, string_t>(
-	    hstore_vector, key_vector, result, args.size(),
-	    [&](string_t hstore, string_t key, ValidityMask &mask, idx_t idx) -> string_t {
+	BinaryExecutor::Execute<string_t, string_t, string_t>(
+	    hstore_vector, key_vector, result, args.size(), [&](string_t hstore, string_t key) -> optional<string_t> {
 		    auto pairs = ParseHstore(hstore.GetString());
 
 		    for (auto it = pairs.rbegin(); it != pairs.rend(); ++it) {
 			    if (it->key == key.GetString()) {
 				    if (!it->value) {
-					    mask.SetInvalid(idx);
-					    return string_t {};
+					    return nullopt;
 				    }
 				    return StringVector::AddString(result, *it->value);
 			    }
 		    }
-		    mask.SetInvalid(idx);
-		    return string_t {};
+		    return nullopt;
 	    });
 }
 
