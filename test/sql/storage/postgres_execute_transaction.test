@@ -9,9 +9,6 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 require-env POSTGRES_TEST_TEMPORARY_DISABLED
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok

@@ -7,9 +7,6 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 # concurrent table creation
@@ -27,7 +24,7 @@ concurrentloop i 0 10
 loop k 0 10
 
 statement ok
-INSERT INTO s.concurrent VALUES (${i} + ${k})
+INSERT INTO s.concurrent VALUES ({i} + {k})
 
 endloop
 

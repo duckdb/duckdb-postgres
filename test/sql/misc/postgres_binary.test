@@ -14,13 +14,13 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 # straightforward integer copy
 statement ok
-COPY (SELECT i::INT AS i FROM range(100) t(i)) TO '__TEST_DIR__/pg_binary.bin' (FORMAT postgres_binary);
+COPY (SELECT i::INT AS i FROM range(100) t(i)) TO '{TEST_DIR}/pg_binary.bin' (FORMAT postgres_binary);
 
 statement ok
 CREATE OR REPLACE TABLE s.binary_copy_test(i INTEGER);
 
 statement ok
-CALL postgres_execute('s', 'COPY binary_copy_test FROM ''__WORKING_DIRECTORY__/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)')
+CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TEST_DIR}/pg_binary.bin'' (FORMAT binary)')
 
 query IIII
 SELECT COUNT(*), MIN(i), MAX(i), SUM(i) FROM s.binary_copy_test
@@ -43,10 +43,10 @@ statement ok
 CREATE OR REPLACE TABLE s.binary_copy_test AS FROM all_types_tbl LIMIT 0;
 
 statement ok
-COPY all_types_tbl TO '__TEST_DIR__/pg_binary.bin' (FORMAT postgres_binary);
+COPY all_types_tbl TO '{TEST_DIR}/pg_binary.bin' (FORMAT postgres_binary);
 
 statement ok
-CALL postgres_execute('s', 'COPY binary_copy_test FROM ''__WORKING_DIRECTORY__/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)')
+CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TEST_DIR}/pg_binary.bin'' (FORMAT binary)')
 
 query I nosort all_types
 FROM all_types_tbl
@@ -59,7 +59,7 @@ SELECT * FROM s.binary_copy_test
 
 # test an unsupported type
 statement error
-COPY (SELECT 42::UINT32) TO '__TEST_DIR__/pg_binary.bin' (FORMAT postgres_binary);
+COPY (SELECT 42::UINT32) TO '{TEST_DIR}/pg_binary.bin' (FORMAT postgres_binary);
 ----
 not supported
 
@@ -68,10 +68,10 @@ statement ok
 CREATE TABLE read_tbl(i int);
 
 statement ok
-COPY (SELECT 42::INTEGER AS i) TO '__TEST_DIR__/pg_binary_read.bin' (FORMAT postgres_binary);
+COPY (SELECT 42::INTEGER AS i) TO '{TEST_DIR}/pg_binary_read.bin' (FORMAT postgres_binary);
 
 statement ok
-COPY read_tbl FROM '__TEST_DIR__/pg_binary_read.bin' (FORMAT postgres_binary);
+COPY read_tbl FROM '{TEST_DIR}/pg_binary_read.bin' (FORMAT postgres_binary);
 
 query I
 SELECT * FROM read_tbl;

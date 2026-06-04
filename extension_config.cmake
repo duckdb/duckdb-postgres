@@ -4,7 +4,6 @@
 duckdb_extension_load(postgres_scanner
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
     DONT_LINK
-    LOAD_TESTS
 )
 
 duckdb_extension_load(tpch)

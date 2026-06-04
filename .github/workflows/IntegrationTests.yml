@@ -18,7 +18,7 @@ jobs:
     name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: 'true'
 
@@ -39,7 +39,7 @@ jobs:
           make format-check
 
   linux-tests:
-    name: Linux Tests
+    name: Linux (pg-17)
     needs: format-check
     runs-on: ubuntu-latest
 
@@ -72,7 +72,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -81,15 +81,6 @@ jobs:
       with:
         path: ${{ github.workspace }}/ccache
         key: ${{ steps.cache_key.outputs.value }}
-
-    - name: Setup Postgres
-      uses: ikalnytskyi/action-setup-postgres@v8
-      with:
-        postgres-version: 17
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11.1
@@ -106,6 +97,15 @@ jobs:
         path: ${{ github.workspace }}/ccache
         key: ${{ steps.cache_key.outputs.value }}
 
+    - name: Setup Postgres
+      uses: ikalnytskyi/action-setup-postgres@v8
+      with:
+        postgres-version: 17
+        username: 'postgres'
+        password: 'postgres'
+        database: 'postgres'
+        port: '5432'
+
     - name: Run tests
       env:
         PGHOST: localhost
@@ -113,7 +113,6 @@ jobs:
         PGUSER: postgres
         PGPASSWORD: postgres
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
-        POSTGRES_TEST_SLOW: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         source ./create-postgres-tables.sh
@@ -121,13 +120,17 @@ jobs:
         ./build/release/test/unittest 'test/sql/*'
 
   linux-pgbouncer:
-    name: Linux PgBouncer
+    name: Linux PgBouncer (${{ matrix.postgres.name }})
     needs: linux-tests
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        pg_version: [14, 18]
+        postgres:
+        - name: pg-14
+          version: 14
+        - name: pg-18
+          version: 18
 
     env:
       GEN: ninja
@@ -159,7 +162,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -169,10 +172,19 @@ jobs:
         path: ${{ github.workspace }}/ccache
         key: ${{ steps.cache_key.outputs.value }}
 
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11.1
+      with:
+        vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+    - name: Build extension
+      run: |
+        make release
+
     - name: Setup Postgres
       uses: ikalnytskyi/action-setup-postgres@v8
       with:
-        postgres-version: ${{ matrix.pg_version }}
+        postgres-version: ${{ matrix.postgres.version }}
         username: 'postgres'
         password: 'postgres'
         database: 'postgres'
@@ -198,15 +210,6 @@ jobs:
         sudo cat /etc/pgbouncer/pgbouncer.ini
         sudo systemctl restart pgbouncer
 
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11.1
-      with:
-        vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
-
-    - name: Build extension
-      run: |
-        make release
-
     - name: Setup test data
       env:
         PGHOST: localhost
@@ -224,7 +227,6 @@ jobs:
         PGPASSWORD: postgres
         PGSSLMODE: require
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
-        POSTGRES_TEST_SLOW: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
@@ -238,7 +240,6 @@ jobs:
         PGPASSWORD: postgres
         PGSSLMODE: require
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
-        POSTGRES_TEST_SLOW: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
@@ -252,14 +253,18 @@ jobs:
         path: |
           /var/log/postgresql/pgbouncer.log
 
-  linux-relassert:
-    name: Linux RelAssert
+  linux-sanitized:
+    name: Linux ${{ matrix.sanitizer.name }} (pg-17)
     needs: linux-tests
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        threadsan: [0, 1]
+        sanitizer:
+        - name: ASan
+          threadsan_enabled: 0
+        - name: TSan
+          threadsan_enabled: 1
 
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -291,7 +296,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert-${{ matrix.threadsan }}
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -301,16 +306,6 @@ jobs:
         path: ${{ github.workspace }}/ccache
         key: ${{ steps.cache_key.outputs.value }}
 
-    - name: Setup Postgres
-      uses: ikalnytskyi/action-setup-postgres@v8
-      with:
-        postgres-version: 18
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
-
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11.1
       with:
@@ -318,7 +313,7 @@ jobs:
 
     - name: Build extension
       env:
-        THREADSAN: ${{ matrix.threadsan }}
+        THREADSAN: ${{ matrix.sanitizer.threadsan_enabled }}
       run: |
         make relassert
         cat ./build/relassert/src/CMakeFiles/duckdb.dir/flags.make
@@ -330,6 +325,16 @@ jobs:
       with:
         path: ${{ github.workspace }}/ccache
         key: ${{ steps.cache_key.outputs.value }}
+
+    - name: Setup Postgres
+      uses: ikalnytskyi/action-setup-postgres@v8
+      with:
+        postgres-version: 17
+        username: 'postgres'
+        password: 'postgres'
+        database: 'postgres'
+        port: '5432'
+        ssl: true
 
     - name: Run tests
       env:
@@ -343,10 +348,10 @@ jobs:
       run: |
         source ./create-postgres-tables.sh
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        ./build/relassert/test/unittest 'test/sql/*'
+        ./build/relassert/test/unittest
 
   windows-tests:
-    name: Windows Tests
+    name: Windows (pg-17)
     needs: linux-tests
     runs-on: windows-latest
 
@@ -401,7 +406,7 @@ jobs:
       working-directory: ./duckdb
       shell: bash
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -438,7 +443,7 @@ jobs:
     - name: Setup Postgres
       uses: ikalnytskyi/action-setup-postgres@v8
       with:
-        postgres-version: '18'
+        postgres-version: '17'
         username: 'postgres'
         password: 'postgres'
         database: 'postgres'
@@ -468,4 +473,4 @@ jobs:
       shell: bash
       run: |
         psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-        ./build/release/test/unittest 'test/sql/*'
+        ./build/release/test/unittest

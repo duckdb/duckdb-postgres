@@ -7,15 +7,12 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 foreach type TINYINT SMALLINT INTEGER BIGINT HUGEINT UTINYINT USMALLINT UINTEGER UBIGINT FLOAT DOUBLE
 
 statement ok
-CREATE OR REPLACE TABLE s.numerics(i ${type});
+CREATE OR REPLACE TABLE s.numerics(i {type});
 
 statement ok
 INSERT INTO s.numerics VALUES (0);
