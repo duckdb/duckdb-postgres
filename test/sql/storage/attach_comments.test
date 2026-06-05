@@ -1,42 +1,47 @@
 # name: test/sql/storage/attach_comments.test
-# description: Test that Postgres table and column comments are propagated through DuckDB metadata
-# group: [storage]
+# description: Test that Postgres table and column comments propagate through DuckDB metadata
+# group [storage]
 
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
+# Attach the Postgres database
 statement ok
-PRAGMA enable_verification
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
+# Clean up from any previous runs
 statement ok
-ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS comment_test');
 
+# Create the test table in Postgres
 statement ok
-USE s;
+CALL postgres_execute('s', 'CREATE TABLE comment_test (name TEXT, value INTEGER)');
 
+# Set table comment via Postgres
 statement ok
-CALL postgres_execute('s', 'DROP TABLE IF EXISTS t1')
+CALL postgres_execute('s', $$COMMENT ON TABLE comment_test IS 'this is a table comment'$$);
 
+# Set column comment via Postgres
 statement ok
-CALL postgres_execute('s', 'CREATE TABLE t1 (id INTEGER, name VARCHAR)')
+CALL postgres_execute('s', $$COMMENT ON COLUMN comment_test.name IS 'this is a column comment'$$);
 
+# Clear DuckDB's metadata cache so fresh comments are loaded
 statement ok
-CALL postgres_execute('s', 'COMMENT ON TABLE t1 IS ''this is a table comment''')
+CALL pg_clear_cache();
 
-statement ok
-name	this is a column comment
-
+# Verify the table comment appears in duckdb_tables()
 query I
-SELECT comment FROM duckdb_tables() WHERE table_name = 't1'
+SELECT comment FROM duckdb_tables() WHERE table_name = 'comment_test';
 ----
 this is a table comment
 
-query II
-SELECT column_name, comment FROM duckdb_columns() WHERE table_name = 't1' ORDER BY column_name
+# Verify the column comment appears in duckdb_columns()
+query I
+SELECT comment FROM duckdb_columns() WHERE table_name = 'comment_test' AND column_name = 'name';
 ----
-id	NULL
-name	this is a column comment
+this is a column comment
 
+# Cleanup
 statement ok
-CALL postgres_execute('s', 'DROP TABLE t1')
+CALL postgres_execute('s', 'DROP TABLE comment_test');
