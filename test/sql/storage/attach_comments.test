@@ -1,5 +1,7 @@
 # name: test/sql/storage/attach_comments.test
 # description: Test that Postgres table and column comments propagate through DuckDB metadata
+# group: [storage]
+
 # group [storage]
 
 require postgres_scanner
