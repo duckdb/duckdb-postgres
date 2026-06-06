@@ -79,6 +79,12 @@ public:
 
 	static string EscapeConnectionString(const string &input);
 	static string ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name);
+	static string WriteLiteral(const string &identifier);
+	static string WriteIdentifier(const string &identifier);
+
+private:
+	static string EscapeQuotes(const string &text, char quote);
+	static string WriteQuoted(const string &text, char quote);
 };
 
 } // namespace duckdb

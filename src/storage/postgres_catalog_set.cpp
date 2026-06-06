@@ -1,4 +1,5 @@
 #include "storage/postgres_catalog_set.hpp"
+
 #include "storage/postgres_transaction.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "storage/postgres_schema_entry.hpp"
@@ -66,9 +67,9 @@ void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &i
 		drop_query += " IF EXISTS ";
 	}
 	if (!info.schema.empty()) {
-		drop_query += KeywordHelper::WriteQuoted(info.schema, '"') + ".";
+		drop_query += PostgresUtils::WriteIdentifier(info.schema) + ".";
 	}
-	drop_query += KeywordHelper::WriteQuoted(info.name, '"');
+	drop_query += PostgresUtils::WriteIdentifier(info.name);
 	if (info.cascade) {
 		drop_query += "CASCADE";
 	}

@@ -237,7 +237,7 @@ public:
 
 	void WriteArray(Vector &col, idx_t r, const vector<uint32_t> &dimensions, idx_t depth, uint32_t count) {
 		auto list_data = FlatVector::GetData<list_entry_t>(col);
-		auto &child_vector = ListVector::GetEntry(col);
+		auto &child_vector = ListVector::GetChildMutable(col);
 		for (idx_t i = 0; i < count; i++) {
 			auto list_entry = list_data[r + i];
 			if (list_entry.length != dimensions[depth]) {
@@ -398,7 +398,7 @@ public:
 			while (current_vector.get().GetType().id() == LogicalTypeId::LIST) {
 				auto current_entry = FlatVector::GetData<list_entry_t>(current_vector.get())[current_position];
 				dimensions.push_back(current_entry.length);
-				current_vector = ListVector::GetEntry(current_vector.get());
+				current_vector = ListVector::GetChild(current_vector.get());
 				current_position = current_entry.offset;
 			}
 

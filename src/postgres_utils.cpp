@@ -1,4 +1,5 @@
 #include "postgres_utils.hpp"
+
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_type_oids.hpp"
@@ -14,7 +15,7 @@ PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 	// both PQStatus and PQerrorMessage check for nullptr
 	if (PQstatus(conn) == CONNECTION_BAD) {
 		char *msg_cstr = PQerrorMessage(conn);
-		std::string msg = msg_cstr != nullptr ? std::string(msg_cstr) : std::string();
+		string msg = msg_cstr != nullptr ? string(msg_cstr) : string();
 		PQfinish(conn);
 		throw IOException("Unable TODO:REMOVEME to connect to Postgres at \"%s\": %s", attach_path, msg);
 	}
@@ -539,7 +540,10 @@ PostgresVersion PostgresUtils::ExtractPostgresVersion(const string &version_str)
 }
 
 string PostgresUtils::QuotePostgresIdentifier(const string &text) {
-	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+	if (!KeywordHelper::RequiresQuotes(text, false)) {
+		return text;
+	}
+	return PostgresUtils::WriteIdentifier(text);
 }
 
 string PostgresUtils::EscapeConnectionString(const string &input) {
@@ -569,6 +573,33 @@ string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, c
 	result += EscapeConnectionString(input_val.ToString());
 	result += " ";
 	return result;
+}
+
+string PostgresUtils::EscapeQuotes(const string &text, char quote) {
+	string result;
+	for (auto c : text) {
+		if (c == quote) {
+			result += quote;
+			result += quote;
+		} else if (c == '\\') {
+			result += "\\\\";
+		} else {
+			result += c;
+		}
+	}
+	return result;
+}
+
+string PostgresUtils::WriteQuoted(const string &text, char quote) {
+	return string(1, quote) + EscapeQuotes(text, quote) + string(1, quote);
+}
+
+string PostgresUtils::WriteLiteral(const string &literal) {
+	return WriteQuoted(literal, '\'');
+}
+
+string PostgresUtils::WriteIdentifier(const string &identifier) {
+	return WriteQuoted(identifier, '"');
 }
 
 } // namespace duckdb

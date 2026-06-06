@@ -1,9 +1,11 @@
 #include "duckdb.hpp"
 
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+
 #include "postgres_filter_pushdown.hpp"
 #include "postgres_scanner.hpp"
 #include "postgres_result.hpp"
+#include "postgres_utils.hpp"
 
 namespace duckdb {
 
@@ -57,7 +59,7 @@ WHERE relkind = 'r' AND attnum > 0 AND nspname = %s
 GROUP BY relname
 ORDER BY relname;
 )",
-	    KeywordHelper::WriteQuoted(data.source_schema));
+	    PostgresUtils::WriteLiteral(data.source_schema));
 	auto res = conn.Query(context, fetch_table_query);
 	for (idx_t row = 0; row < PQntuples(res->res); row++) {
 		auto table_name = res->GetString(row, 0);
@@ -68,9 +70,9 @@ ORDER BY relname;
 			query = "CREATE VIEW IF NOT EXISTS ";
 		}
 		if (!data.sink_schema.empty()) {
-			query += KeywordHelper::WriteQuoted(data.sink_schema, '"') + ".";
+			query += PostgresUtils::WriteIdentifier(data.sink_schema) + ".";
 		}
-		query += KeywordHelper::WriteQuoted(table_name, '"');
+		query += PostgresUtils::WriteIdentifier(table_name);
 		query += " AS SELECT * FROM ";
 		if (data.filter_pushdown) {
 			query += "postgres_scan_pushdown";
@@ -78,11 +80,11 @@ ORDER BY relname;
 			query += "postgres_scan";
 		}
 		query += "(";
-		query += KeywordHelper::WriteQuoted(data.dsn);
+		query += PostgresUtils::WriteLiteral(data.dsn);
 		query += ", ";
-		query += KeywordHelper::WriteQuoted(data.source_schema);
+		query += PostgresUtils::WriteLiteral(data.source_schema);
 		query += ", ";
-		query += KeywordHelper::WriteQuoted(table_name);
+		query += PostgresUtils::WriteLiteral(table_name);
 		query += ");";
 		dconn.Query(query);
 	}

@@ -31,7 +31,7 @@ struct PostgresListParser {
 
 	void AddString(const string &str, bool &quoted) {
 		if (size >= capacity) {
-			vector.Resize(capacity, capacity * 2);
+			vector.Reserve(capacity * 2);
 			capacity *= 2;
 		}
 		if (!quoted && str == "NULL") {
@@ -204,7 +204,7 @@ void ParsePostgresCTID(PostgresCTIDParser &ctid_parser, string_t list) {
 void PostgresTextReader::ConvertList(Vector &source, Vector &target, const PostgresType &postgres_type, idx_t count) {
 	// lists have the format {1, 2, 3}
 	UnifiedVectorFormat vdata;
-	source.ToUnifiedFormat(count, vdata);
+	source.ToUnifiedFormat(vdata);
 
 	auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	auto list_data = FlatVector::GetDataMutable<list_entry_t>(target);
@@ -221,7 +221,7 @@ void PostgresTextReader::ConvertList(Vector &source, Vector &target, const Postg
 		list_data[i].length = list_parser.size - list_data[i].offset;
 	}
 	if (list_parser.size > 0) {
-		auto &target_child = ListVector::GetEntry(target);
+		auto &target_child = ListVector::GetChildMutable(target);
 		ListVector::Reserve(target, list_parser.size);
 		ConvertVector(list_parser.vector, target_child,
 		              postgres_type.children.empty() ? PostgresType() : postgres_type.children[0], list_parser.size);
@@ -232,7 +232,7 @@ void PostgresTextReader::ConvertList(Vector &source, Vector &target, const Postg
 void PostgresTextReader::ConvertStruct(Vector &source, Vector &target, const PostgresType &postgres_type, idx_t count) {
 	// structs have the format (1, 2, 3)
 	UnifiedVectorFormat vdata;
-	source.ToUnifiedFormat(count, vdata);
+	source.ToUnifiedFormat(vdata);
 	auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	auto &children = StructVector::GetEntries(target);
 
@@ -257,7 +257,7 @@ void PostgresTextReader::ConvertStruct(Vector &source, Vector &target, const Pos
 void PostgresTextReader::ConvertCTID(Vector &source, Vector &target, idx_t count) {
 	// ctids have the format (page_index, row_in_page)
 	UnifiedVectorFormat vdata;
-	source.ToUnifiedFormat(count, vdata);
+	source.ToUnifiedFormat(vdata);
 	auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	auto result = FlatVector::GetDataMutable<int64_t>(target);
 
@@ -278,7 +278,7 @@ void PostgresTextReader::ConvertCTID(Vector &source, Vector &target, idx_t count
 void PostgresTextReader::ConvertBlob(Vector &source, Vector &target, idx_t count) {
 	// ctids have the format (page_index, row_in_page)
 	UnifiedVectorFormat vdata;
-	source.ToUnifiedFormat(count, vdata);
+	source.ToUnifiedFormat(vdata);
 	auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	auto result = FlatVector::GetDataMutable<string_t>(target);
 
@@ -311,7 +311,7 @@ static void ConvertGeometry(Vector &source, Vector &target, idx_t count) {
 	// Geometry is encoded in HEXWKB format
 
 	UnifiedVectorFormat vdata;
-	source.ToUnifiedFormat(count, vdata);
+	source.ToUnifiedFormat(vdata);
 	const auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	const auto result = FlatVector::GetDataMutable<string_t>(target);
 

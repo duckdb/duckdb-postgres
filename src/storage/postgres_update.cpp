@@ -1,4 +1,5 @@
 #include "storage/postgres_update.hpp"
+
 #include "storage/postgres_table_entry.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
 #include "storage/postgres_catalog.hpp"
@@ -48,7 +49,7 @@ string CreateUpdateTable(const string &name, PostgresTableEntry &table, const ve
 	for (idx_t i = 0; i < index.size(); i++) {
 		auto &column_name = table.postgres_names[index[i].index];
 		auto &col = table.GetColumn(LogicalIndex(index[i].index));
-		result += KeywordHelper::WriteQuoted(column_name, '"');
+		result += PostgresUtils::WriteIdentifier(column_name);
 		result += " ";
 		result += PostgresUtils::TypeToString(col.GetType());
 		result += ", ";
@@ -60,23 +61,23 @@ string CreateUpdateTable(const string &name, PostgresTableEntry &table, const ve
 string GetUpdateSQL(const string &name, PostgresTableEntry &table, const vector<PhysicalIndex> &index) {
 	string result;
 	result = "UPDATE ";
-	result += KeywordHelper::WriteQuoted(table.schema.name, '"') + ".";
-	result += KeywordHelper::WriteQuoted(table.name, '"');
+	result += PostgresUtils::WriteIdentifier(table.schema.name) + ".";
+	result += PostgresUtils::WriteIdentifier(table.name);
 	result += " SET ";
 	for (idx_t i = 0; i < index.size(); i++) {
 		if (i > 0) {
 			result += ", ";
 		}
 		auto &column_name = table.postgres_names[index[i].index];
-		result += KeywordHelper::WriteQuoted(column_name, '"');
+		result += PostgresUtils::WriteIdentifier(column_name);
 		result += " = ";
-		result += KeywordHelper::WriteQuoted(name, '"');
+		result += PostgresUtils::WriteIdentifier(name);
 		result += ".";
-		result += KeywordHelper::WriteQuoted(column_name, '"');
+		result += PostgresUtils::WriteIdentifier(column_name);
 	}
 	result += " FROM " + PostgresUtils::QuotePostgresIdentifier(name);
 	result += " WHERE ";
-	result += KeywordHelper::WriteQuoted(table.name, '"');
+	result += PostgresUtils::WriteIdentifier(table.name);
 	result += ".ctid=__page_id_string::TID";
 	return result;
 }
@@ -181,7 +182,7 @@ SourceResultType PostgresUpdate::GetDataInternal(ExecutionContext &context, Data
                                                  OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresUpdateGlobalState>();
 	chunk.SetChildCardinality(1);
-	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.update_count));
+	chunk.data[0].SetValue(0, Value::BIGINT(insert_gstate.update_count));
 
 	return SourceResultType::FINISHED;
 }

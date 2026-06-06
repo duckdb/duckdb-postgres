@@ -1,4 +1,5 @@
 #include "postgres_filter_pushdown.hpp"
+
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/function/scalar/struct_utils.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
@@ -8,6 +9,8 @@
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/filter/table_filter_functions.hpp"
 #include "duckdb/common/enum_util.hpp"
+
+#include "postgres_utils.hpp"
 
 namespace duckdb {
 
@@ -64,7 +67,7 @@ string TransformLiteral(const Value &val) {
 	case LogicalTypeId::BLOB:
 		return TransformBlob(StringValue::Get(val));
 	default:
-		return KeywordHelper::WriteQuoted(val.ToString());
+		return PostgresUtils::WriteLiteral(val.ToString());
 	}
 }
 
@@ -103,7 +106,7 @@ string PostgresFilterPushdown::TransformExpressionSubject(const string &column_n
 		if (struct_type.id() != LogicalTypeId::STRUCT || StructType::IsUnnamed(struct_type)) {
 			return string();
 		}
-		auto child_name = KeywordHelper::WriteQuoted(StructType::GetChildName(struct_type, child_idx), '\"');
+		auto child_name = PostgresUtils::WriteIdentifier(StructType::GetChildName(struct_type, child_idx));
 		return "(" + parent_name + ")." + child_name;
 	}
 	default:
@@ -218,7 +221,7 @@ string PostgresFilterPushdown::TransformFilters(const vector<column_t> &column_i
 		if (IsVirtualColumn(column_id)) {
 			column_name = "ctid";
 		} else {
-			column_name = KeywordHelper::WriteQuoted(names[column_id], '"');
+			column_name = PostgresUtils::WriteIdentifier(names[column_id]);
 		}
 		auto &filter = entry.Filter();
 		auto filter_text = TransformFilter(column_name, filter, column_id);

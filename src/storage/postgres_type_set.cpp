@@ -1,10 +1,13 @@
 #include "storage/postgres_type_set.hpp"
-#include "storage/postgres_transaction.hpp"
+
 #include "duckdb/parser/parsed_data/create_type_info.hpp"
-#include "storage/postgres_type_entry.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
-#include "storage/postgres_schema_entry.hpp"
 #include "duckdb/parser/parser.hpp"
+
+#include "postgres_utils.hpp"
+#include "storage/postgres_schema_entry.hpp"
+#include "storage/postgres_type_entry.hpp"
+#include "storage/postgres_transaction.hpp"
 
 namespace duckdb {
 
@@ -39,7 +42,7 @@ ORDER BY n.oid, enumtypid, enumsortorder;
 )";
 	string condition;
 	if (!schema.empty()) {
-		condition += "WHERE n.nspname=" + KeywordHelper::WriteQuoted(schema);
+		condition += "WHERE n.nspname=" + PostgresUtils::WriteLiteral(schema);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -101,7 +104,7 @@ ORDER BY n.oid, t.oid, attrelid, attnum;
 )";
 	string condition;
 	if (!schema.empty()) {
-		condition += "AND n.nspname=" + KeywordHelper::WriteQuoted(schema);
+		condition += "AND n.nspname=" + PostgresUtils::WriteLiteral(schema);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -162,7 +165,7 @@ void PostgresTypeSet::LoadEntries(ClientContext &context, PostgresTransaction &t
 
 string GetCreateTypeSQL(CreateTypeInfo &info) {
 	string sql = "CREATE TYPE ";
-	sql += KeywordHelper::WriteQuoted(info.name, '"');
+	sql += PostgresUtils::WriteIdentifier(info.name);
 	sql += " AS ";
 	switch (info.type.id()) {
 	case LogicalTypeId::ENUM: {
@@ -173,7 +176,7 @@ string GetCreateTypeSQL(CreateTypeInfo &info) {
 				sql += ", ";
 			}
 			auto enum_value = EnumType::GetString(info.type, i).GetString();
-			sql += KeywordHelper::WriteQuoted(enum_value, '\'');
+			sql += PostgresUtils::WriteLiteral(enum_value);
 		}
 		sql += ")";
 		break;
@@ -185,7 +188,7 @@ string GetCreateTypeSQL(CreateTypeInfo &info) {
 			if (c > 0) {
 				sql += ", ";
 			}
-			sql += KeywordHelper::WriteQuoted(StructType::GetChildName(info.type, c), '"');
+			sql += PostgresUtils::WriteIdentifier(StructType::GetChildName(info.type, c));
 			sql += " ";
 			sql += PostgresUtils::TypeToString(StructType::GetChildType(info.type, c));
 		}

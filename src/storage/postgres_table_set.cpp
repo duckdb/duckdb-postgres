@@ -1,5 +1,5 @@
 #include "storage/postgres_table_set.hpp"
-#include "storage/postgres_transaction.hpp"
+
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/parser/constraints/unique_constraint.hpp"
@@ -8,10 +8,13 @@
 #include "duckdb/catalog/dependency_list.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/constraints/list.hpp"
-#include "storage/postgres_schema_entry.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
+
 #include "postgres_conversion.hpp"
+#include "postgres_utils.hpp"
+#include "storage/postgres_transaction.hpp"
+#include "storage/postgres_schema_entry.hpp"
 
 namespace duckdb {
 
@@ -44,10 +47,10 @@ ORDER BY namespace_id, relname, attnum, constraint_id;
 )";
 	string condition;
 	if (!schema.empty()) {
-		condition += "AND pg_namespace.nspname=" + KeywordHelper::WriteQuoted(schema);
+		condition += "AND pg_namespace.nspname=" + PostgresUtils::WriteLiteral(schema);
 	}
 	if (!table.empty()) {
-		condition += "AND relname=" + KeywordHelper::WriteQuoted(table);
+		condition += "AND relname=" + PostgresUtils::WriteLiteral(table);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -243,7 +246,7 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 					if (i > 0) {
 						base += ", ";
 					}
-					base += KeywordHelper::WriteQuoted(pk.columns[i], '"');
+					base += PostgresUtils::WriteIdentifier(pk.columns[i]);
 				}
 				extra_constraints.push_back(base + ")");
 			}
@@ -262,7 +265,7 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 		if (column.Oid() > 0) {
 			ss << ", ";
 		}
-		ss << KeywordHelper::WriteQuoted(column.Name(), '"') << " ";
+		ss << PostgresUtils::WriteIdentifier(column.Name()) << " ";
 		ss << PostgresUtils::TypeToString(column.Type());
 		bool not_null = not_null_columns.find(column.Logical()) != not_null_columns.end();
 		bool is_single_key_pk = pk_columns.find(column.Logical()) != pk_columns.end();
@@ -308,10 +311,10 @@ string GetPostgresCreateTable(CreateTableInfo &info) {
 		ss << "IF NOT EXISTS ";
 	}
 	if (!info.schema.empty()) {
-		ss << KeywordHelper::WriteQuoted(info.schema, '"');
+		ss << PostgresUtils::WriteIdentifier(info.schema);
 		ss << ".";
 	}
-	ss << KeywordHelper::WriteQuoted(info.table, '"');
+	ss << PostgresUtils::WriteIdentifier(info.table);
 	ss << PostgresColumnsToSQL(info.columns, info.constraints);
 	ss << ";";
 	return ss.str();
@@ -326,8 +329,8 @@ optional_ptr<CatalogEntry> PostgresTableSet::CreateTable(PostgresTransaction &tr
 
 string PostgresTableSet::GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
-	sql += KeywordHelper::WriteQuoted(schema.name, '"') + ".";
-	sql += KeywordHelper::WriteQuoted(entry ? entry->name : name, '"');
+	sql += PostgresUtils::WriteIdentifier(schema.name) + ".";
+	sql += PostgresUtils::WriteIdentifier(entry ? entry->name : name);
 	return sql;
 }
 
@@ -353,7 +356,7 @@ string PostgresTableSet::GetAlterTablePrefix(ClientContext &context, PostgresTra
 void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameTableInfo &info) {
 	string sql = GetAlterTablePrefix(context, transaction, info.name);
 	sql += " RENAME TO ";
-	sql += KeywordHelper::WriteQuoted(info.new_table_name, '"');
+	sql += PostgresUtils::WriteIdentifier(info.new_table_name);
 	transaction.Query(sql);
 }
 
@@ -362,9 +365,9 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 	string sql = GetAlterTablePrefix(info.name, entry);
 	sql += " RENAME COLUMN  ";
 	string column_name = GetAlterTableColumnName(info.old_name, entry);
-	sql += KeywordHelper::WriteQuoted(column_name, '"');
+	sql += PostgresUtils::WriteIdentifier(column_name);
 	sql += " TO ";
-	sql += KeywordHelper::WriteQuoted(info.new_name, '"');
+	sql += PostgresUtils::WriteIdentifier(info.new_name);
 
 	transaction.Query(sql);
 }
@@ -375,7 +378,7 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 	if (info.if_column_not_exists) {
 		sql += "IF NOT EXISTS ";
 	}
-	sql += KeywordHelper::WriteQuoted(info.new_column.Name(), '"');
+	sql += PostgresUtils::WriteIdentifier(info.new_column.Name());
 	sql += " ";
 	sql += info.new_column.Type().ToString();
 
@@ -402,7 +405,7 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 		sql += "IF EXISTS ";
 	}
 	string column_name = GetAlterTableColumnName(info.removed_column, entry);
-	sql += KeywordHelper::WriteQuoted(column_name, '"');
+	sql += PostgresUtils::WriteIdentifier(column_name);
 	transaction.Query(sql);
 }
 

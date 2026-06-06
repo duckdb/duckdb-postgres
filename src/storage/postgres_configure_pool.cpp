@@ -205,23 +205,23 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 	idx_t row_idx = 0;
 	for (auto &pool : pools) {
 		idx_t col_idx = 0;
-		output.SetValue(col_idx++, row_idx, Value(cat_names.at(row_idx)));
-		output.SetValue(col_idx++, row_idx,
-		                Value(dbconnector::pool::AcquireModeHelpers::ToString(pool->GetAcquireMode())));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetAvailableConnections()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxConnections()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetWaitTimeoutMillis()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetCacheHits()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetCacheMisses()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetTryFailures()));
-		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(pool->IsThreadLocalCacheEnabled()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetThreadLocalCacheHits()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetThreadLocalCacheMisses()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetMaxLifetimeMillis()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetIdleTimeoutMillis()));
-		output.SetValue(col_idx++, row_idx, Value::BOOLEAN(pool->IsReaperRunning()));
-		output.SetValue(col_idx++, row_idx, Value::UBIGINT(pool->GetReaperPeriodMillis()));
-		output.SetValue(col_idx++, row_idx, Value(pool->GetHealthCheckQuery()));
+		output.data[col_idx++].SetValue(row_idx, Value(cat_names.at(row_idx)));
+		output.data[col_idx++].SetValue(row_idx,
+		                                Value(dbconnector::pool::AcquireModeHelpers::ToString(pool->GetAcquireMode())));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetAvailableConnections()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetMaxConnections()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetWaitTimeoutMillis()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetCacheHits()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetCacheMisses()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetTryFailures()));
+		output.data[col_idx++].SetValue(row_idx, Value::BOOLEAN(pool->IsThreadLocalCacheEnabled()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetThreadLocalCacheHits()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetThreadLocalCacheMisses()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetMaxLifetimeMillis()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetIdleTimeoutMillis()));
+		output.data[col_idx++].SetValue(row_idx, Value::BOOLEAN(pool->IsReaperRunning()));
+		output.data[col_idx++].SetValue(row_idx, Value::UBIGINT(pool->GetReaperPeriodMillis()));
+		output.data[col_idx++].SetValue(row_idx, Value(pool->GetHealthCheckQuery()));
 		row_idx++;
 	}
 
