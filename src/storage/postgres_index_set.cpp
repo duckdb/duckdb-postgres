@@ -1,10 +1,13 @@
 #include "storage/postgres_index_set.hpp"
-#include "storage/postgres_schema_entry.hpp"
-#include "storage/postgres_transaction.hpp"
+
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
-#include "storage/postgres_index_entry.hpp"
 #include "duckdb/parser/parsed_expression_iterator.hpp"
+
+#include "postgres_utils.hpp"
+#include "storage/postgres_index_entry.hpp"
+#include "storage/postgres_schema_entry.hpp"
+#include "storage/postgres_transaction.hpp"
 
 namespace duckdb {
 
@@ -22,7 +25,7 @@ ORDER BY pg_namespace.oid;
 )";
 	string condition;
 	if (!schema.empty()) {
-		condition += "WHERE pg_namespace.nspname=" + KeywordHelper::WriteQuoted(schema);
+		condition += "WHERE pg_namespace.nspname=" + PostgresUtils::WriteLiteral(schema);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }

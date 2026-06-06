@@ -6,6 +6,7 @@
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+
 #include "postgres_oauth.hpp"
 #include "postgres_filter_pushdown.hpp"
 #include "postgres_scanner.hpp"
@@ -243,7 +244,7 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 				col_names += "ctid";
 			}
 		} else {
-			col_names += KeywordHelper::WriteQuoted(bind_data->names[column_id], '"');
+			col_names += PostgresUtils::WriteIdentifier(bind_data->names[column_id]);
 			if (bind_data->postgres_types[column_id].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
 				col_names += "::VARCHAR";
 			} else if (bind_data->types[column_id].id() == LogicalTypeId::LIST) {
@@ -290,8 +291,8 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 
 	} else {
 		query = StringUtil::Format(R"(SELECT %s FROM %s.%s %s%s)", col_names,
-		                           KeywordHelper::WriteQuoted(bind_data->schema_name, '"'),
-		                           KeywordHelper::WriteQuoted(bind_data->table_name, '"'), filter, bind_data->limit);
+		                           PostgresUtils::WriteIdentifier(bind_data->schema_name),
+		                           PostgresUtils::WriteIdentifier(bind_data->table_name), filter, bind_data->limit);
 	}
 	if (!bind_data->use_text_protocol) {
 		query = StringUtil::Format(R"(COPY (%s) TO STDOUT (FORMAT "binary");)", query);

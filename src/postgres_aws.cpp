@@ -3,9 +3,10 @@
 #include <mutex>
 #include <stdexcept>
 
+#include "duckdb/parser/keyword_helper.hpp"
+
 #include "dbconnector/defer.hpp"
 
-#include "duckdb/parser/keyword_helper.hpp"
 #include "postgres_secrets.hpp"
 #include "postgres_utils.hpp"
 
@@ -29,7 +30,7 @@ static std::string MakeCreateSecretQuery(const std::string &template_secret_name
 	for (auto &en : kv_secret.secret_map) {
 		query += "  " + en.first + " " + en.second.ToSQLString() + ",\n";
 	}
-	query += "  RDS_TEMPLATE_SECRET_NAME " + KeywordHelper::WriteQuoted(template_secret_name, '\'') + "\n";
+	query += "  RDS_TEMPLATE_SECRET_NAME " + PostgresUtils::WriteLiteral(template_secret_name) + "\n";
 	query += ")";
 	return query;
 }
@@ -71,7 +72,7 @@ std::string PostgresAws::GenerateRdsAuthToken(AttachedDatabase &attached_db,
 	std::string create_secret_query =
 	    MakeCreateSecretQuery(token_config.rds_secret_name, secret_name, kv_template_secret);
 
-	std::string quoted_secret_name = KeywordHelper::WriteQuoted(secret_name, '"');
+	std::string quoted_secret_name = PostgresUtils::WriteIdentifier(secret_name);
 	RunQuery(conn, create_secret_query, "error creating RDS secret from template: " + token_config.rds_secret_name);
 	auto deferred_drop_secret =
 	    dbconnector::Defer([&conn, quoted_secret_name] { conn.Query("DROP SECRET " + quoted_secret_name); });

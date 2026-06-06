@@ -1,6 +1,7 @@
 #include "duckdb/common/vector/list_vector.hpp"
 #include "duckdb/common/vector/map_vector.hpp"
 #include "duckdb/common/vector/struct_vector.hpp"
+
 #include "postgres_connection.hpp"
 #include "postgres_binary_writer.hpp"
 #include "postgres_text_writer.hpp"
@@ -31,16 +32,16 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
                                      const vector<string> &column_names) {
 	string query = "COPY ";
 	if (!schema_name.empty()) {
-		query += KeywordHelper::WriteQuoted(schema_name, '"') + ".";
+		query += PostgresUtils::WriteIdentifier(schema_name) + ".";
 	}
-	query += KeywordHelper::WriteQuoted(table_name, '"') + " ";
+	query += PostgresUtils::WriteIdentifier(table_name) + " ";
 	if (!column_names.empty()) {
 		query += "(";
 		for (idx_t c = 0; c < column_names.size(); c++) {
 			if (c > 0) {
 				query += ", ";
 			}
-			query += KeywordHelper::WriteQuoted(column_names[c], '"');
+			query += PostgresUtils::WriteIdentifier(column_names[c]);
 		}
 		query += ") ";
 	}
@@ -172,7 +173,7 @@ void CastToPostgresVarchar(ClientContext &context, Vector &input, Vector &result
 
 void CastListToPostgresArray(ClientContext &context, Vector &input, Vector &varchar_vector, idx_t size) {
 	// cast child list
-	auto &child_data = ListVector::GetEntry(input);
+	auto &child_data = ListVector::GetChildMutable(input);
 	auto child_count = ListVector::GetListSize(input);
 	bool skip_quoting = child_data.GetType().id() == LogicalTypeId::LIST; // Do not quote dimensions in multi-D arrays
 	Vector child_varchar(LogicalType::VARCHAR, child_count);

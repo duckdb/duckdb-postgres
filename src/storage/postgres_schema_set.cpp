@@ -1,12 +1,15 @@
 #include "storage/postgres_schema_set.hpp"
+
+#include "duckdb/parser/parsed_data/create_schema_info.hpp"
+#include "duckdb/common/shared_ptr.hpp"
+
+#include "postgres_utils.hpp"
 #include "storage/postgres_index_set.hpp"
 #include "storage/postgres_table_set.hpp"
 #include "storage/postgres_type_set.hpp"
 #include "storage/postgres_transaction.hpp"
-#include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "storage/postgres_table_set.hpp"
 #include "storage/postgres_catalog.hpp"
-#include "duckdb/common/shared_ptr.hpp"
 
 namespace duckdb {
 
@@ -43,7 +46,7 @@ ORDER BY oid;
 )";
 	string condition;
 	if (!schema.empty()) {
-		condition += "WHERE pg_namespace.nspname=" + KeywordHelper::WriteQuoted(schema);
+		condition += "WHERE pg_namespace.nspname=" + PostgresUtils::WriteLiteral(schema);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -85,7 +88,7 @@ optional_ptr<CatalogEntry> PostgresSchemaSet::CreateSchema(PostgresTransaction &
 	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 		create_sql += " IF NOT EXISTS";
 	}
-	create_sql += KeywordHelper::WriteQuoted(info.schema, '"');
+	create_sql += PostgresUtils::WriteIdentifier(info.schema);
 	transaction.Query(create_sql);
 	auto info_copy = info.Copy();
 	info.internal = PostgresSchemaEntry::SchemaIsInternal(info_copy->schema);

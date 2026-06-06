@@ -1,4 +1,5 @@
 #include "storage/postgres_delete.hpp"
+
 #include "storage/postgres_table_entry.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "storage/postgres_catalog.hpp"
@@ -20,7 +21,7 @@ PostgresDelete::PostgresDelete(PhysicalPlan &physical_plan, LogicalOperator &op,
 string GetDeleteSQL(const PostgresTableEntry &table, const string &ctid_list) {
 	string result;
 	result = "DELETE FROM ";
-	result += KeywordHelper::WriteQuoted(table.schema.name, '"') + ".";
+	result += PostgresUtils::WriteIdentifier(table.schema.name) + ".";
 	result += PostgresUtils::QuotePostgresIdentifier(table.name);
 	result += " WHERE ctid IN (" + ctid_list + ")";
 	return result;
@@ -100,7 +101,7 @@ SourceResultType PostgresDelete::GetDataInternal(ExecutionContext &context, Data
                                                  OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<PostgresDeleteGlobalState>();
 	chunk.SetChildCardinality(1);
-	chunk.SetValue(0, 0, Value::BIGINT(insert_gstate.delete_count));
+	chunk.data[0].SetValue(0, Value::BIGINT(insert_gstate.delete_count));
 
 	return SourceResultType::FINISHED;
 }
