@@ -6,10 +6,11 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
-require-env POSTGRES_TEST_TEMPORARY_DISABLED
+statement ok
+ATTACH 'dbname=postgresscanner sslmode=require' AS s1 (TYPE POSTGRES)
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner sslmode=require');
+use s1
 
 query III
 select * from cars;
