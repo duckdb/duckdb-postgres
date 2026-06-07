@@ -69,9 +69,6 @@ DELETE FROM s1.test RETURNING *;
 ----
 not yet supported
 
-# mixing duckdb tables in deletes is not supported
-mode skip
-
 statement ok
 INSERT INTO s1.test VALUES (1), (2), (3), (NULL);
 

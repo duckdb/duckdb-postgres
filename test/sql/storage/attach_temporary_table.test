@@ -2,14 +2,15 @@
 # description: Test attaching and querying a Postgres temporary table
 # group: [storage]
 
-mode skip
-
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
 ATTACH 'postgres:dbname=postgresscanner' AS s
+
+statement ok
+BEGIN TRANSACTION
 
 statement ok
 CREATE TABLE s.pg_temp.my_datasets(val VARCHAR)
@@ -25,3 +26,11 @@ query I
 SELECT * FROM s.pg_temp.my_datasets
 ----
 hello world
+
+statement ok
+ROLLBACK
+
+statement error
+SELECT * FROM s.pg_temp.my_datasets
+----
+does not exist

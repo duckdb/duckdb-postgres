@@ -105,6 +105,7 @@ jobs:
         password: 'postgres'
         database: 'postgres'
         port: '5432'
+        ssl: true
 
     - name: Run tests
       env:
@@ -297,7 +298,7 @@ jobs:
       working-directory: ./duckdb
       run: |
         DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
-        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert-${{ matrix.threadsan }}
+        KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert-${{ matrix.sanitizer.name }}
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
     - name: Restore Cache
