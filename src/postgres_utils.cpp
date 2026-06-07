@@ -1,5 +1,7 @@
 #include "postgres_utils.hpp"
 
+#include "dbconnector/query/query_writer.hpp"
+
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_type_oids.hpp"
@@ -547,18 +549,9 @@ string PostgresUtils::QuotePostgresIdentifier(const string &text) {
 }
 
 string PostgresUtils::EscapeConnectionString(const string &input) {
-	string result = "'";
-	for (auto c : input) {
-		if (c == '\\') {
-			result += "\\\\";
-		} else if (c == '\'') {
-			result += "\\'";
-		} else {
-			result += c;
-		}
-	}
-	result += "'";
-	return result;
+	using namespace dbconnector::query;
+	auto config = QueryWriter::CreateConfig('\'', QuoteEscapeStyle::BACKSLASH);
+	return QueryWriter::WriteQuotedAndEscaped(config, input);
 }
 
 string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
@@ -575,31 +568,16 @@ string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, c
 	return result;
 }
 
-string PostgresUtils::EscapeQuotes(const string &text, char quote) {
-	string result;
-	for (auto c : text) {
-		if (c == quote) {
-			result += quote;
-			result += quote;
-		} else if (c == '\\') {
-			result += "\\\\";
-		} else {
-			result += c;
-		}
-	}
-	return result;
-}
-
-string PostgresUtils::WriteQuoted(const string &text, char quote) {
-	return string(1, quote) + EscapeQuotes(text, quote) + string(1, quote);
-}
-
 string PostgresUtils::WriteLiteral(const string &literal) {
-	return WriteQuoted(literal, '\'');
+	using namespace dbconnector::query;
+	auto config = QueryWriter::CreateConfig('\'', QuoteEscapeStyle::DOUBLE_QUOTE);
+	return QueryWriter::WriteQuotedAndEscaped(config, literal);
 }
 
 string PostgresUtils::WriteIdentifier(const string &identifier) {
-	return WriteQuoted(identifier, '"');
+	using namespace dbconnector::query;
+	auto config = QueryWriter::CreateConfig('"', QuoteEscapeStyle::DOUBLE_QUOTE);
+	return QueryWriter::WriteQuotedAndEscaped(config, identifier);
 }
 
 } // namespace duckdb
