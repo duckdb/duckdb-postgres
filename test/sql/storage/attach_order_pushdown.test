@@ -1,0 +1,165 @@
+# name: test/sql/storage/attach_order_pushdown.test
+# description: Test ORDER BY pushdown over an attached Postgres table
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES);
+
+statement ok
+DROP TABLE IF EXISTS s1.order_test;
+
+statement ok
+CALL postgres_execute('s1', 'CREATE TABLE order_test (id INT NOT NULL PRIMARY KEY, val INT, name TEXT)');
+
+statement ok
+CALL pg_clear_cache();
+
+statement ok
+INSERT INTO s1.order_test VALUES
+    (1, 10, 'alice'),
+    (2, 20, 'bob'),
+    (3, NULL, 'carol'),
+    (4, 30, 'dave'),
+    (5, 15, 'eve'),
+    (6, NULL, 'frank'),
+    (7, 25, 'grace'),
+    (8, 5, 'heidi'),
+    (9, 35, 'ivan'),
+    (10, 20, 'judy');
+
+# ASC with NULLS LAST (DuckDB default) + LIMIT
+query III
+SELECT * FROM s1.order_test ORDER BY val, id LIMIT 5;
+----
+8	5	heidi
+1	10	alice
+5	15	eve
+2	20	bob
+10	20	judy
+
+# DESC + LIMIT
+query III
+SELECT * FROM s1.order_test ORDER BY val DESC LIMIT 3;
+----
+9	35	ivan
+4	30	dave
+7	25	grace
+
+# TopN with OFFSET
+query III
+SELECT * FROM s1.order_test ORDER BY val, id LIMIT 3 OFFSET 2;
+----
+5	15	eve
+2	20	bob
+10	20	judy
+
+# Standalone ORDER BY
+
+query III
+SELECT * FROM s1.order_test ORDER BY val, id;
+----
+8	5	heidi
+1	10	alice
+5	15	eve
+2	20	bob
+10	20	judy
+7	25	grace
+4	30	dave
+9	35	ivan
+3	NULL	carol
+6	NULL	frank
+
+# Composition with WHERE filter
+
+query III
+SELECT * FROM s1.order_test WHERE val > 15 ORDER BY val DESC LIMIT 3;
+----
+9	35	ivan
+4	30	dave
+7	25	grace
+
+# Multi-column ORDER BY with filter
+query III
+SELECT * FROM s1.order_test WHERE val IS NOT NULL ORDER BY val DESC, name ASC LIMIT 4;
+----
+9	35	ivan
+4	30	dave
+7	25	grace
+2	20	bob
+
+# Standalone ORDER BY with filter
+query III
+SELECT * FROM s1.order_test WHERE val IS NOT NULL ORDER BY val, id;
+----
+8	5	heidi
+1	10	alice
+5	15	eve
+2	20	bob
+10	20	judy
+7	25	grace
+4	30	dave
+9	35	ivan
+
+# Projection pushdown: ORDER BY on column not in SELECT
+
+# Sort by column not in output
+query I
+SELECT name FROM s1.order_test ORDER BY val, id;
+----
+heidi
+alice
+eve
+bob
+judy
+grace
+dave
+ivan
+carol
+frank
+
+# Sort by column not in output with LIMIT
+query I
+SELECT name FROM s1.order_test ORDER BY val DESC LIMIT 3;
+----
+ivan
+dave
+grace
+
+# Sort by one column, output different column
+query I
+SELECT id FROM s1.order_test ORDER BY name;
+----
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+# WHERE + ORDER BY on non-output column + LIMIT
+query I
+SELECT name FROM s1.order_test WHERE val IS NOT NULL ORDER BY val LIMIT 5;
+----
+heidi
+alice
+eve
+bob
+judy
+
+# Output multiple columns, sort by non-output column
+query II
+SELECT id, name FROM s1.order_test ORDER BY val, id LIMIT 5;
+----
+8	heidi
+1	alice
+5	eve
+2	bob
+10	judy

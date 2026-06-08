@@ -1,11 +1,16 @@
+#include "storage/postgres_optimizer.hpp"
+
+#include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_limit.hpp"
+
+#include "dbconnector/optimizer/order_by_and_limit_optimizer.hpp"
+#include "dbconnector/optimizer/optimizer_util.hpp"
+
+#include "postgres_scanner.hpp"
 #include "storage/postgres_index_set.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
-#include "storage/postgres_optimizer.hpp"
-#include "duckdb/planner/operator/logical_get.hpp"
-#include "duckdb/planner/operator/logical_limit.hpp"
 #include "storage/postgres_catalog.hpp"
-#include "postgres_scanner.hpp"
 
 namespace duckdb {
 
@@ -13,74 +18,7 @@ struct PostgresOperators {
 	reference_map_t<PostgresCatalog, vector<reference<LogicalGet>>> scans;
 };
 
-static void OptimizePostgresScanLimitPushdown(unique_ptr<LogicalOperator> &op) {
-	if (op->type == LogicalOperatorType::LOGICAL_LIMIT) {
-		auto &limit = op->Cast<LogicalLimit>();
-		reference<LogicalOperator> child = *op->children[0];
-
-		while (child.get().type == LogicalOperatorType::LOGICAL_PROJECTION) {
-			child = *child.get().children[0];
-		}
-
-		if (child.get().type != LogicalOperatorType::LOGICAL_GET) {
-			OptimizePostgresScanLimitPushdown(op->children[0]);
-			return;
-		}
-
-		auto &get = child.get().Cast<LogicalGet>();
-		if (!PostgresCatalog::IsPostgresScan(get.function.name)) {
-			OptimizePostgresScanLimitPushdown(op->children[0]);
-			return;
-		}
-
-		switch (limit.limit_val.Type()) {
-		case LimitNodeType::CONSTANT_VALUE:
-		case LimitNodeType::UNSET:
-			break;
-		default:
-			// not a constant or unset limit
-			OptimizePostgresScanLimitPushdown(op->children[0]);
-			return;
-		}
-		switch (limit.offset_val.Type()) {
-		case LimitNodeType::CONSTANT_VALUE:
-		case LimitNodeType::UNSET:
-			break;
-		default:
-			// not a constant or unset offset
-			OptimizePostgresScanLimitPushdown(op->children[0]);
-			return;
-		}
-
-		auto &bind_data = get.bind_data->Cast<PostgresBindData>();
-
-		string generated_limit_clause = "";
-		if (limit.limit_val.Type() != LimitNodeType::UNSET) {
-			generated_limit_clause += " LIMIT " + to_string(limit.limit_val.GetConstantValue());
-		}
-		if (limit.offset_val.Type() != LimitNodeType::UNSET) {
-			generated_limit_clause += " OFFSET " + to_string(limit.offset_val.GetConstantValue());
-		}
-
-		if (!generated_limit_clause.empty()) {
-			bind_data.limit = generated_limit_clause;
-			// When LIMIT is pushed down to Postgres, we must ensure single-task execution
-			// to avoid each task (whether parallel or sequential) applying the LIMIT independently.
-			// Setting pages_approx = 0 disables CTID-based task splitting, ensuring a single query.
-			bind_data.pages_approx = 0;
-			bind_data.max_threads = 1;
-
-			op = std::move(op->children[0]);
-			return;
-		}
-	}
-
-	for (auto &child : op->children) {
-		OptimizePostgresScanLimitPushdown(child);
-	}
-}
-
-void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) {
+static void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) {
 	if (op.type == LogicalOperatorType::LOGICAL_GET) {
 		auto &get = op.Cast<LogicalGet>();
 		auto &table_scan = get.function;
@@ -102,9 +40,35 @@ void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) {
 	}
 }
 
+static void DisableParallelLimit(LogicalOperator &op) {
+	LogicalGet *get = nullptr;
+	dbconnector::BindData *bind_data = nullptr;
+	if (dbconnector::optimizer::OptimizerUtil::FindExtensionGet("postgres_scan", op, get, bind_data)) {
+		auto &pg_bind_data = bind_data->Cast<PostgresBindData>();
+		if (!pg_bind_data.order_by_and_limit_bind_data.limit_clause.empty()) {
+			// When LIMIT is pushed down to Postgres, we must ensure single-task execution
+			// to avoid each task (whether parallel or sequential) applying the LIMIT independently.
+			// Setting pages_approx = 0 disables CTID-based task splitting, ensuring a single query.
+			pg_bind_data.pages_approx = 0;
+			pg_bind_data.max_threads = 1;
+		}
+	}
+
+	for (auto &child : op.children) {
+		DisableParallelLimit(*child);
+	}
+}
+
 void PostgresOptimizer::Optimize(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
+	using namespace dbconnector;
 	// look at query plan and check if we can find LIMIT/OFFSET to pushdown
-	OptimizePostgresScanLimitPushdown(plan);
+	// OptimizePostgresScanLimitPushdown(plan);
+
+	auto order_config = optimizer::OrderByAndLimitOptimizer::CreateConfig(
+	    input.context, "pg_order_pushdown", '"', query::QuoteEscapeStyle::DOUBLE_QUOTE, "postgres_scan");
+	optimizer::OrderByAndLimitOptimizer::Optimize(order_config, input, plan);
+	DisableParallelLimit(*plan);
+
 	// look at the query plan and check if we can enable streaming query scans
 	PostgresOperators operators;
 	GatherPostgresScans(*plan, operators);
