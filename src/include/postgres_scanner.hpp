@@ -9,6 +9,9 @@
 #pragma once
 
 #include "duckdb.hpp"
+
+#include "dbconnector/bind_data.hpp"
+
 #include "postgres_utils.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_parameters.hpp"
@@ -20,7 +23,7 @@ struct PostgresLocalState;
 struct PostgresGlobalState;
 class PostgresTransaction;
 
-struct PostgresBindData : public FunctionData {
+struct PostgresBindData : public dbconnector::BindData {
 	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
 
 public:
@@ -31,7 +34,6 @@ public:
 	string table_name;
 	string sql;
 	PostgresParameters params;
-	string limit;
 	idx_t pages_approx = 0;
 
 	vector<PostgresType> postgres_types;
@@ -50,6 +52,9 @@ public:
 	bool use_text_protocol = false;
 	idx_t max_threads = 1;
 
+	dbconnector::optimizer::OrderByAndLimitBindData order_by_and_limit_bind_data;
+	dbconnector::optimizer::AggregateBindData aggregate_bind_data;
+
 public:
 	void SetTablePages(idx_t approx_num_pages);
 
@@ -67,6 +72,14 @@ public:
 	}
 	bool Equals(const FunctionData &other_p) const override {
 		return false;
+	}
+
+	dbconnector::optimizer::OrderByAndLimitBindData &GetOrderByAndLimitBindData() override {
+		return order_by_and_limit_bind_data;
+	}
+
+	dbconnector::optimizer::AggregateBindData &GetAggregateBindData() override {
+		return aggregate_bind_data;
 	}
 
 private:

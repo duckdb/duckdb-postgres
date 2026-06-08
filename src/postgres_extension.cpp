@@ -195,6 +195,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    LogicalType::BOOLEAN, Value::BOOLEAN(true), DisablePool);
 	config.AddExtensionOption("pg_experimental_filter_pushdown", "Whether or not to use filter pushdown",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
+	config.AddExtensionOption("pg_order_pushdown", "Push ORDER BY and LIMIT clauses to Postgres (default: true)",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 	config.AddExtensionOption("pg_null_byte_replacement",
 	                          "When writing NULL bytes to Postgres, replace them with the given character",
 	                          LogicalType::VARCHAR, Value(), SetPostgresNullByteReplacement);

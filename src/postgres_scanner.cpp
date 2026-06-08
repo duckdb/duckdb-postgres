@@ -286,13 +286,20 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 	string query;
 	if (bind_data->table_name.empty()) {
 		D_ASSERT(!bind_data->sql.empty());
-		query = StringUtil::Format(R"(SELECT %s FROM (%s) AS __unnamed_subquery %s%s)", col_names, bind_data->sql,
-		                           filter, bind_data->limit);
+		query =
+		    StringUtil::Format(R"(SELECT %s FROM (%s) AS __unnamed_subquery %s)", col_names, bind_data->sql, filter);
 
 	} else {
-		query = StringUtil::Format(R"(SELECT %s FROM %s.%s %s%s)", col_names,
+		query = StringUtil::Format(R"(SELECT %s FROM %s.%s %s)", col_names,
 		                           PostgresUtils::WriteIdentifier(bind_data->schema_name),
-		                           PostgresUtils::WriteIdentifier(bind_data->table_name), filter, bind_data->limit);
+		                           PostgresUtils::WriteIdentifier(bind_data->table_name), filter);
+	}
+	if (!bind_data->order_by_and_limit_bind_data.order_by_clause.empty()) {
+		query += bind_data->order_by_and_limit_bind_data.order_by_clause;
+		query += " NULLS LAST";
+	}
+	if (!bind_data->order_by_and_limit_bind_data.limit_clause.empty()) {
+		query += bind_data->order_by_and_limit_bind_data.limit_clause;
 	}
 	if (!bind_data->use_text_protocol) {
 		query = StringUtil::Format(R"(COPY (%s) TO STDOUT (FORMAT "binary");)", query);
