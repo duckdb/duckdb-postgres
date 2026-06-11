@@ -25,7 +25,7 @@ struct ConfigurePoolBindData : public TableFunctionData {
 	std::pair<std::string, bool> health_check_query;
 
 	static Value Lookup(const named_parameter_map_t &map, const std::string &key) {
-		auto it = map.find(key);
+		auto it = map.find(Identifier(key));
 		if (it == map.end()) {
 			return Value();
 		}
@@ -156,10 +156,10 @@ static void ConfigurePoolFunction(ClientContext &context, TableFunctionInput &in
 		if (catalog.GetCatalogType() != "postgres") {
 			continue;
 		}
-		if (!bdata.catalog_name.second && catalog.GetName() != bdata.catalog_name.first) {
+		if (!bdata.catalog_name.second && catalog.GetName() != Identifier(bdata.catalog_name.first)) {
 			continue;
 		}
-		cat_names.push_back(catalog.GetName());
+		cat_names.push_back(catalog.GetName().GetIdentifierName());
 		shared_ptr<PostgresConnectionPool> pool = catalog.Cast<PostgresCatalog>().GetConnectionPoolPtr();
 		pools.emplace_back(std::move(pool));
 	}

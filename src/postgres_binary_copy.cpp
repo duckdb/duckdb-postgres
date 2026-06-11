@@ -56,7 +56,7 @@ struct PostgresBinaryWriteBindData : public TableFunctionData {};
 
 unique_ptr<FunctionData> PostgresBinaryCopyFunction::PostgresBinaryWriteBind(ClientContext &context,
                                                                              CopyFunctionBindInput &input,
-                                                                             const vector<string> &names,
+                                                                             const vector<Identifier> &names,
                                                                              const vector<LogicalType> &sql_types) {
 	return make_uniq<PostgresBinaryWriteBindData>();
 }
@@ -172,7 +172,7 @@ static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, T
 		auto col_type_str = column_map[i].GetValue<string>();
 		auto col_type = TransformStringToLogicalType(col_type_str, context);
 
-		names.push_back(col_name);
+		names.push_back(col_name.GetIdentifierName());
 		return_types.push_back(col_type);
 		result->postgres_types.push_back(PostgresUtils::CreateEmptyPostgresType(col_type));
 	}

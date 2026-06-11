@@ -75,7 +75,7 @@ void PostgresSchemaSet::LoadEntries(ClientContext &context, PostgresTransaction 
 		auto oid = result->GetInt64(row, 0);
 		auto schema_name = result->GetString(row, 1);
 		CreateSchemaInfo info;
-		info.schema = schema_name;
+		info.schema = Identifier(schema_name);
 		info.internal = PostgresSchemaEntry::SchemaIsInternal(schema_name);
 		auto schema = make_shared_ptr<PostgresSchemaEntry>(catalog, info, std::move(tables[row]), std::move(enums[row]),
 		                                                   std::move(composite_types[row]), std::move(indexes[row]));
@@ -88,10 +88,10 @@ optional_ptr<CatalogEntry> PostgresSchemaSet::CreateSchema(PostgresTransaction &
 	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 		create_sql += " IF NOT EXISTS";
 	}
-	create_sql += PostgresUtils::WriteIdentifier(info.schema);
+	create_sql += PostgresUtils::WriteIdentifier(info.schema.GetIdentifierName());
 	transaction.Query(create_sql);
 	auto info_copy = info.Copy();
-	info.internal = PostgresSchemaEntry::SchemaIsInternal(info_copy->schema);
+	info.internal = PostgresSchemaEntry::SchemaIsInternal(info_copy->schema.GetIdentifierName());
 	auto schema_entry = make_shared_ptr<PostgresSchemaEntry>(catalog, info_copy->Cast<CreateSchemaInfo>());
 	return CreateEntry(transaction, std::move(schema_entry));
 }

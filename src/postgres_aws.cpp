@@ -90,7 +90,7 @@ std::string PostgresAws::GenerateRdsAuthToken(AttachedDatabase &attached_db,
 }
 
 static std::string ExtractString(const KeyValueSecret &kv, const std::string name) {
-	Value val = kv.TryGetValue(name);
+	Value val = kv.TryGetValue(Identifier(name));
 	if (val.IsNull()) {
 		return std::string();
 	}

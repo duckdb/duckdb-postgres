@@ -118,7 +118,7 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 		if (!uri_val.IsNull()) {
 			// no other options can be specified along with the URI
 			for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
-				if (!kv_secret.TryGetValue(opt_name).IsNull()) {
+				if (!kv_secret.TryGetValue(Identifier(opt_name)).IsNull()) {
 					throw BinderException("Options with name \"%s\" cannot be specified when 'URI' option is specified",
 					                      opt_name);
 				}
@@ -175,7 +175,7 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto &postgres_transaction = PostgresTransaction::Get(transaction.GetContext(), *this);
-	auto entry = schemas.GetEntry(transaction.GetContext(), postgres_transaction, info.schema);
+	auto entry = schemas.GetEntry(transaction.GetContext(), postgres_transaction, info.schema.GetIdentifierName());
 	if (entry) {
 		switch (info.on_conflict) {
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
@@ -259,7 +259,7 @@ void PostgresCatalog::RegisterSecretStorage() {
 	auto connection = connection_pool->GetConnection();
 	bool secret_storage_table_exists = secret_storage_table.Exists(connection.GetConnection());
 
-	string attached_database_name = GetAttached().GetName();
+	string attached_database_name = GetAttached().GetName().GetIdentifierName();
 
 	if (!secret_storage_table_exists) {
 		if (!secret_storage_table.specified_explicitly) {

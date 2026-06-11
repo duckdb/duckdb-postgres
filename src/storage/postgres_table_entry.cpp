@@ -16,7 +16,7 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 			col.TypeMutable() = PostgresUtils::RemoveAlias(col.GetType());
 		}
 		postgres_types.push_back(PostgresUtils::CreateEmptyPostgresType(col.GetType()));
-		postgres_names.push_back(col.GetName());
+		postgres_names.push_back(col.GetName().GetIdentifierName());
 	}
 	approx_num_pages.store(0, std::memory_order_release);
 }
@@ -42,8 +42,8 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 
 	auto result = make_uniq<PostgresBindData>(context);
 
-	result->schema_name = schema.name;
-	result->table_name = name;
+	result->schema_name = schema.name.GetIdentifierName();
+	result->table_name = name.GetIdentifierName();
 	result->dsn = transaction.GetDSN();
 	result->attach_path = pg_catalog.attach_path;
 	result->SetCatalog(pg_catalog);
