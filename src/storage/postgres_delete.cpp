@@ -21,8 +21,8 @@ PostgresDelete::PostgresDelete(PhysicalPlan &physical_plan, LogicalOperator &op,
 string GetDeleteSQL(const PostgresTableEntry &table, const string &ctid_list) {
 	string result;
 	result = "DELETE FROM ";
-	result += PostgresUtils::WriteIdentifier(table.schema.name) + ".";
-	result += PostgresUtils::QuotePostgresIdentifier(table.name);
+	result += PostgresUtils::WriteIdentifier(table.schema.name.GetIdentifierName()) + ".";
+	result += PostgresUtils::QuotePostgresIdentifier(table.name.GetIdentifierName());
 	result += " WHERE ctid IN (" + ctid_list + ")";
 	return result;
 }
@@ -115,7 +115,7 @@ string PostgresDelete::GetName() const {
 
 InsertionOrderPreservingMap<string> PostgresDelete::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table.name;
+	result["Table Name"] = table.name.GetIdentifierName();
 	return result;
 }
 

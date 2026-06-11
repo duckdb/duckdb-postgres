@@ -42,7 +42,7 @@ PostgresTransaction &GetPostgresTransaction(CatalogTransaction transaction) {
 void PostgresSchemaEntry::TryDropEntry(ClientContext &context, CatalogType catalog_type, const string &name) {
 	DropInfo info;
 	info.type = catalog_type;
-	info.name = name;
+	info.name = Identifier(name);
 	info.cascade = false;
 	info.if_not_found = OnEntryNotFound::RETURN_NULL;
 	DropEntry(context, info);
@@ -52,7 +52,7 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateTable(CatalogTransaction t
                                                             BoundCreateTableInfo &info) {
 	auto &postgres_transaction = GetPostgresTransaction(transaction);
 	auto &base_info = info.Base();
-	auto table_name = base_info.table;
+	string table_name = base_info.table.GetIdentifierName();
 	if (base_info.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
 		// CREATE OR REPLACE - drop any existing entries first (if any)
 		TryDropEntry(transaction.GetContext(), CatalogType::TABLE_ENTRY, table_name);
@@ -74,8 +74,8 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateIndex(CatalogTransaction t
 string PGGetCreateViewSQL(PostgresSchemaEntry &schema, CreateViewInfo &info) {
 	string sql;
 	sql = "CREATE VIEW ";
-	sql += PostgresUtils::QuotePostgresIdentifier(schema.name) + ".";
-	sql += PostgresUtils::QuotePostgresIdentifier(info.view_name);
+	sql += PostgresUtils::QuotePostgresIdentifier(schema.name.GetIdentifierName()) + ".";
+	sql += PostgresUtils::QuotePostgresIdentifier(info.view_name.GetIdentifierName());
 	sql += " ";
 	if (!info.aliases.empty()) {
 		sql += "(";
@@ -84,7 +84,7 @@ string PGGetCreateViewSQL(PostgresSchemaEntry &schema, CreateViewInfo &info) {
 				sql += ", ";
 			}
 			auto &alias = info.aliases[i];
-			sql += PostgresUtils::QuotePostgresIdentifier(alias);
+			sql += PostgresUtils::QuotePostgresIdentifier(alias.GetIdentifierName());
 		}
 		sql += ") ";
 	}
@@ -105,12 +105,12 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateView(CatalogTransaction tr
 				return current_entry;
 			}
 			// CREATE OR REPLACE - drop any existing entries first (if any)
-			TryDropEntry(transaction.GetContext(), CatalogType::VIEW_ENTRY, info.view_name);
+			TryDropEntry(transaction.GetContext(), CatalogType::VIEW_ENTRY, info.view_name.GetIdentifierName());
 		}
 	}
 	auto &postgres_transaction = GetPostgresTransaction(transaction);
 	postgres_transaction.Query(PGGetCreateViewSQL(*this, info));
-	return tables.ReloadEntry(postgres_transaction, info.view_name);
+	return tables.ReloadEntry(postgres_transaction, info.view_name.GetIdentifierName());
 }
 
 optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateType(CatalogTransaction transaction, CreateTypeInfo &info) {
@@ -118,7 +118,7 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::CreateType(CatalogTransaction tr
 	auto type_name = info.name;
 	if (info.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
 		// CREATE OR REPLACE - drop any existing entries first (if any)
-		TryDropEntry(transaction.GetContext(), CatalogType::TYPE_ENTRY, info.name);
+		TryDropEntry(transaction.GetContext(), CatalogType::TYPE_ENTRY, info.name.GetIdentifierName());
 	}
 	return types.CreateType(postgres_transaction, info);
 }

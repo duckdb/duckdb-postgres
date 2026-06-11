@@ -22,7 +22,7 @@ static void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) 
 	if (op.type == LogicalOperatorType::LOGICAL_GET) {
 		auto &get = op.Cast<LogicalGet>();
 		auto &table_scan = get.function;
-		if (!PostgresCatalog::IsPostgresScan(table_scan.name)) {
+		if (!PostgresCatalog::IsPostgresScan(table_scan.name.GetIdentifierName())) {
 			// not a postgres scan - skip
 			return;
 		}
