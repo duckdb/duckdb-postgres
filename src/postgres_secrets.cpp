@@ -112,7 +112,7 @@ unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, C
 		    std::find(other_option_names.begin(), other_option_names.end(), name) == other_option_names.end()) {
 			throw InternalException("Unknown named parameter for a Postgres secret: '" + named_param.first + "'");
 		}
-		result->secret_map[name] = named_param.second.ToString();
+		result->secret_map[Identifier(name)] = named_param.second.ToString();
 	}
 	result->redact_keys = {"password", "sslpassword", "oauth_client_secret", "uri"};
 	return std::move(result);
@@ -120,10 +120,10 @@ unique_ptr<BaseSecret> PostgresSecrets::CreateFunction(ClientContext &context, C
 
 void PostgresSecrets::SetSecretParameters(CreateSecretFunction &function) {
 	for (const std::string &name : connection_option_names) {
-		function.named_parameters[name] = LogicalType::VARCHAR;
+		function.named_parameters[Identifier(name)] = LogicalType::VARCHAR;
 	}
 	for (auto &en : connection_option_aliases) {
-		function.named_parameters[en.first] = LogicalType::VARCHAR;
+		function.named_parameters[Identifier(en.first)] = LogicalType::VARCHAR;
 	}
 	// other options
 	function.named_parameters["uri"] = LogicalType::VARCHAR;

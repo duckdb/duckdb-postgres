@@ -121,7 +121,7 @@ PostgresSecretStorage::~PostgresSecretStorage() {
 
 optional_ptr<PostgresCatalog> PostgresSecretStorage::GetPostgresCatalog(ClientContext &context) {
 	auto &db_manager = DatabaseManager::Get(context);
-	auto attached_db = db_manager.GetDatabase(context, attached_database_name);
+	auto attached_db = db_manager.GetDatabase(context, Identifier(attached_database_name));
 	if (!attached_db) {
 		return nullptr;
 	}
@@ -178,8 +178,8 @@ unique_ptr<const BaseSecret> PostgresSecretStorage::DeserializeSecret(PostgresCa
 unique_ptr<SecretEntry> PostgresSecretStorage::StoreSecret(unique_ptr<const BaseSecret> secret,
                                                            OnCreateConflict on_conflict,
                                                            optional_ptr<CatalogTransaction> transaction) {
-	auto secret_name = secret->GetName();
-	auto secret_type = secret->GetType();
+	string secret_name = secret->GetName().GetIdentifierName();
+	string secret_type = secret->GetType().GetIdentifierName();
 
 	// Check if secret already exists
 	auto existing = GetSecretByName(secret_name, transaction);
@@ -274,7 +274,7 @@ vector<SecretEntry> PostgresSecretStorage::AllSecrets(optional_ptr<CatalogTransa
 	return result;
 }
 
-void PostgresSecretStorage::DropSecretByName(const string &name, OnEntryNotFound on_entry_not_found,
+void PostgresSecretStorage::DropSecretByName(const Identifier &name, OnEntryNotFound on_entry_not_found,
                                              optional_ptr<CatalogTransaction> transaction) {
 	auto &context = transaction->GetContext();
 	auto postgres_catalog_ptr = GetPostgresCatalog(context);
@@ -287,16 +287,16 @@ void PostgresSecretStorage::DropSecretByName(const string &name, OnEntryNotFound
 	auto &postgres_catalog = *postgres_catalog_ptr;
 
 	// Check if secret exists
-	auto existing = GetSecretByName(name, transaction);
+	auto existing = GetSecretByName(name.GetIdentifierName(), transaction);
 	if (!existing && on_entry_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-		throw InvalidInputException("Failed to remove non-existent persistent secret '%s' in secret storage '%s'", name,
-		                            storage_name);
+		throw InvalidInputException("Failed to remove non-existent persistent secret '%s' in secret storage '%s'",
+		                            name.GetIdentifierName(), storage_name);
 	}
 
 	auto &postgres_transaction = PostgresTransaction::Get(context, postgres_catalog);
 
 	// Delete the secret
-	string escaped_name = EscapeSQLString(name);
+	string escaped_name = EscapeSQLString(name.GetIdentifierName());
 	string query = StringUtil::Format("DELETE FROM %s WHERE secret_name = '%s'", secrets_table_name, escaped_name);
 	postgres_transaction.Query(query);
 }

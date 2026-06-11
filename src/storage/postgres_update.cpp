@@ -61,8 +61,8 @@ string CreateUpdateTable(const string &name, PostgresTableEntry &table, const ve
 string GetUpdateSQL(const string &name, PostgresTableEntry &table, const vector<PhysicalIndex> &index) {
 	string result;
 	result = "UPDATE ";
-	result += PostgresUtils::WriteIdentifier(table.schema.name) + ".";
-	result += PostgresUtils::WriteIdentifier(table.name);
+	result += PostgresUtils::WriteIdentifier(table.schema.name.GetIdentifierName()) + ".";
+	result += PostgresUtils::WriteIdentifier(table.name.GetIdentifierName());
 	result += " SET ";
 	for (idx_t i = 0; i < index.size(); i++) {
 		if (i > 0) {
@@ -77,7 +77,7 @@ string GetUpdateSQL(const string &name, PostgresTableEntry &table, const vector<
 	}
 	result += " FROM " + PostgresUtils::QuotePostgresIdentifier(name);
 	result += " WHERE ";
-	result += PostgresUtils::WriteIdentifier(table.name);
+	result += PostgresUtils::WriteIdentifier(table.name.GetIdentifierName());
 	result += ".ctid=__page_id_string::TID";
 	return result;
 }
@@ -196,7 +196,7 @@ string PostgresUpdate::GetName() const {
 
 InsertionOrderPreservingMap<string> PostgresUpdate::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table.name;
+	result["Table Name"] = table.name.GetIdentifierName();
 	return result;
 }
 

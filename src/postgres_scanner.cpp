@@ -200,7 +200,7 @@ static unique_ptr<FunctionData> PostgresBind(ClientContext &context, TableFuncti
 
 	bind_data->postgres_types = info->postgres_types;
 	for (auto &col : info->create_info->columns.Logical()) {
-		names.push_back(col.GetName());
+		names.push_back(col.GetName().GetIdentifierName());
 		return_types.push_back(col.GetType());
 	}
 	bind_data->names = info->postgres_names;

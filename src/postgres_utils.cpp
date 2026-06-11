@@ -249,11 +249,12 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 			throw InternalException("Context is destroyed!?");
 		}
 		optional_ptr<SchemaCatalogEntry> lookup_schema =
-		    type_info.type_schema != schema->name
-		        ? schema->ParentCatalog().GetSchema(*context, type_info.type_schema, OnEntryNotFound::THROW_EXCEPTION)
+		    Identifier(type_info.type_schema) != schema->name
+		        ? schema->ParentCatalog().GetSchema(*context, Identifier(type_info.type_schema),
+		                                            OnEntryNotFound::THROW_EXCEPTION)
 		        : schema.get();
 		auto entry = lookup_schema->GetEntry(CatalogTransaction(lookup_schema->ParentCatalog(), *context),
-		                                     CatalogType::TYPE_ENTRY, pgtypename);
+		                                     CatalogType::TYPE_ENTRY, Identifier(pgtypename));
 		if (!entry) {
 			// unsupported so fallback to varchar
 			postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
@@ -555,7 +556,7 @@ string PostgresUtils::EscapeConnectionString(const string &input) {
 }
 
 string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
-	Value input_val = kv_secret.TryGetValue(name);
+	Value input_val = kv_secret.TryGetValue(Identifier(name));
 	if (input_val.IsNull()) {
 		// not provided
 		return string();

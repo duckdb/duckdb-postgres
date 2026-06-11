@@ -19,7 +19,7 @@ public:
 	PostgresBinaryCopyFunction();
 
 	static unique_ptr<FunctionData> PostgresBinaryWriteBind(ClientContext &context, CopyFunctionBindInput &input,
-	                                                        const vector<string> &names,
+	                                                        const vector<Identifier> &names,
 	                                                        const vector<LogicalType> &sql_types);
 
 	static unique_ptr<GlobalFunctionData>

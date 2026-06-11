@@ -72,7 +72,7 @@ vector<string> GetInsertColumns(const PostgresInsert &insert, PostgresTableEntry
 		}
 		for (idx_t c = 0; c < column_count; c++) {
 			auto &col = columns.GetColumn(column_indexes[c]);
-			column_names.push_back(col.GetName());
+			column_names.push_back(col.GetName().GetIdentifierName());
 		}
 	}
 	return column_names;
@@ -95,7 +95,8 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkState(ClientContext &co
 	auto &insert_column_names = result->insert_column_names;
 	if (!insert_columns.empty()) {
 		for (auto &str : insert_columns) {
-			auto index = insert_table->GetColumnIndex(str, true);
+			Identifier col_identifier(str);
+			auto index = insert_table->GetColumnIndex(col_identifier, true);
 			if (!index.IsValid()) {
 				insert_column_names.push_back(str);
 			} else {
@@ -115,8 +116,9 @@ SinkResultType PostgresInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 	auto &connection = transaction.GetConnection();
 	if (!gstate.copy_is_active) {
 		// copy hasn't started yet
-		connection.BeginCopyTo(context.client, gstate.copy_state, gstate.format, gstate.table.schema.name,
-		                       gstate.table.name, gstate.insert_column_names);
+		connection.BeginCopyTo(context.client, gstate.copy_state, gstate.format,
+		                       gstate.table.schema.name.GetIdentifierName(), gstate.table.name.GetIdentifierName(),
+		                       gstate.insert_column_names);
 		gstate.copy_is_active = true;
 	}
 	connection.CopyChunk(context.client, gstate.copy_state, chunk, gstate.varchar_chunk);
@@ -166,7 +168,7 @@ string PostgresInsert::GetName() const {
 
 InsertionOrderPreservingMap<string> PostgresInsert::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table ? table->name : info->Base().table;
+	result["Table Name"] = table ? table->name.GetIdentifierName() : info->Base().table.GetIdentifierName();
 	return result;
 }
 
@@ -219,7 +221,7 @@ bool PostgresCatalog::IsPostgresScan(const string &name) {
 void PostgresCatalog::MaterializePostgresScans(PhysicalOperator &op) {
 	if (op.type == PhysicalOperatorType::TABLE_SCAN) {
 		auto &table_scan = op.Cast<PhysicalTableScan>();
-		if (PostgresCatalog::IsPostgresScan(table_scan.function.name)) {
+		if (PostgresCatalog::IsPostgresScan(table_scan.function.name.GetIdentifierName())) {
 			auto &bind_data = table_scan.bind_data->Cast<PostgresBindData>();
 			bind_data.requires_materialization = true;
 			bind_data.max_threads = 1;

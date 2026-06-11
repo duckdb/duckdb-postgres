@@ -81,7 +81,7 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	auto column_type = PostgresUtils::TypeToLogicalType(transaction, schema, type_info, postgres_type);
 	table_info.postgres_types.push_back(std::move(postgres_type));
 	table_info.postgres_names.push_back(column_name);
-	ColumnDefinition column(std::move(column_name), std::move(column_type));
+	ColumnDefinition column(Identifier(std::move(column_name)), std::move(column_type));
 	if (!column_comment.empty()) {
 		column.SetComment(Value(column_comment));
 	}
@@ -112,7 +112,7 @@ void PostgresTableSet::AddConstraint(PostgresResult &result, idx_t row, Postgres
 
 	auto &create_info = *table_info.create_info;
 	auto splits = StringUtil::Split(constraint_key.substr(1, constraint_key.size() - 2), ",");
-	vector<string> columns;
+	vector<Identifier> columns;
 	for (auto &split : splits) {
 		auto index = std::stoull(split);
 		if (index <= 0 || index > create_info.columns.LogicalColumnCount()) {
@@ -168,7 +168,7 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 		CreateEntries(transaction, table_result->GetResult(), table_result->start, table_result->end);
 		table_result.reset();
 	} else {
-		auto query = GetInitializeQuery(schema.name);
+		auto query = GetInitializeQuery(schema.name.GetIdentifierName());
 
 		auto result = transaction.Query(query);
 		auto rows = result->Count();
@@ -179,7 +179,7 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 
 unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction &transaction,
                                                              PostgresSchemaEntry &schema, const string &table_name) {
-	auto query = PostgresTableSet::GetInitializeQuery(schema.name, table_name);
+	auto query = PostgresTableSet::GetInitializeQuery(schema.name.GetIdentifierName(), table_name);
 	auto result = transaction.Query(query);
 	auto rows = result->Count();
 	if (rows == 0) {
@@ -245,7 +245,7 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 			not_null_columns.insert(not_null.index);
 		} else if (constraint->type == ConstraintType::UNIQUE) {
 			auto &pk = constraint->Cast<UniqueConstraint>();
-			vector<string> constraint_columns = pk.columns;
+			vector<Identifier> constraint_columns = pk.columns;
 			if (pk.index.index != DConstants::INVALID_INDEX) {
 				// no columns specified: single column constraint
 				if (pk.is_primary_key) {
@@ -259,7 +259,7 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 				if (pk.is_primary_key) {
 					// multi key pk column: insert set of columns into multi_key_pks
 					for (auto &col : pk.columns) {
-						multi_key_pks.insert(col);
+						multi_key_pks.insert(col.GetIdentifierName());
 					}
 				}
 				string base = pk.is_primary_key ? "PRIMARY KEY(" : "UNIQUE(";
@@ -267,7 +267,7 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 					if (i > 0) {
 						base += ", ";
 					}
-					base += PostgresUtils::WriteIdentifier(pk.columns[i]);
+					base += PostgresUtils::WriteIdentifier(pk.columns[i].GetIdentifierName());
 				}
 				extra_constraints.push_back(base + ")");
 			}
@@ -286,11 +286,11 @@ string PostgresColumnsToSQL(const ColumnList &columns, const vector<unique_ptr<C
 		if (column.Oid() > 0) {
 			ss << ", ";
 		}
-		ss << PostgresUtils::WriteIdentifier(column.Name()) << " ";
+		ss << PostgresUtils::WriteIdentifier(column.Name().GetIdentifierName()) << " ";
 		ss << PostgresUtils::TypeToString(column.Type());
 		bool not_null = not_null_columns.find(column.Logical()) != not_null_columns.end();
 		bool is_single_key_pk = pk_columns.find(column.Logical()) != pk_columns.end();
-		bool is_multi_key_pk = multi_key_pks.find(column.Name()) != multi_key_pks.end();
+		bool is_multi_key_pk = multi_key_pks.find(column.Name().GetIdentifierName()) != multi_key_pks.end();
 		bool is_unique = unique_columns.find(column.Logical()) != unique_columns.end();
 		if (not_null && !is_single_key_pk && !is_multi_key_pk) {
 			// NOT NULL but not a primary key column
@@ -332,10 +332,10 @@ string GetPostgresCreateTable(CreateTableInfo &info) {
 		ss << "IF NOT EXISTS ";
 	}
 	if (!info.schema.empty()) {
-		ss << PostgresUtils::WriteIdentifier(info.schema);
+		ss << PostgresUtils::WriteIdentifier(info.schema.GetIdentifierName());
 		ss << ".";
 	}
-	ss << PostgresUtils::WriteIdentifier(info.table);
+	ss << PostgresUtils::WriteIdentifier(info.table.GetIdentifierName());
 	ss << PostgresColumnsToSQL(info.columns, info.constraints);
 	ss << ";";
 	return ss.str();
@@ -350,8 +350,8 @@ optional_ptr<CatalogEntry> PostgresTableSet::CreateTable(PostgresTransaction &tr
 
 string PostgresTableSet::GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
-	sql += PostgresUtils::WriteIdentifier(schema.name) + ".";
-	sql += PostgresUtils::WriteIdentifier(entry ? entry->name : name);
+	sql += PostgresUtils::WriteIdentifier(schema.name.GetIdentifierName()) + ".";
+	sql += PostgresUtils::WriteIdentifier(entry ? entry->name.GetIdentifierName() : name);
 	return sql;
 }
 
@@ -360,7 +360,7 @@ string PostgresTableSet::GetAlterTableColumnName(const string &name, optional_pt
 		return name;
 	}
 	auto &table = entry->Cast<PostgresTableEntry>();
-	string column_name = name;
+	Identifier column_name = Identifier(name);
 	auto column_index = table.GetColumnIndex(column_name, true);
 	if (!column_index.IsValid()) {
 		return name;
@@ -375,31 +375,31 @@ string PostgresTableSet::GetAlterTablePrefix(ClientContext &context, PostgresTra
 }
 
 void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameTableInfo &info) {
-	string sql = GetAlterTablePrefix(context, transaction, info.name);
+	string sql = GetAlterTablePrefix(context, transaction, info.name.GetIdentifierName());
 	sql += " RENAME TO ";
-	sql += PostgresUtils::WriteIdentifier(info.new_table_name);
+	sql += PostgresUtils::WriteIdentifier(info.new_table_name.GetIdentifierName());
 	transaction.Query(sql);
 }
 
 void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameColumnInfo &info) {
-	auto entry = GetEntry(context, transaction, info.name);
-	string sql = GetAlterTablePrefix(info.name, entry);
+	auto entry = GetEntry(context, transaction, info.name.GetIdentifierName());
+	string sql = GetAlterTablePrefix(info.name.GetIdentifierName(), entry);
 	sql += " RENAME COLUMN  ";
-	string column_name = GetAlterTableColumnName(info.old_name, entry);
+	string column_name = GetAlterTableColumnName(info.old_name.GetIdentifierName(), entry);
 	sql += PostgresUtils::WriteIdentifier(column_name);
 	sql += " TO ";
-	sql += PostgresUtils::WriteIdentifier(info.new_name);
+	sql += PostgresUtils::WriteIdentifier(info.new_name.GetIdentifierName());
 
 	transaction.Query(sql);
 }
 
 void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, AddColumnInfo &info) {
-	string sql = GetAlterTablePrefix(context, transaction, info.name);
+	string sql = GetAlterTablePrefix(context, transaction, info.name.GetIdentifierName());
 	sql += " ADD COLUMN  ";
 	if (info.if_column_not_exists) {
 		sql += "IF NOT EXISTS ";
 	}
-	sql += PostgresUtils::WriteIdentifier(info.new_column.Name());
+	sql += PostgresUtils::WriteIdentifier(info.new_column.Name().GetIdentifierName());
 	sql += " ";
 	sql += info.new_column.Type().ToString();
 
@@ -419,13 +419,13 @@ void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &t
 }
 
 void PostgresTableSet::AlterTable(ClientContext &context, PostgresTransaction &transaction, RemoveColumnInfo &info) {
-	auto entry = GetEntry(context, transaction, info.name);
-	string sql = GetAlterTablePrefix(info.name, entry);
+	auto entry = GetEntry(context, transaction, info.name.GetIdentifierName());
+	string sql = GetAlterTablePrefix(info.name.GetIdentifierName(), entry);
 	sql += " DROP COLUMN  ";
 	if (info.if_column_exists) {
 		sql += "IF EXISTS ";
 	}
-	string column_name = GetAlterTableColumnName(info.removed_column, entry);
+	string column_name = GetAlterTableColumnName(info.removed_column.GetIdentifierName(), entry);
 	sql += PostgresUtils::WriteIdentifier(column_name);
 	transaction.Query(sql);
 }

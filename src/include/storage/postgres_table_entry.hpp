@@ -20,16 +20,16 @@ struct PostgresTableInfo {
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	PostgresTableInfo(const string &schema, const string &table) {
-		create_info = make_uniq<CreateTableInfo>(string(), schema, table);
+		create_info = make_uniq<CreateTableInfo>(Identifier(), Identifier(schema), Identifier(table));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	PostgresTableInfo(const SchemaCatalogEntry &schema, const string &table) {
-		create_info = make_uniq<CreateTableInfo>((SchemaCatalogEntry &)schema, table);
+		create_info = make_uniq<CreateTableInfo>((SchemaCatalogEntry &)schema, Identifier(table));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 
 	const string &GetTableName() const {
-		return create_info->table;
+		return create_info->table.GetIdentifierName();
 	}
 
 	unique_ptr<CreateTableInfo> create_info;

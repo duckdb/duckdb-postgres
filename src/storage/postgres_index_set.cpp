@@ -40,8 +40,8 @@ void PostgresIndexSet::LoadEntries(ClientContext &context, PostgresTransaction &
 		auto index_name = result.GetString(row, 2);
 		CreateIndexInfo info;
 		info.schema = schema.name;
-		info.table = table_name;
-		info.index_name = index_name;
+		info.table = Identifier(table_name);
+		info.index_name = Identifier(index_name);
 		auto index_entry = make_shared_ptr<PostgresIndexEntry>(catalog, schema, info, table_name);
 		CreateEntry(transaction, std::move(index_entry));
 	}
@@ -65,10 +65,10 @@ string PGGetCreateIndexSQL(CreateIndexInfo &info, TableCatalogEntry &tbl) {
 		sql += " UNIQUE";
 	}
 	sql += " INDEX ";
-	sql += PostgresUtils::QuotePostgresIdentifier(info.index_name);
+	sql += PostgresUtils::QuotePostgresIdentifier(info.index_name.GetIdentifierName());
 	sql += " ON ";
-	sql += PostgresUtils::QuotePostgresIdentifier(tbl.schema.name) + ".";
-	sql += PostgresUtils::QuotePostgresIdentifier(tbl.name);
+	sql += PostgresUtils::QuotePostgresIdentifier(tbl.schema.name.GetIdentifierName()) + ".";
+	sql += PostgresUtils::QuotePostgresIdentifier(tbl.name.GetIdentifierName());
 	sql += "(";
 	for (idx_t i = 0; i < info.parsed_expressions.size(); i++) {
 		if (i > 0) {
@@ -84,7 +84,8 @@ string PGGetCreateIndexSQL(CreateIndexInfo &info, TableCatalogEntry &tbl) {
 optional_ptr<CatalogEntry> PostgresIndexSet::CreateIndex(PostgresTransaction &transaction, CreateIndexInfo &info,
                                                          TableCatalogEntry &table) {
 	transaction.Query(PGGetCreateIndexSQL(info, table));
-	auto index_entry = make_shared_ptr<PostgresIndexEntry>(schema.ParentCatalog(), schema, info, table.name);
+	auto index_entry =
+	    make_shared_ptr<PostgresIndexEntry>(schema.ParentCatalog(), schema, info, table.name.GetIdentifierName());
 	return CreateEntry(transaction, std::move(index_entry));
 }
 
