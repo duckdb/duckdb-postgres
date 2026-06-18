@@ -72,7 +72,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -159,7 +159,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -289,7 +289,7 @@ jobs:
       id: cache_key
       working-directory: ./duckdb
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"-relassert-${{ matrix.threadsan }}
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -399,7 +399,7 @@ jobs:
       working-directory: ./duckdb
       shell: bash
       run: |
-        DUCKDB_VERSION=$(git rev-parse --short HEAD)
+        DUCKDB_VERSION=$(git rev-parse --short=10 HEAD)
         KEY="${{ runner.os }}-${{ runner.arch }}-$DUCKDB_VERSION"
         echo "value=${KEY}" >> "${GITHUB_OUTPUT}"
 
@@ -424,7 +424,7 @@ jobs:
       shell: cmd
       run: |
           mv "C:\Program Files\Git\usr\bin\link.exe" "C:\Program Files\Git\usr\bin\link-git.exe"
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           bash -c "make release"
 
     - name: Save Cache
