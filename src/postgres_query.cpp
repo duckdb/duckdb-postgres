@@ -80,9 +80,22 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	}
 	int nfields = PQnfields(describe_prepared);
 	if (nfields <= 0) {
-		throw BinderException("No fields returned by query \"%s\" - the query must be a SELECT statement that returns "
-		                      "at least one column",
-		                      sql);
+		// The statement returns no result columns: it's a command (DDL, or DML without RETURNING).
+		// Instead of failing, run it as a command and return a single-row Success result. We reuse
+		// the prepare/describe just done — no extra round-trip — and defer execution to
+		// InitGlobalState (execution time, not bind, so EXPLAIN does not run it).
+		result->command_only = true;
+		return_types.emplace_back(LogicalType::BOOLEAN);
+		names.emplace_back("Success");
+		result->SetCatalog(pg_catalog);
+		result->dsn = con.GetDSN();
+		result->types = return_types;
+		result->names = names;
+		result->read_only = false;
+		result->SetTablePages(0);
+		result->sql = std::move(sql);
+		result->use_transaction = use_transaction;
+		return std::move(result);
 	}
 	for (idx_t c = 0; c < nfields; c++) {
 		PostgresType postgres_type;

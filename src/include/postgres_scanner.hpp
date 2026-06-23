@@ -50,6 +50,9 @@ public:
 	bool emit_ctid = false;
 	bool use_transaction = true;
 	bool use_text_protocol = false;
+	//! Set by postgres_query's bind when the statement returns no columns (a command like DDL, or
+	//! DML without RETURNING). InitGlobalState executes it and returns a single-row Success result.
+	bool command_only = false;
 	idx_t max_threads = 1;
 
 	dbconnector::optimizer::OrderByAndLimitBindData order_by_and_limit_bind_data;
