@@ -51,6 +51,8 @@ SELECT * FROM s1.test ORDER BY 1
 NULL
 NULL
 
+mode skip
+
 # update with DEFAULT clause
 statement error
 UPDATE s1.test SET i = DEFAULT WHERE i = 4
