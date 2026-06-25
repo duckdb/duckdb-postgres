@@ -343,6 +343,32 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
                                                                     TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<PostgresBindData>();
 	auto result = make_uniq<PostgresGlobalState>(PostgresMaxThreads(context, input.bind_data.get()));
+	if (bind_data.command_only) {
+		// A command (no result columns). Execute it here — at execution time, so EXPLAIN does not
+		// fire it — and hand back a single-row Success result through the materialized-collection
+		// fast path (PostgresScan returns gstate.collection directly, and GetLocalState short-circuits
+		// when a collection is present, so no postgres scan connection is opened).
+		auto command_catalog = bind_data.GetCatalog();
+		D_ASSERT(command_catalog);
+		auto &transaction = Transaction::Get(context, *command_catalog).Cast<PostgresTransaction>();
+		if (bind_data.use_transaction) {
+			transaction.Query(bind_data.sql);
+		} else {
+			transaction.QueryWithoutTransaction(bind_data.sql);
+		}
+		vector<LogicalType> success_types {LogicalType::BOOLEAN};
+		auto materialized = make_uniq<ColumnDataCollection>(Allocator::Get(context), success_types);
+		DataChunk success_chunk;
+		success_chunk.Initialize(Allocator::Get(context), success_types);
+		success_chunk.SetChildCardinality(1);
+		success_chunk.data[0].SetValue(0, Value::BOOLEAN(true));
+		ColumnDataAppendState append_state;
+		materialized->InitializeAppend(append_state);
+		materialized->Append(append_state, success_chunk);
+		result->collection = std::move(materialized);
+		result->collection->InitializeScan(result->scan_state);
+		return std::move(result);
+	}
 	auto pg_catalog = bind_data.GetCatalog();
 	if (pg_catalog) {
 		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();

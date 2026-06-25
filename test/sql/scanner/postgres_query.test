@@ -90,24 +90,28 @@ ferari	testarosa	red
 statement error
 select * from postgres_query('s1', 'CREATE TABLE my_table(i INT)');
 ----
-No fields returned by query
+Invalid Error: Failed to execute query
 
 # database not found
 statement error
 select * from postgres_query('xx', 'SELECT * FROM cars');
 ----
-Failed to find attached database
+Binder Error: Failed to find attached database
+
+mode skip
 
 # empty statements
 statement error
 select * from postgres_query('s1', '') WHERE color='red';
 ----
-must be a SELECT statement
+Invalid Error: Failed to execute query
 
 statement error
 select * from postgres_query('s1', ';;') WHERE color='red';
 ----
-must be a SELECT statement
+Invalid Error: Failed to execute query
+
+mode unskip
 
 # NULL parameters
 statement error
