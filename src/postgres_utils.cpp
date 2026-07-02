@@ -19,7 +19,7 @@ PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 		char *msg_cstr = PQerrorMessage(conn);
 		string msg = msg_cstr != nullptr ? string(msg_cstr) : string();
 		PQfinish(conn);
-		throw IOException("Unable TODO:REMOVEME to connect to Postgres at \"%s\": %s", attach_path, msg);
+		throw IOException("Unable to connect to Postgres at \"%s\": %s", attach_path, msg);
 	}
 	PQsetNoticeProcessor(conn, PGNoticeProcessor, nullptr);
 	return conn;
