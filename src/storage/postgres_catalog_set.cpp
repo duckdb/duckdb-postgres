@@ -66,18 +66,18 @@ void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &i
 	if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
 		drop_query += " IF EXISTS ";
 	}
-	if (!info.schema.empty()) {
-		drop_query += PostgresUtils::WriteIdentifier(info.schema.GetIdentifierName()) + ".";
+	if (!info.GetQualifiedName().Schema().empty() && info.type != CatalogType::SCHEMA_ENTRY) {
+		drop_query += PostgresUtils::WriteIdentifier(info.GetQualifiedName().Schema().GetIdentifierName()) + ".";
 	}
-	drop_query += PostgresUtils::WriteIdentifier(info.name.GetIdentifierName());
+	drop_query += PostgresUtils::WriteIdentifier(info.GetQualifiedName().Name().GetIdentifierName());
 	if (info.cascade) {
-		drop_query += "CASCADE";
+		drop_query += " CASCADE";
 	}
 	transaction.Query(drop_query);
 
 	// erase the entry from the catalog set
 	lock_guard<mutex> l(entry_lock);
-	entries.erase(info.name.GetIdentifierName());
+	entries.erase(info.GetQualifiedName().Name().GetIdentifierName());
 }
 
 void PostgresCatalogSet::Scan(ClientContext &context, PostgresTransaction &transaction,

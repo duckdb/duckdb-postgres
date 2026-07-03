@@ -105,12 +105,12 @@ public:
 	}
 
 	void WriteTime(dtime_t value) {
-		WriteInteger<uint64_t>(value.micros);
+		WriteInteger<uint64_t>(value.value);
 	}
 
 	void WriteTimeTZ(dtime_tz_t value) {
 		WriteRawInteger<int32_t>(sizeof(uint64_t) + sizeof(int32_t));
-		WriteRawInteger<uint64_t>(value.time().micros);
+		WriteRawInteger<uint64_t>(value.time().value);
 		WriteRawInteger<int32_t>(-value.offset());
 	}
 

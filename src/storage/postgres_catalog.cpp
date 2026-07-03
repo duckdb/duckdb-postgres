@@ -175,13 +175,14 @@ void PostgresCatalog::Initialize(bool load_builtin) {
 
 optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto &postgres_transaction = PostgresTransaction::Get(transaction.GetContext(), *this);
-	auto entry = schemas.GetEntry(transaction.GetContext(), postgres_transaction, info.schema.GetIdentifierName());
+	auto entry = schemas.GetEntry(transaction.GetContext(), postgres_transaction,
+	                              info.GetQualifiedName().Schema().GetIdentifierName());
 	if (entry) {
 		switch (info.on_conflict) {
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
 			DropInfo try_drop;
 			try_drop.type = CatalogType::SCHEMA_ENTRY;
-			try_drop.name = info.schema;
+			try_drop.SetName(info.GetQualifiedName().Schema());
 			try_drop.if_not_found = OnEntryNotFound::RETURN_NULL;
 			try_drop.cascade = false;
 			schemas.DropEntry(postgres_transaction, try_drop);
@@ -191,7 +192,8 @@ optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction tran
 			return entry;
 		case OnCreateConflict::ERROR_ON_CONFLICT:
 		default:
-			throw BinderException("Failed to create schema \"%s\": schema already exists", info.schema);
+			throw BinderException("Failed to create schema \"%s\": schema already exists",
+			                      info.GetQualifiedName().Schema());
 		}
 	}
 	return schemas.CreateSchema(postgres_transaction, info);

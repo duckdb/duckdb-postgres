@@ -20,7 +20,7 @@ struct PostgresTableInfo {
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	PostgresTableInfo(const string &schema, const string &table) {
-		create_info = make_uniq<CreateTableInfo>(Identifier(), Identifier(schema), Identifier(table));
+		create_info = make_uniq<CreateTableInfo>(QualifiedName(Identifier(), Identifier(schema), Identifier(table)));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	PostgresTableInfo(const SchemaCatalogEntry &schema, const string &table) {
@@ -29,7 +29,7 @@ struct PostgresTableInfo {
 	}
 
 	const string &GetTableName() const {
-		return create_info->table.GetIdentifierName();
+		return create_info->GetTableName().GetIdentifierName();
 	}
 
 	unique_ptr<CreateTableInfo> create_info;

@@ -53,7 +53,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		if (struct_val.IsNull()) {
 			throw BinderException("Parameters to postgres_query cannot be NULL");
 		}
-		if (struct_val.type().id() != LogicalTypeId::STRUCT) {
+		if (struct_val.type().id() != LogicalTypeId::STRUCT && struct_val.type().id() != LogicalTypeId::TUPLE) {
 			throw BinderException("Query parameters must be specified in a STRUCT");
 		}
 		param_values = StructValue::GetChildren(struct_val);
