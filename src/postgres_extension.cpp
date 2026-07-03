@@ -210,6 +210,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Whether or not to use TEXT protocol to read data. This is slower, but provides better "
 	                          "compatibility with non-Postgres systems",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption(
+	    "pg_use_information_schema_introspection",
+	    "Use SQL-standard information_schema views for ATTACH-time schema discovery instead of pg_catalog."
+	    "For compatibility with pg protocol compatible databases like spanner, cockroach, redshift, ...",
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting);
 	config.AddExtensionOption("pg_statement_timeout_millis",
 	                          "Postgres statement timeout in milliseconds to set on scan connections",
 	                          LogicalType::UINTEGER, Value());

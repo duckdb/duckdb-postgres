@@ -1,0 +1,93 @@
+# name: test/sql/storage/information_schema_introspection.test
+# description: Test pg_use_information_schema_introspection — schema discovery via SQL-standard information_schema instead of pg_catalog
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+# baseline ATTACH (pg_catalog path) — collect the table set for comparison
+statement ok
+ATTACH 'dbname=postgresscanner' AS pgc (TYPE POSTGRES)
+
+# default is false; default path is unchanged
+query I
+SELECT current_setting('pg_use_information_schema_introspection')
+----
+false
+
+# snapshot schema as obtained the pg way
+statement ok
+CREATE TEMP TABLE pgc_tables AS SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name='pgc' AND schema_name NOT IN ('pg_catalog', 'information_schema')
+
+statement ok
+DETACH pgc
+
+statement ok
+SET pg_use_information_schema_introspection=true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# the two paths discover the same tables
+query I
+SELECT COUNT(*) FROM (
+  SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name='s'
+  EXCEPT
+  SELECT schema_name, table_name FROM pgc_tables
+)
+----
+0
+
+# query it the other way around to ensure exact match
+query I
+SELECT COUNT(*) FROM (
+  SELECT schema_name, table_name FROM pgc_tables
+  EXCEPT
+  SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name='s'
+)
+----
+0
+
+# round-trip a table with the data_type forms the new path has to map
+statement ok
+DROP TABLE IF EXISTS s.public.is_types
+
+statement ok
+CREATE TABLE s.public.is_types(i BIGINT, name VARCHAR, ts TIMESTAMPTZ, flag BOOLEAN)
+
+statement ok
+INSERT INTO s.public.is_types VALUES (42, 'hello', TIMESTAMPTZ '2024-01-01 00:00:00+00', true)
+
+statement ok
+INSERT INTO s.public.is_types VALUES (NULL, NULL, NULL, NULL)
+
+# force a fresh introspection of the new table
+statement ok
+CALL pg_clear_cache()
+
+query IIII
+SELECT i, name, ts, flag FROM s.public.is_types ORDER BY i NULLS LAST
+----
+42	hello	2024-01-01 00:00:00+00	true
+NULL	NULL	NULL	NULL
+
+# information_schema reports verbose data_type names; verify the mapping landed
+# on the right DuckDB types (bigint→BIGINT, character varying→VARCHAR,
+# timestamp with time zone→TIMESTAMPTZ (which duckdb then reports back as timestamp with timezone), boolean→BOOLEAN)
+query IIII
+SELECT typeof(i), typeof(name), typeof(ts), typeof(flag) FROM s.public.is_types LIMIT 1
+----
+BIGINT	VARCHAR	TIMESTAMP WITH TIME ZONE	BOOLEAN
+
+statement ok
+DROP TABLE s.public.is_types
+
+statement ok
+DETACH s
+
+statement ok
+RESET pg_use_information_schema_introspection
