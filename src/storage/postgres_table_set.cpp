@@ -57,13 +57,34 @@ ORDER BY namespace_id, relname, attnum, constraint_id;
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
+string PostgresTableSet::GetInitializeQueryInformationSchema(const string &schema, const string &table) {
+	string base_query = R"(
+SELECT table_schema AS namespace_id, table_name AS relname, 0 AS relpages, column_name AS attname,
+    data_type AS type_name, -1 AS type_modifier, 0 AS ndim, ordinal_position AS attnum,
+    CASE WHEN is_nullable = 'NO' THEN 't' ELSE 'f' END AS notnull,
+    NULL AS constraint_id, NULL AS constraint_type, NULL AS constraint_key,
+    NULL AS type_schema, NULL AS column_comment, NULL AS table_comment
+FROM information_schema.columns
+WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast') ${CONDITION}
+ORDER BY table_schema, table_name, ordinal_position;
+)";
+	string condition;
+	if (!schema.empty()) {
+		condition += "AND table_schema=" + KeywordHelper::WriteQuoted(schema);
+	}
+	if (!table.empty()) {
+		condition += " AND table_name=" + KeywordHelper::WriteQuoted(table);
+	}
+	return StringUtil::Replace(base_query, "${CONDITION}", condition);
+}
+
 void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
                                  optional_ptr<PostgresSchemaEntry> schema, PostgresResult &result, idx_t row,
                                  PostgresTableInfo &table_info) {
 	PostgresTypeData type_info;
 	idx_t column_index = 3;
 	auto column_name = result.GetString(row, column_index);
-	type_info.type_name = result.GetString(row, column_index + 1);
+	type_info.type_name = PostgresUtils::DataTypeToTypeName(result.GetString(row, column_index + 1));
 	type_info.type_modifier = result.GetInt64(row, column_index + 2);
 	type_info.array_dimensions = result.GetInt64(row, column_index + 3);
 	bool is_not_null = result.GetBool(row, column_index + 5);
@@ -165,7 +186,9 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 		CreateEntries(transaction, table_result->GetResult(), table_result->start, table_result->end);
 		table_result.reset();
 	} else {
-		auto query = GetInitializeQuery(schema.name);
+		auto query = PostgresUtils::UseInformationSchemaIntrospection(context)
+		                 ? GetInitializeQueryInformationSchema(schema.name)
+		                 : GetInitializeQuery(schema.name);
 
 		auto result = transaction.Query(query);
 		auto rows = result->Count();
@@ -176,7 +199,9 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 
 unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction &transaction,
                                                              PostgresSchemaEntry &schema, const string &table_name) {
-	auto query = PostgresTableSet::GetInitializeQuery(schema.name, table_name);
+	auto query = PostgresUtils::UseInformationSchemaIntrospection(transaction.GetContext())
+	                 ? GetInitializeQueryInformationSchema(schema.name, table_name)
+	                 : GetInitializeQuery(schema.name, table_name);
 	auto result = transaction.Query(query);
 	auto rows = result->Count();
 	if (rows == 0) {
@@ -196,7 +221,9 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 
 unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &context, PostgresConnection &connection,
                                                              const string &schema_name, const string &table_name) {
-	auto query = PostgresTableSet::GetInitializeQuery(schema_name, table_name);
+	auto query = PostgresUtils::UseInformationSchemaIntrospection(context)
+	                 ? GetInitializeQueryInformationSchema(schema_name, table_name)
+	                 : GetInitializeQuery(schema_name, table_name);
 	auto result = connection.Query(context, query);
 	auto rows = result->Count();
 	if (rows == 0) {

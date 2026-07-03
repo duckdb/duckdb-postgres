@@ -62,6 +62,8 @@ class PostgresUtils {
 public:
 	static PGconn *PGConnect(const string &dsn, const string &attach_path);
 
+	static bool UseInformationSchemaIntrospection(optional_ptr<ClientContext> context);
+	static string DataTypeToTypeName(const string &data_type);
 	static LogicalType ToPostgresType(const LogicalType &input);
 	static LogicalType TypeToLogicalType(optional_ptr<PostgresTransaction> transaction,
 	                                     optional_ptr<PostgresSchemaEntry> schema, const PostgresTypeData &input,
