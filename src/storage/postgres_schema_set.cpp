@@ -40,7 +40,8 @@ vector<unique_ptr<PostgresResultSlice>> SliceResult(PostgresResult &schemas, uni
 // Variant of SliceResult
 // uses field name instead of an integer oid.
 // Used by the information_schema introspection path where namespace oids are'nt available.
-static vector<unique_ptr<PostgresResultSlice>> SliceResultByName(PostgresResult &schemas, unique_ptr<PostgresResult> to_slice_ptr) {
+static vector<unique_ptr<PostgresResultSlice>> SliceResultByName(PostgresResult &schemas,
+                                                                 unique_ptr<PostgresResult> to_slice_ptr) {
 	auto shared_result = shared_ptr<PostgresResult>(to_slice_ptr.release());
 	auto &to_slice = *shared_result;
 

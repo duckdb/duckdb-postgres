@@ -6,9 +6,6 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
-statement ok
-PRAGMA enable_verification
-
 # baseline ATTACH (pg_catalog path) — collect the table set for comparison
 statement ok
 ATTACH 'dbname=postgresscanner' AS pgc (TYPE POSTGRES)
