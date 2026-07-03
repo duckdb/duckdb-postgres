@@ -78,6 +78,53 @@ LogicalType PostgresUtils::RemoveAlias(const LogicalType &type) {
 	}
 }
 
+bool PostgresUtils::UseInformationSchemaIntrospection(optional_ptr<ClientContext> context) {
+	if (!context) {
+		return false;
+	}
+	Value value;
+	if (context->TryGetCurrentSetting("pg_use_information_schema_introspection", value)) {
+		return BooleanValue::Get(value);
+	}
+	return false;
+}
+
+string PostgresUtils::DataTypeToTypeName(const string &data_type) {
+	// Map SQL-standard information_schema.columns.data_type values to the
+	// pg_type.typname
+	auto type_name = StringUtil::Lower(data_type);
+	if (type_name == "boolean") {
+		return "bool";
+	} else if (type_name == "smallint") {
+		return "int2";
+	} else if (type_name == "integer") {
+		return "int4";
+	} else if (type_name == "bigint") {
+		return "int8";
+	} else if (type_name == "real") {
+		return "float4";
+	} else if (type_name == "double precision") {
+		return "float8";
+	} else if (type_name == "character varying") {
+		return "varchar";
+	} else if (type_name == "character") {
+		return "bpchar";
+	} else if (type_name == "\"char\"") {
+		return "char";
+	} else if (type_name == "time without time zone") {
+		return "time";
+	} else if (type_name == "time with time zone") {
+		return "timetz";
+	} else if (type_name == "timestamp without time zone") {
+		return "timestamp";
+	} else if (type_name == "timestamp with time zone") {
+		return "timestamptz";
+	} else if (type_name == "bit varying") {
+		return "varbit";
+	}
+	return data_type;
+}
+
 uint32_t PostgresUtils::TypeNameToPostgresOid(const string &type_name) {
 	if (type_name == "bool") {
 		return BOOLOID;
@@ -239,8 +286,9 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 		postgres_type.info = PostgresTypeAnnotation::GEOM_CIRCLE;
 		return LogicalType::LIST(LogicalType::DOUBLE);
 	} else {
-		if (!transaction) {
-			// unsupported so fallback to varchar
+		if (!transaction || type_info.type_schema.empty()) {
+			// unsupported, or no type schema to resolve custom types in
+			// (information_schema introspection) - fallback to varchar
 			postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
 			return LogicalType::VARCHAR;
 		}
