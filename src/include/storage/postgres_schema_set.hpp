@@ -22,9 +22,11 @@ public:
 	optional_ptr<CatalogEntry> CreateSchema(PostgresTransaction &transaction, CreateSchemaInfo &info);
 
 	static string GetInitializeQuery(const string &schema = string());
+	static string GetInitializeQueryInformationSchema(const string &schema = string());
 
 protected:
 	void LoadEntries(ClientContext &context, PostgresTransaction &transaction) override;
+	void LoadEntriesInformationSchema(ClientContext &context, PostgresTransaction &transaction);
 
 protected:
 	//! Schema to load - if empty loads all schemas (default behavior)

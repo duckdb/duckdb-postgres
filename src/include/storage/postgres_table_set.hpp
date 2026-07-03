@@ -33,6 +33,7 @@ public:
 	void AlterTable(ClientContext &context, PostgresTransaction &transaction, AlterTableInfo &info);
 
 	static string GetInitializeQuery(const string &schema = string(), const string &table = string());
+	static string GetInitializeQueryInformationSchema(const string &schema = string(), const string &table = string());
 
 protected:
 	void LoadEntries(ClientContext &context, PostgresTransaction &transaction) override;
