@@ -5,7 +5,8 @@
 
 namespace duckdb {
 
-PostgresCatalogSet::PostgresCatalogSet(Catalog &catalog, bool is_loaded_p) : catalog(catalog), is_loaded(is_loaded_p) {
+PostgresCatalogSet::PostgresCatalogSet(Catalog &catalog, bool is_loaded_p)
+    : catalog(catalog), is_loaded(is_loaded_p), loading_thread(thread_id()) {
 }
 
 optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, PostgresTransaction &transaction,
@@ -43,7 +44,7 @@ optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, 
 
 void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransaction &transaction) {
 	if (HasInternalDependencies()) {
-		if (is_loaded) {
+		if (is_loaded || loading_thread == ThreadUtil::GetThreadId()) {
 			return;
 		}
 	}
@@ -51,8 +52,15 @@ void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransact
 	if (is_loaded) {
 		return;
 	}
+	loading_thread = ThreadUtil::GetThreadId();
+	try {
+		LoadEntries(context, transaction);
+	} catch (...) {
+		loading_thread = thread_id();
+		throw;
+	}
 	is_loaded = true;
-	LoadEntries(context, transaction);
+	loading_thread = thread_id();
 }
 
 optional_ptr<CatalogEntry> PostgresCatalogSet::ReloadEntry(PostgresTransaction &transaction, const string &name) {
