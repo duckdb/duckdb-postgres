@@ -12,6 +12,7 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/mutex.hpp"
 #include "duckdb/common/shared_ptr.hpp"
+#include "duckdb/common/thread.hpp"
 
 namespace duckdb {
 struct DropInfo;
@@ -52,6 +53,7 @@ private:
 	unordered_map<string, shared_ptr<CatalogEntry>> entries;
 	case_insensitive_map_t<string> entry_map;
 	atomic<bool> is_loaded;
+	atomic<thread_id> loading_thread;
 };
 
 class PostgresInSchemaSet : public PostgresCatalogSet {
