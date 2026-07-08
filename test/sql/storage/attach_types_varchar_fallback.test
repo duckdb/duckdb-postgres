@@ -1,0 +1,78 @@
+# name: test/sql/storage/attach_types_varchar_fallback.test
+# description: Test for using types from different schema that must fall back to VARCHAR
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# prepare schemas
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS data_s CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS types_s CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA types_s')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA data_s')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TYPE types_s.mood AS ENUM (''happy'',''sad'')')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE data_s.users (id int, name text)')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE data_s.moods (id int, m types_s.mood)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO data_s.users VALUES (1, ''a'')')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO data_s.moods VALUES (1, ''happy'')')
+
+statement ok
+DETACH s
+
+# attach only the data schema
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA data_s, READ_ONLY)
+
+statement ok
+USE s
+
+query I
+SELECT count(*) FROM s.data_s.users
+----
+1
+
+# cleanup
+
+statement ok
+USE memory
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA data_s CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA types_s CASCADE')
+
+statement ok
+USE memory
+
+statement ok
+DETACH s
