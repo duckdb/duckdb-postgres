@@ -282,34 +282,44 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 	} else if (pgtypename == "circle") {
 		postgres_type.info = PostgresTypeAnnotation::GEOM_CIRCLE;
 		return LogicalType::LIST(LogicalType::DOUBLE);
+	}
+
+	if (!transaction || !schema || type_info.type_schema.empty()) {
+		// unsupported, or no type schema to resolve custom types in
+		// (information_schema introspection) - fallback to varchar
+		postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
+		return LogicalType::VARCHAR;
+	}
+
+	auto context = transaction->GetContext();
+	if (!context) {
+		throw InternalException("Context is destroyed!?");
+	}
+
+	string type_schema = type_info.type_schema;
+	optional_ptr<SchemaCatalogEntry> lookup_schema;
+	if (type_schema == schema->name) {
+		lookup_schema = schema.get();
 	} else {
-		if (!transaction || type_info.type_schema.empty()) {
-			// unsupported, or no type schema to resolve custom types in
-			// (information_schema introspection) - fallback to varchar
-			postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
-			return LogicalType::VARCHAR;
-		}
-		auto context = transaction->GetContext();
-		if (!context) {
-			throw InternalException("Context is destroyed!?");
-		}
-		optional_ptr<SchemaCatalogEntry> lookup_schema =
-		    type_info.type_schema != schema->name
-		        ? schema->ParentCatalog().GetSchema(*context, type_info.type_schema, OnEntryNotFound::THROW_EXCEPTION)
-		        : schema.get();
+		Catalog &parent_catalog = schema->ParentCatalog();
+		lookup_schema = parent_catalog.GetSchema(*context, type_schema, OnEntryNotFound::RETURN_NULL);
+	}
+
+	if (lookup_schema) {
 		auto entry = lookup_schema->GetEntry(CatalogTransaction(lookup_schema->ParentCatalog(), *context),
 		                                     CatalogType::TYPE_ENTRY, pgtypename);
-		if (!entry) {
-			// unsupported so fallback to varchar
-			postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
-			return LogicalType::VARCHAR;
+		if (entry) {
+			// custom type (e.g. composite or enum)
+			auto &type_entry = entry->Cast<PostgresTypeEntry>();
+			auto result_type = RemoveAlias(type_entry.user_type);
+			postgres_type = type_entry.postgres_type;
+			return result_type;
 		}
-		// custom type (e.g. composite or enum)
-		auto &type_entry = entry->Cast<PostgresTypeEntry>();
-		auto result_type = RemoveAlias(type_entry.user_type);
-		postgres_type = type_entry.postgres_type;
-		return result_type;
 	}
+
+	// either schema or type is not available so fallback to varchar
+	postgres_type.info = PostgresTypeAnnotation::CAST_TO_VARCHAR;
+	return LogicalType::VARCHAR;
 }
 
 LogicalType PostgresUtils::ToPostgresType(const LogicalType &input) {
