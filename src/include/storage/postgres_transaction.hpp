@@ -49,6 +49,7 @@ private:
 	AccessMode access_mode;
 	PostgresIsolationLevel isolation_level;
 	string temporary_schema;
+	mutex referenced_entries_lock;
 	reference_map_t<CatalogEntry, shared_ptr<CatalogEntry>> referenced_entries;
 
 private:

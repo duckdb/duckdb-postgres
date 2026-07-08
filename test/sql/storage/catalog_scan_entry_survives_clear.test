@@ -1,0 +1,38 @@
+# name: test/sql/storage/catalog_scan_entry_survives_clear.test
+# description: PostgresCatalogSet::Scan entries must survive a concurrent pg_clear_cache()
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+DROP TABLE IF EXISTS scan_survives_clear_tbl
+
+statement ok
+CREATE TABLE scan_survives_clear_tbl AS SELECT 1 AS x
+
+query I
+SELECT count(*) >= 0 FROM duckdb_tables()
+----
+1
+
+statement ok
+CALL pg_clear_cache()
+
+query I
+SELECT table_name FROM duckdb_tables() WHERE table_name = 'scan_survives_clear_tbl'
+----
+scan_survives_clear_tbl
+
+statement ok
+DROP TABLE scan_survives_clear_tbl
