@@ -1,0 +1,47 @@
+# name: test/sql/storage/catalog_scan_concurrent_clear_stress.test_slow
+# description: Concurrent pg_clear_cache() vs duckdb_tables()/duckdb_indexes() UAF stress repro (run under ASAN)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+DROP TABLE IF EXISTS scan_stress_tbl
+
+statement ok
+CREATE TABLE scan_stress_tbl (i INTEGER)
+
+statement ok
+INSERT INTO scan_stress_tbl VALUES (1)
+
+concurrentloop i 0 200
+
+statement maybe
+CALL pg_clear_cache();
+----
+
+statement maybe
+SELECT * FROM duckdb_tables();
+----
+
+statement maybe
+SELECT * FROM duckdb_indexes();
+----
+
+statement maybe
+SELECT * FROM scan_stress_tbl;
+----
+
+endloop
+
+query I
+SELECT * FROM scan_stress_tbl
+----
+1
