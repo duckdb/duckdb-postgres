@@ -126,6 +126,7 @@ vector<unique_ptr<PostgresResult>> PostgresTransaction::ExecuteQueries(ClientCon
 
 optional_ptr<CatalogEntry> PostgresTransaction::ReferenceEntry(shared_ptr<CatalogEntry> &entry) {
 	auto &ref = *entry;
+	lock_guard<mutex> l(referenced_entries_lock);
 	referenced_entries.emplace(ref, entry);
 	return ref;
 }
