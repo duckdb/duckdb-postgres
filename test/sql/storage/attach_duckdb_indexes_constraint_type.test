@@ -1,0 +1,38 @@
+# name: test/sql/storage/attach_duckdb_indexes_constraint_type.test
+# description: duckdb_indexes() must not crash scanning Postgres indexes (constraint_type uninitialized read)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+PRAGMA enable_verification
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DROP TABLE IF EXISTS s.constraint_type_tbl
+
+statement ok
+CREATE TABLE s.constraint_type_tbl(i INTEGER)
+
+statement ok
+CREATE INDEX constraint_type_idx ON s.constraint_type_tbl(i)
+
+query I
+SELECT count(*) FROM duckdb_indexes() WHERE database_name = 's' AND index_name = 'constraint_type_idx'
+----
+1
+
+query II
+SELECT is_unique, is_primary FROM duckdb_indexes() WHERE database_name = 's' AND index_name = 'constraint_type_idx'
+----
+false	false
+
+statement ok
+DROP INDEX s.constraint_type_idx
+
+statement ok
+DROP TABLE s.constraint_type_tbl
