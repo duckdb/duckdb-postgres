@@ -26,8 +26,8 @@ class PostgresSchemaEntry;
 class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path, AccessMode access_mode,
-	                         string schema_to_load, PostgresIsolationLevel isolation_level, const string &secret_name,
-	                         SecretStorageTable secret_storage_table_p);
+	                         vector<string> schemas_to_load, PostgresIsolationLevel isolation_level,
+	                         const string &secret_name, SecretStorageTable secret_storage_table_p);
 	~PostgresCatalog();
 
 	string attach_path;

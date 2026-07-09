@@ -8,6 +8,45 @@
 
 namespace duckdb {
 
+static vector<string> ExtractSchemas(Value &value) {
+	if (value.IsNull()) {
+		throw BinderException("Value for \"SCHEMA\" option must not be null");
+	}
+	switch (value.type().id()) {
+	case LogicalTypeId::VARCHAR: {
+		vector<string> res;
+		const string &name = StringValue::Get(value);
+		if (name.empty()) {
+			throw BinderException("Value \"SCHEMA\" option must be not empty");
+		}
+		res.push_back(name);
+		return res;
+	}
+	case LogicalTypeId::LIST: {
+		if (ListType::GetChildType(value.type()).id() != LogicalTypeId::VARCHAR) {
+			throw BinderException(
+			    "Value for \"SCHEMA\" option must be either \"VARCHAR\" or \"VARCHAR[]\", was: \"%s\"",
+			    value.type().ToString());
+		}
+		vector<string> res;
+		for (const Value &en : ListValue::GetChildren(value)) {
+			if (en.IsNull()) {
+				throw BinderException("Values for \"SCHEMA\" option must not be null");
+			}
+			const string &name = StringValue::Get(en);
+			if (name.empty()) {
+				throw BinderException("Values \"SCHEMA\" option must be not empty");
+			}
+			res.push_back(name);
+		}
+		return res;
+	}
+	default:
+		throw BinderException("Value for `SCHEMA` option must be either \"VARCHAR\" or \"VARCHAR[]\", was: \"%s\"",
+		                      value.type().ToString());
+	}
+}
+
 static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
                                           AttachOptions &attach_options) {
@@ -18,7 +57,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	string attach_path = info.path;
 
 	string secret_name;
-	string schema_to_load;
+	vector<string> schemas_to_load;
 	PostgresIsolationLevel isolation_level = PostgresIsolationLevel::REPEATABLE_READ;
 	string secret_storage_table_name;
 	bool secret_storage_table_specified_explicitly = false;
@@ -27,7 +66,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 		if (lower_name == "secret") {
 			secret_name = entry.second.ToString();
 		} else if (lower_name == "schema") {
-			schema_to_load = entry.second.ToString();
+			schemas_to_load = ExtractSchemas(entry.second);
 		} else if (lower_name == "isolation_level") {
 			auto param = entry.second.ToString();
 			auto lparam = StringUtil::Lower(param);
@@ -38,9 +77,9 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 			} else if (lparam == "serializable") {
 				isolation_level = PostgresIsolationLevel::SERIALIZABLE;
 			} else {
-				throw InvalidInputException("Invalid value \"%s\" for isolation_level, expected READ COMMITTED, "
-				                            "REPEATABLE READ or SERIALIZABLE",
-				                            param);
+				throw BinderException("Invalid value \"%s\" for isolation_level, expected READ COMMITTED, "
+				                      "REPEATABLE READ or SERIALIZABLE",
+				                      param);
 			}
 		} else if (lower_name == "secret_storage_table") {
 			secret_storage_table_name = entry.second.ToString();
@@ -52,7 +91,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	SecretStorageTable secret_storage_table(std::move(secret_storage_table_name),
 	                                        secret_storage_table_specified_explicitly);
 	return make_uniq<PostgresCatalog>(context, db, std::move(attach_path), attach_options.access_mode,
-	                                  std::move(schema_to_load), isolation_level, secret_name,
+	                                  std::move(schemas_to_load), isolation_level, secret_name,
 	                                  std::move(secret_storage_table));
 }
 

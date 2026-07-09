@@ -12,7 +12,7 @@ PostgresIndexSet::PostgresIndexSet(PostgresSchemaEntry &schema, unique_ptr<Postg
     : PostgresInSchemaSet(schema, !index_result_p), index_result(std::move(index_result_p)) {
 }
 
-string PostgresIndexSet::GetInitializeQuery(const string &schema) {
+string PostgresIndexSet::GetInitializeQuery(const vector<string> &schemas) {
 	string base_query = R"(
 SELECT pg_namespace.oid, tablename, indexname
 FROM pg_indexes
@@ -21,8 +21,8 @@ ${CONDITION}
 ORDER BY pg_namespace.oid;
 )";
 	string condition;
-	if (!schema.empty()) {
-		condition += "WHERE pg_namespace.nspname=" + KeywordHelper::WriteQuoted(schema);
+	if (schemas.size() > 0) {
+		condition += "WHERE pg_namespace.nspname IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
