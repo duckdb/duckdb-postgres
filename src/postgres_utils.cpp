@@ -632,6 +632,18 @@ string PostgresUtils::WriteLiteral(const string &literal) {
 	return QueryWriter::WriteQuotedAndEscaped(config, literal);
 }
 
+string PostgresUtils::WriteLiteralsCommaSeparated(const vector<string> &literals) {
+	string res;
+	for (idx_t i = 0; i < literals.size(); i++) {
+		const string &lit = literals[i];
+		if (i > 0) {
+			res.append(", ");
+		}
+		res.append(WriteLiteral(lit));
+	}
+	return res;
+}
+
 string PostgresUtils::WriteIdentifier(const string &identifier) {
 	using namespace dbconnector::query;
 	auto config = QueryWriter::CreateConfig('"', QuoteEscapeStyle::DOUBLE_QUOTE);

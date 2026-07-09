@@ -82,6 +82,7 @@ public:
 	static string EscapeConnectionString(const string &input);
 	static string ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name);
 	static string WriteLiteral(const string &identifier);
+	static string WriteLiteralsCommaSeparated(const vector<string> &literals);
 	static string WriteIdentifier(const string &identifier);
 
 private:
