@@ -39,6 +39,7 @@ void PostgresIndexSet::LoadEntries(ClientContext &context, PostgresTransaction &
 		auto table_name = result.GetString(row, 1);
 		auto index_name = result.GetString(row, 2);
 		CreateIndexInfo info;
+		info.constraint_type = IndexConstraintType::NONE;
 		info.SetQualifiedName(
 		    QualifiedName(info.GetQualifiedName().Catalog(), schema.name, info.GetQualifiedName().Name()));
 		info.table = Identifier(table_name);
