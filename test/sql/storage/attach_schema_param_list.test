@@ -1,0 +1,106 @@
+# name: test/sql/storage/attach_schema_param_list.test
+# description: Test attaching multiple specific schemas
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# prepare schemas
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS duckdb_test_sch1 CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS duckdb_test_sch2 CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS duckdb_test_sch3 CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA duckdb_test_sch1')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA duckdb_test_sch2')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA duckdb_test_sch3')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE duckdb_test_sch1.tab1(col1 INT)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO duckdb_test_sch1.tab1 VALUES(42)')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE duckdb_test_sch2.tab2(col2 INT)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO duckdb_test_sch2.tab2 VALUES(43)')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE duckdb_test_sch3.tab3(col3 INT)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO duckdb_test_sch3.tab3 VALUES(44)')
+
+statement ok
+DETACH s
+
+statement error
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA NULL)
+----
+Binder Error
+
+statement error
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 42)
+----
+Binder Error
+
+statement error
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA [41, 42])
+----
+Binder Error
+
+statement error
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA ['foo', NULL])
+----
+Binder Error
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA ['duckdb_test_sch1', 'duckdb_test_sch2'])
+
+query I
+FROM s.duckdb_test_sch1.tab1
+----
+42
+
+query I
+FROM s.duckdb_test_sch2.tab2
+----
+43
+
+statement error
+FROM s.duckdb_test_sch3.tab3
+----
+Catalog Error: Table with name "duckdb_test_sch3.tab3" does not exist because schema "duckdb_test_sch3" does not exist.
+
+# cleanup
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA duckdb_test_sch1 CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA duckdb_test_sch2 CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA duckdb_test_sch3 CASCADE')
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

@@ -23,6 +23,12 @@ PostgresTableSet::PostgresTableSet(PostgresSchemaEntry &schema, unique_ptr<Postg
 }
 
 string PostgresTableSet::GetInitializeQuery(const string &schema, const string &table) {
+	vector<string> vec;
+	vec.push_back(schema);
+	return GetInitializeQuery(vec, table);
+}
+
+string PostgresTableSet::GetInitializeQuery(const vector<string> &schemas, const string &table) {
 	string base_query = R"(
 SELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,
     pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,
@@ -51,8 +57,8 @@ WHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND contype IN ('p', 'u') ${CONDITION
 ORDER BY namespace_id, relname, attnum, constraint_id;
 )";
 	string condition;
-	if (!schema.empty()) {
-		condition += "AND pg_namespace.nspname=" + PostgresUtils::WriteLiteral(schema);
+	if (schemas.size() > 0) {
+		condition += "AND pg_namespace.nspname IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	if (!table.empty()) {
 		condition += "AND relname=" + PostgresUtils::WriteLiteral(table);
@@ -61,6 +67,12 @@ ORDER BY namespace_id, relname, attnum, constraint_id;
 }
 
 string PostgresTableSet::GetInitializeQueryInformationSchema(const string &schema, const string &table) {
+	vector<string> vec;
+	vec.push_back(schema);
+	return GetInitializeQueryInformationSchema(vec, table);
+}
+
+string PostgresTableSet::GetInitializeQueryInformationSchema(const vector<string> &schemas, const string &table) {
 	string base_query = R"(
 SELECT table_schema AS namespace_id, table_name AS relname, 0 AS relpages, column_name AS attname,
     data_type AS type_name, -1 AS type_modifier, 0 AS ndim, ordinal_position AS attnum,
@@ -72,8 +84,8 @@ WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast') ${CON
 ORDER BY table_schema, table_name, ordinal_position;
 )";
 	string condition;
-	if (!schema.empty()) {
-		condition += "AND table_schema=" + PostgresUtils::WriteLiteral(schema);
+	if (schemas.size() > 0) {
+		condition += "AND table_schema IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	if (!table.empty()) {
 		condition += " AND table_name=" + PostgresUtils::WriteLiteral(table);
