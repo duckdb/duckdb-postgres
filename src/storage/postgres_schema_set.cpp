@@ -10,8 +10,8 @@
 
 namespace duckdb {
 
-PostgresSchemaSet::PostgresSchemaSet(Catalog &catalog, string schema_to_load_p)
-    : PostgresCatalogSet(catalog, false), schema_to_load(std::move(schema_to_load_p)) {
+PostgresSchemaSet::PostgresSchemaSet(Catalog &catalog, vector<string> schemas_to_load_p)
+    : PostgresCatalogSet(catalog, false), schemas_to_load(std::move(schemas_to_load_p)) {
 }
 
 vector<unique_ptr<PostgresResultSlice>> SliceResult(PostgresResult &schemas, unique_ptr<PostgresResult> to_slice_ptr) {
@@ -57,7 +57,7 @@ static vector<unique_ptr<PostgresResultSlice>> SliceResultByName(PostgresResult 
 	return result;
 }
 
-string PostgresSchemaSet::GetInitializeQuery(const string &schema) {
+string PostgresSchemaSet::GetInitializeQuery(const vector<string> &schemas) {
 	string base_query = R"(
 SELECT oid, nspname
 FROM pg_namespace
@@ -65,13 +65,13 @@ ${CONDITION}
 ORDER BY oid;
 )";
 	string condition;
-	if (!schema.empty()) {
-		condition += "WHERE pg_namespace.nspname=" + KeywordHelper::WriteQuoted(schema);
+	if (schemas.size() > 0) {
+		condition += "WHERE pg_namespace.nspname IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
-string PostgresSchemaSet::GetInitializeQueryInformationSchema(const string &schema) {
+string PostgresSchemaSet::GetInitializeQueryInformationSchema(const vector<string> &schemas) {
 	string base_query = R"(
 SELECT schema_name
 FROM information_schema.schemata
@@ -80,15 +80,15 @@ ${CONDITION}
 ORDER BY schema_name;
 )";
 	string condition;
-	if (!schema.empty()) {
-		condition += "AND schema_name=" + KeywordHelper::WriteQuoted(schema);
+	if (schemas.size() > 0) {
+		condition += "AND schema_name IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
 void PostgresSchemaSet::LoadEntriesInformationSchema(ClientContext &context, PostgresTransaction &transaction) {
-	string schema_query = GetInitializeQueryInformationSchema(schema_to_load);
-	string tables_query = PostgresTableSet::GetInitializeQueryInformationSchema(schema_to_load);
+	string schema_query = GetInitializeQueryInformationSchema(schemas_to_load);
+	string tables_query = PostgresTableSet::GetInitializeQueryInformationSchema(schemas_to_load);
 	// Reading enums, composite types and indexes differs across DBs that emulate PG
 	// choice to either return those empty or have vendor specific queries for each.
 	// empty for now
@@ -125,11 +125,11 @@ void PostgresSchemaSet::LoadEntries(ClientContext &context, PostgresTransaction 
 	}
 	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
 	auto pg_version = pg_catalog.GetPostgresVersion();
-	string schema_query = PostgresSchemaSet::GetInitializeQuery(schema_to_load);
-	string tables_query = PostgresTableSet::GetInitializeQuery(schema_to_load);
-	string enum_types_query = PostgresTypeSet::GetInitializeEnumsQuery(pg_version, schema_to_load);
-	string composite_types_query = PostgresTypeSet::GetInitializeCompositesQuery(schema_to_load);
-	string index_query = PostgresIndexSet::GetInitializeQuery(schema_to_load);
+	string schema_query = PostgresSchemaSet::GetInitializeQuery(schemas_to_load);
+	string tables_query = PostgresTableSet::GetInitializeQuery(schemas_to_load);
+	string enum_types_query = PostgresTypeSet::GetInitializeEnumsQuery(pg_version, schemas_to_load);
+	string composite_types_query = PostgresTypeSet::GetInitializeCompositesQuery(schemas_to_load);
+	string index_query = PostgresIndexSet::GetInitializeQuery(schemas_to_load);
 
 	auto full_query = schema_query + tables_query + enum_types_query + composite_types_query + index_query;
 

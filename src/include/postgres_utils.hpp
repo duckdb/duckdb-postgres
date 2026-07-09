@@ -81,6 +81,7 @@ public:
 
 	static string EscapeConnectionString(const string &input);
 	static string ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name);
+	static string WriteLiteralsCommaSeparated(const vector<string> &literals);
 };
 
 } // namespace duckdb

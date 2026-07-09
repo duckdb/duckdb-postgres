@@ -629,4 +629,16 @@ string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, c
 	return result;
 }
 
+string PostgresUtils::WriteLiteralsCommaSeparated(const vector<string> &literals) {
+	string res;
+	for (idx_t i = 0; i < literals.size(); i++) {
+		const string &lit = literals[i];
+		if (i > 0) {
+			res.append(", ");
+		}
+		res.append(KeywordHelper::WriteQuoted(lit));
+	}
+	return res;
+}
+
 } // namespace duckdb
