@@ -42,7 +42,15 @@ protected:
 	virtual bool HasInternalDependencies() const {
 		return false;
 	}
+	//! Empty (default) means staleness is never checked once loaded
+	virtual string GetStalenessQuery() const {
+		return string();
+	}
 	void TryLoadEntries(ClientContext &context, PostgresTransaction &transaction);
+	void RefreshStalenessSignature(PostgresTransaction &transaction);
+
+public:
+	void PromoteStalenessSignature(string signature);
 
 protected:
 	Catalog &catalog;
@@ -54,6 +62,7 @@ private:
 	case_insensitive_map_t<string> entry_map;
 	atomic<bool> is_loaded;
 	atomic<thread_id> loading_thread;
+	string staleness_signature;
 };
 
 class PostgresInSchemaSet : public PostgresCatalogSet {

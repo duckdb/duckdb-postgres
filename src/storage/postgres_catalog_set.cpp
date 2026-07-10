@@ -43,6 +43,40 @@ optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, 
 	return nullptr;
 }
 
+static string ComputeStalenessSignature(PostgresResult &result) {
+	string signature;
+	auto rows = result.Count();
+	for (idx_t row = 0; row < rows; row++) {
+		signature += result.GetString(row, 0);
+		signature += '\0';
+		signature += result.GetString(row, 1);
+		signature += '\0';
+		signature += result.GetString(row, 2);
+		signature += '\x01';
+	}
+	return signature;
+}
+
+void PostgresCatalogSet::RefreshStalenessSignature(PostgresTransaction &transaction) {
+	auto staleness_query = GetStalenessQuery();
+	if (staleness_query.empty()) {
+		return;
+	}
+	auto result = transaction.Query(staleness_query);
+	auto signature = ComputeStalenessSignature(*result);
+	if (transaction.GetTransactionState() == PostgresTransactionState::TRANSACTION_STARTED) {
+		// an explicit transaction is still open - this signature is only valid if/when it commits,
+		// since Postgres xmin can revert on rollback and spuriously match a pre-transaction signature
+		transaction.StageStalenessSignature(*this, std::move(signature));
+		return;
+	}
+	staleness_signature = std::move(signature);
+}
+
+void PostgresCatalogSet::PromoteStalenessSignature(string signature) {
+	staleness_signature = std::move(signature);
+}
+
 void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransaction &transaction) {
 	if (HasInternalDependencies()) {
 		if (is_loaded || loading_thread == ThreadUtil::GetThreadId()) {
@@ -51,7 +85,16 @@ void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransact
 	}
 	lock_guard<mutex> lock(load_lock);
 	if (is_loaded) {
-		return;
+		auto staleness_query = GetStalenessQuery();
+		if (staleness_query.empty()) {
+			return;
+		}
+		auto result = transaction.Query(staleness_query);
+		auto signature = ComputeStalenessSignature(*result);
+		if (signature == staleness_signature) {
+			return;
+		}
+		ClearEntries();
 	}
 	loading_thread = ThreadUtil::GetThreadId();
 	try {
@@ -60,6 +103,7 @@ void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransact
 		loading_thread = thread_id();
 		throw;
 	}
+	RefreshStalenessSignature(transaction);
 	is_loaded = true;
 	loading_thread = thread_id();
 }
@@ -84,8 +128,11 @@ void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &i
 	transaction.Query(drop_query);
 
 	// erase the entry from the catalog set
-	lock_guard<mutex> l(entry_lock);
-	entries.erase(info.GetQualifiedName().Name().GetIdentifierName());
+	{
+		lock_guard<mutex> l(entry_lock);
+		entries.erase(info.GetQualifiedName().Name().GetIdentifierName());
+	}
+	RefreshStalenessSignature(transaction);
 }
 
 void PostgresCatalogSet::Scan(ClientContext &context, PostgresTransaction &transaction,

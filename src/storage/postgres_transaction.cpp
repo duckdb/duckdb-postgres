@@ -1,5 +1,6 @@
 #include "storage/postgres_transaction.hpp"
 #include "storage/postgres_catalog.hpp"
+#include "storage/postgres_catalog_set.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/catalog/catalog_entry/index_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
@@ -30,12 +31,22 @@ void PostgresTransaction::Commit() {
 		transaction_state = PostgresTransactionState::TRANSACTION_FINISHED;
 		GetConnectionRaw().Execute(GetContext(), "COMMIT");
 	}
+	vector<pair<reference<PostgresCatalogSet>, string>> to_promote;
+	{
+		lock_guard<mutex> l(pending_signatures_lock);
+		to_promote = std::move(pending_signatures);
+	}
+	for (auto &entry : to_promote) {
+		entry.first.get().PromoteStalenessSignature(std::move(entry.second));
+	}
 }
 void PostgresTransaction::Rollback() {
 	if (transaction_state == PostgresTransactionState::TRANSACTION_STARTED) {
 		transaction_state = PostgresTransactionState::TRANSACTION_FINISHED;
 		GetConnectionRaw().Execute(GetContext(), "ROLLBACK");
 	}
+	lock_guard<mutex> l(pending_signatures_lock);
+	pending_signatures.clear();
 }
 
 string PostgresTransaction::GetBeginTransactionQuery() {
@@ -129,6 +140,11 @@ optional_ptr<CatalogEntry> PostgresTransaction::ReferenceEntry(shared_ptr<Catalo
 	lock_guard<mutex> l(referenced_entries_lock);
 	referenced_entries.emplace(ref, entry);
 	return ref;
+}
+
+void PostgresTransaction::StageStalenessSignature(PostgresCatalogSet &catalog_set, string signature) {
+	lock_guard<mutex> l(pending_signatures_lock);
+	pending_signatures.emplace_back(catalog_set, std::move(signature));
 }
 
 string PostgresTransaction::GetTemporarySchema() {
