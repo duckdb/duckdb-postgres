@@ -212,7 +212,18 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 	}
 }
 
-string PostgresTableSet::GetStalenessQuery() const {
+string PostgresTableSet::GetStalenessQuery(ClientContext &context) const {
+	if (!PostgresUtils::StalenessQueryEnabled(context)) {
+		return string();
+	}
+	auto custom_query = PostgresUtils::GetCustomStalenessQuery(context);
+	if (!custom_query.empty()) {
+		if (custom_query.find("${SCHEMA}") == string::npos) {
+			throw InvalidInputException("pg_staleness_query must contain a ${SCHEMA} placeholder");
+		}
+		return StringUtil::Replace(custom_query, "${SCHEMA}",
+		                           PostgresUtils::WriteLiteral(schema.name.GetIdentifierName()));
+	}
 	string base_query = R"(
 SELECT pg_class.oid, relname, pg_class.xmin
 FROM pg_class
@@ -274,7 +285,7 @@ optional_ptr<CatalogEntry> PostgresTableSet::ReloadEntry(PostgresTransaction &tr
 	}
 	auto table_entry = make_shared_ptr<PostgresTableEntry>(catalog, schema, *table_info);
 	auto result = CreateEntry(transaction, std::move(table_entry));
-	RefreshStalenessSignature(transaction);
+	RefreshStalenessSignature(transaction, /*use_transaction_connection=*/false);
 	return result;
 }
 
@@ -398,7 +409,7 @@ optional_ptr<CatalogEntry> PostgresTableSet::CreateTable(PostgresTransaction &tr
 	transaction.Query(create_sql);
 	auto tbl_entry = make_shared_ptr<PostgresTableEntry>(catalog, schema, info.Base());
 	auto result = CreateEntry(transaction, std::move(tbl_entry));
-	RefreshStalenessSignature(transaction);
+	RefreshStalenessSignature(transaction, /*use_transaction_connection=*/true);
 	return result;
 }
 

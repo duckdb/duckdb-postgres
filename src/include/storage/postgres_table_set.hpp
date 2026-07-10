@@ -42,7 +42,7 @@ protected:
 	bool SupportReload() const override {
 		return true;
 	}
-	string GetStalenessQuery() const override;
+	string GetStalenessQuery(ClientContext &context) const override;
 
 	void AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameTableInfo &info);
 	void AlterTable(ClientContext &context, PostgresTransaction &transaction, RenameColumnInfo &info);

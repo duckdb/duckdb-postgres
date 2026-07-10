@@ -1,0 +1,247 @@
+# name: test/sql/storage/catalog_cache_staleness_wire_compat_gating.test
+# description: pg_staleness_query_enabled gates automatic staleness detection, default tied to pg_use_information_schema_introspection
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# ---------------------------------------------------------------------------
+# Default-on for real Postgres (unchanged behavior)
+# ---------------------------------------------------------------------------
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc1 (TYPE POSTGRES)
+
+statement ok con1
+DROP TABLE IF EXISTS wc1.public.staleness_gating_tbl1
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc1' AND table_name = 'staleness_gating_tbl1'
+----
+0
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS wc1b (TYPE POSTGRES)
+
+statement ok con2
+CREATE TABLE wc1b.public.staleness_gating_tbl1 AS SELECT 1 AS x
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc1' AND table_name = 'staleness_gating_tbl1'
+----
+1
+
+statement ok con1
+DROP TABLE wc1.public.staleness_gating_tbl1
+
+statement ok con2
+DETACH wc1b
+
+statement ok con1
+DETACH wc1
+
+# ---------------------------------------------------------------------------
+# Default-off when compat mode is signaled
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_use_information_schema_introspection=true
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc2 (TYPE POSTGRES)
+
+statement ok con1
+DROP TABLE IF EXISTS wc2.public.staleness_gating_tbl2
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc2' AND table_name = 'staleness_gating_tbl2'
+----
+0
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS wc2b (TYPE POSTGRES)
+
+statement ok con2
+CREATE TABLE wc2b.public.staleness_gating_tbl2 AS SELECT 1 AS x
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc2' AND table_name = 'staleness_gating_tbl2'
+----
+0
+
+statement ok con2
+DROP TABLE wc2b.public.staleness_gating_tbl2
+
+statement ok con2
+DETACH wc2b
+
+statement ok con1
+RESET pg_use_information_schema_introspection
+
+statement ok con1
+DETACH wc2
+
+# ---------------------------------------------------------------------------
+# Explicit override wins, on-direction
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_use_information_schema_introspection=true
+
+statement ok con1
+SET pg_staleness_query_enabled=true
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc3 (TYPE POSTGRES)
+
+statement ok con1
+DROP TABLE IF EXISTS wc3.public.staleness_gating_tbl3
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc3' AND table_name = 'staleness_gating_tbl3'
+----
+0
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS wc3b (TYPE POSTGRES)
+
+statement ok con2
+CREATE TABLE wc3b.public.staleness_gating_tbl3 AS SELECT 1 AS x
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc3' AND table_name = 'staleness_gating_tbl3'
+----
+1
+
+statement ok con1
+DROP TABLE wc3.public.staleness_gating_tbl3
+
+statement ok con2
+DETACH wc3b
+
+statement ok con1
+RESET pg_use_information_schema_introspection
+
+statement ok con1
+RESET pg_staleness_query_enabled
+
+statement ok con1
+DETACH wc3
+
+# ---------------------------------------------------------------------------
+# Explicit override wins, off-direction
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_staleness_query_enabled=false
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc4 (TYPE POSTGRES)
+
+statement ok con1
+DROP TABLE IF EXISTS wc4.public.staleness_gating_tbl4
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc4' AND table_name = 'staleness_gating_tbl4'
+----
+0
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS wc4b (TYPE POSTGRES)
+
+statement ok con2
+CREATE TABLE wc4b.public.staleness_gating_tbl4 AS SELECT 1 AS x
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc4' AND table_name = 'staleness_gating_tbl4'
+----
+0
+
+statement ok con2
+DROP TABLE wc4b.public.staleness_gating_tbl4
+
+statement ok con2
+DETACH wc4b
+
+statement ok con1
+RESET pg_staleness_query_enabled
+
+statement ok con1
+DETACH wc4
+
+# ---------------------------------------------------------------------------
+# Custom query used in place of the default
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE relkind IN (''r'',''v'',''m'',''f'',''p'') AND pg_namespace.nspname = ${SCHEMA} ORDER BY pg_class.oid'
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc5 (TYPE POSTGRES)
+
+statement ok con1
+DROP TABLE IF EXISTS wc5.public.staleness_gating_tbl5
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc5' AND table_name = 'staleness_gating_tbl5'
+----
+0
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS wc5b (TYPE POSTGRES)
+
+statement ok con2
+CREATE TABLE wc5b.public.staleness_gating_tbl5 AS SELECT 1 AS x
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc5' AND table_name = 'staleness_gating_tbl5'
+----
+1
+
+statement ok con1
+DROP TABLE wc5.public.staleness_gating_tbl5
+
+statement ok con2
+DETACH wc5b
+
+statement ok con1
+RESET pg_staleness_query
+
+statement ok con1
+DETACH wc5
+
+# ---------------------------------------------------------------------------
+# Missing ${SCHEMA} placeholder is rejected before running
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class ORDER BY pg_class.oid'
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc6 (TYPE POSTGRES)
+
+statement error con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc6'
+----
+<REGEX>:.*pg_staleness_query must contain a \$\{SCHEMA\} placeholder.*
+
+statement ok con1
+RESET pg_staleness_query
+
+statement ok con1
+DETACH wc6
+
+# ---------------------------------------------------------------------------
+# Wrong column count is rejected, malformed query fails loud
+# ---------------------------------------------------------------------------
+statement ok con1
+SET pg_staleness_query='SELECT pg_class.oid FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE pg_namespace.nspname = ${SCHEMA}'
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS wc7 (TYPE POSTGRES)
+
+statement error con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc7'
+----
+<REGEX>:.*pg_staleness_query must return at least 3 columns.*
+
+statement ok con1
+RESET pg_staleness_query
+
+statement ok con1
+DETACH wc7

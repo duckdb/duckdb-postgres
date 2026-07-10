@@ -120,11 +120,12 @@ s	SELECT 42
 statement ok
 DROP TABLE duckdb_connection_pool_test1
 
+# 2, not 1: DROP TABLE's cache-hit staleness check uses its own pooled connection
 query II
 SELECT catalog_name, available_connections
 FROM postgres_configure_pool(catalog_name='s')
 ----
-s	1
+s	2
 
 statement ok
 USE memory

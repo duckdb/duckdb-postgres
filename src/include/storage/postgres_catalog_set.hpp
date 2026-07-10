@@ -43,12 +43,17 @@ protected:
 		return false;
 	}
 	//! Empty (default) means staleness is never checked once loaded
-	virtual string GetStalenessQuery() const {
+	virtual string GetStalenessQuery(ClientContext &context) const {
 		return string();
 	}
 	void TryLoadEntries(ClientContext &context, PostgresTransaction &transaction);
-	void RefreshStalenessSignature(PostgresTransaction &transaction);
+	void RefreshStalenessSignature(PostgresTransaction &transaction, bool use_transaction_connection);
 
+private:
+	//! Runs LoadEntries + RefreshStalenessSignature, must be called with load_lock held
+	void LoadEntriesLocked(ClientContext &context, PostgresTransaction &transaction);
+
+protected:
 public:
 	void PromoteStalenessSignature(string signature);
 

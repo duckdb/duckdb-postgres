@@ -52,6 +52,19 @@ D SELECT * FROM postgres_db.uuids;
 
 For more information on how to use the connector, refer to the [Postgres documentation on the website](https://duckdb.org/docs/extensions/postgres).
 
+### Connection Pooling
+
+By default, the extension opens a new connection whenever none are idle. Behind a transaction-mode pooler (e.g. PgBouncer `pool_mode=transaction`), this can exceed the pooler's own pool size under load and hang. If that applies to you, cap and wait instead:
+
+```sql
+SET pg_pool_acquire_mode = 'wait';
+SET pg_pool_max_connections = 16;        -- ~80-90% of your pooler's pool size
+
+ATTACH 'host=pgbouncer-host port=6432 dbname=mydb' AS postgres_db (TYPE postgres);
+```
+
+Note that `SET` statements are global and only apply pre-`ATTACH`. To change pooling on an already-attached database, use `postgres_configure_pool(catalog_name=...)` instead. Leave `force` mode if you connect directly to Postgres or through a session-mode pooler.
+
 ### AWS RDS IAM Authentication
 
 The extension supports AWS RDS IAM-based authentication, which allows you to connect to RDS/Aurora PostgreSQL instances using IAM database authentication instead of static passwords. This feature automatically generates temporary authentication tokens using the AWS SDK.
