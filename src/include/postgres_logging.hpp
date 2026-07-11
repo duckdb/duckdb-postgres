@@ -2,6 +2,7 @@
 #pragma once
 
 #include "duckdb/logging/logging.hpp"
+#include "duckdb/logging/log_type.hpp"
 #include "duckdb/common/string_util.hpp"
 
 namespace duckdb {
