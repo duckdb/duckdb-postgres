@@ -14,6 +14,10 @@ namespace duckdb {
 
 enum class PostgresInstanceType { UNKNOWN, POSTGRES, AURORA, REDSHIFT };
 
+//! How scans decide between the binary COPY protocol and the text protocol.
+//! AUTO derives it from the server (the binary COPY protocol is not supported by Redshift).
+enum class PostgresTextProtocolMode { AUTO, TEXT, BINARY };
+
 struct PostgresVersion {
 	PostgresVersion() {
 	}
