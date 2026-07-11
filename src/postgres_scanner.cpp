@@ -110,6 +110,17 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 
 void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind_data,
                                        int64_t approx_num_pages) {
+	bind_data.version = version;
+	// resolve the protocol before any decision that depends on it (ctid scan, max threads)
+	// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here
+	auto pg_catalog = bind_data.GetCatalog();
+	if (pg_catalog) {
+		// for an attached database the mode set at ATTACH time decides
+		bind_data.use_text_protocol = pg_catalog->UseTextProtocol(bind_data.use_text_protocol);
+	} else if (version.type_v == PostgresInstanceType::REDSHIFT) {
+		// no attached database (postgres_scan over a dsn) - Redshift does not support the binary COPY protocol
+		bind_data.use_text_protocol = true;
+	}
 	Value pages_per_task;
 	if (context.TryGetCurrentSetting("pg_pages_per_task", pages_per_task)) {
 		bind_data.pages_per_task = UBigIntValue::Get(pages_per_task);
@@ -140,10 +151,6 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 		approx_num_pages = 0;
 	}
 	bind_data.SetTablePages(static_cast<idx_t>(approx_num_pages));
-	bind_data.version = version;
-	if (version.type_v == PostgresInstanceType::REDSHIFT) {
-		bind_data.use_text_protocol = true;
-	}
 }
 
 PostgresBindData::PostgresBindData(ClientContext &context) {

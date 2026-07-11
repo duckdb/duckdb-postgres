@@ -27,12 +27,14 @@ class PostgresCatalog : public Catalog {
 public:
 	explicit PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path, AccessMode access_mode,
 	                         vector<string> schemas_to_load, PostgresIsolationLevel isolation_level,
-	                         const string &secret_name, SecretStorageTable secret_storage_table_p);
+	                         const string &secret_name, SecretStorageTable secret_storage_table_p,
+	                         PostgresTextProtocolMode text_protocol_mode);
 	~PostgresCatalog();
 
 	string attach_path;
 	AccessMode access_mode;
 	PostgresIsolationLevel isolation_level;
+	PostgresTextProtocolMode text_protocol_mode;
 
 public:
 	void Initialize(bool load_builtin) override;
@@ -70,6 +72,22 @@ public:
 
 	PostgresVersion GetPostgresVersion() const {
 		return version;
+	}
+
+	//! Resolve whether scans against this database must use the text protocol instead of the binary COPY
+	//! protocol. This is the single place where that decision is made for an attached database, so every
+	//! scan path (table scans, postgres_query/CONNECT, ...) agrees. `setting_value` is the value of the
+	//! `pg_use_text_protocol` setting, which acts as the default when the mode is AUTO.
+	bool UseTextProtocol(bool setting_value) const {
+		switch (text_protocol_mode) {
+		case PostgresTextProtocolMode::TEXT:
+			return true;
+		case PostgresTextProtocolMode::BINARY:
+			return false;
+		default:
+			// Redshift does not support the binary COPY protocol
+			return setting_value || version.type_v == PostgresInstanceType::REDSHIFT;
+		}
 	}
 
 	//! Label all postgres scans in the sub-tree as requiring materialization

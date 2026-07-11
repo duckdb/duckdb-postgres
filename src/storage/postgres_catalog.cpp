@@ -70,9 +70,10 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path_p,
                                  AccessMode access_mode, vector<string> schemas_to_load,
                                  PostgresIsolationLevel isolation_level, const string &secret_name,
-                                 SecretStorageTable secret_storage_table_p)
+                                 SecretStorageTable secret_storage_table_p, PostgresTextProtocolMode text_protocol_mode)
     : Catalog(db_p), attach_path(std::move(attach_path_p)), access_mode(access_mode), isolation_level(isolation_level),
-      schemas(*this, schemas_to_load), connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)),
+      text_protocol_mode(text_protocol_mode), schemas(*this, schemas_to_load),
+      connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)),
       default_schema(schemas_to_load.size() > 0 ? schemas_to_load[0] : std::string()),
       secret_storage_table(std::move(secret_storage_table_p)) {
 	auto secret_entry = GetSecretEntry(ctx, secret_name);

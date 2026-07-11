@@ -1,0 +1,110 @@
+# name: test/sql/storage/attach_text_protocol.test
+# description: Test the use_text_protocol option of ATTACH
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DROP TABLE IF EXISTS s.text_protocol
+
+statement ok
+CREATE TABLE s.text_protocol(i INTEGER, s VARCHAR)
+
+statement ok
+INSERT INTO s.text_protocol VALUES (42, 'hello'), (NULL, NULL)
+
+statement ok
+DETACH s
+
+# the protocol is resolved at ATTACH time and applies to every scan of the database:
+# both regular table scans and postgres_query (which is what CONNECT runs)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, USE_TEXT_PROTOCOL true)
+
+query II
+SELECT * FROM s.text_protocol ORDER BY i
+----
+42	hello
+NULL	NULL
+
+query II
+SELECT * FROM postgres_query('s', 'SELECT * FROM text_protocol ORDER BY i')
+----
+42	hello
+NULL	NULL
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, USE_TEXT_PROTOCOL false)
+
+query II
+SELECT * FROM s.text_protocol ORDER BY i
+----
+42	hello
+NULL	NULL
+
+query II
+SELECT * FROM postgres_query('s', 'SELECT * FROM text_protocol ORDER BY i')
+----
+42	hello
+NULL	NULL
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, USE_TEXT_PROTOCOL 'auto')
+
+query II
+SELECT * FROM s.text_protocol ORDER BY i
+----
+42	hello
+NULL	NULL
+
+query II
+SELECT * FROM postgres_query('s', 'SELECT * FROM text_protocol ORDER BY i')
+----
+42	hello
+NULL	NULL
+
+statement ok
+DETACH s
+
+# an explicit option at ATTACH time overrides the pg_use_text_protocol setting
+
+statement ok
+SET pg_use_text_protocol=true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, USE_TEXT_PROTOCOL false)
+
+query II
+SELECT * FROM postgres_query('s', 'SELECT * FROM text_protocol ORDER BY i')
+----
+42	hello
+NULL	NULL
+
+statement ok
+DETACH s
+
+statement ok
+RESET pg_use_text_protocol
+
+statement error
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, USE_TEXT_PROTOCOL 'maybe')
+----
+Invalid value "maybe" for use_text_protocol, expected TRUE, FALSE or AUTO
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DROP TABLE IF EXISTS s.text_protocol

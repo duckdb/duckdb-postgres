@@ -47,6 +47,27 @@ static vector<string> ExtractSchemas(Value &value) {
 	}
 }
 
+static PostgresTextProtocolMode ExtractTextProtocolMode(Value &value) {
+	if (value.IsNull()) {
+		throw BinderException("Value for \"USE_TEXT_PROTOCOL\" option must not be null");
+	}
+	if (value.type().id() == LogicalTypeId::BOOLEAN) {
+		return BooleanValue::Get(value) ? PostgresTextProtocolMode::TEXT : PostgresTextProtocolMode::BINARY;
+	}
+	auto param = value.ToString();
+	auto lparam = StringUtil::Lower(param);
+	if (lparam == "auto") {
+		return PostgresTextProtocolMode::AUTO;
+	}
+	if (lparam == "true") {
+		return PostgresTextProtocolMode::TEXT;
+	}
+	if (lparam == "false") {
+		return PostgresTextProtocolMode::BINARY;
+	}
+	throw BinderException("Invalid value \"%s\" for use_text_protocol, expected TRUE, FALSE or AUTO", param);
+}
+
 static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
                                           AttachOptions &attach_options) {
@@ -59,6 +80,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	string secret_name;
 	vector<string> schemas_to_load;
 	PostgresIsolationLevel isolation_level = PostgresIsolationLevel::REPEATABLE_READ;
+	PostgresTextProtocolMode text_protocol_mode = PostgresTextProtocolMode::AUTO;
 	string secret_storage_table_name;
 	bool secret_storage_table_specified_explicitly = false;
 	for (auto &entry : attach_options.options) {
@@ -81,6 +103,8 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 				                      "REPEATABLE READ or SERIALIZABLE",
 				                      param);
 			}
+		} else if (lower_name == "use_text_protocol") {
+			text_protocol_mode = ExtractTextProtocolMode(entry.second);
 		} else if (lower_name == "secret_storage_table") {
 			secret_storage_table_name = entry.second.ToString();
 			secret_storage_table_specified_explicitly = true;
@@ -92,7 +116,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	                                        secret_storage_table_specified_explicitly);
 	return make_uniq<PostgresCatalog>(context, db, std::move(attach_path), attach_options.access_mode,
 	                                  std::move(schemas_to_load), isolation_level, secret_name,
-	                                  std::move(secret_storage_table));
+	                                  std::move(secret_storage_table), text_protocol_mode);
 }
 
 static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,

@@ -92,9 +92,9 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		result->types = return_types;
 		result->names = names;
 		result->read_only = false;
-		result->SetTablePages(0);
 		result->sql = std::move(sql);
 		result->use_transaction = use_transaction;
+		PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result, 0);
 		return std::move(result);
 	}
 	for (idx_t c = 0; c < nfields; c++) {
@@ -125,10 +125,10 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->types = return_types;
 	result->names = names;
 	result->read_only = false;
-	result->SetTablePages(0);
 	result->sql = std::move(sql);
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
+	PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result, 0);
 	return std::move(result);
 }
 
