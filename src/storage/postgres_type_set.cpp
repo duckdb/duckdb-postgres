@@ -1,4 +1,5 @@
 #include "storage/postgres_type_set.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include "duckdb/parser/parsed_data/create_type_info.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"

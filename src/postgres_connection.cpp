@@ -1,4 +1,5 @@
 #include "duckdb/storage/table_storage_info.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "postgres_connection.hpp"

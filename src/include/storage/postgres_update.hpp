@@ -9,6 +9,9 @@
 #pragma once
 
 #include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/common/index_vector.hpp"
 
 namespace duckdb {

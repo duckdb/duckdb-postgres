@@ -1,4 +1,6 @@
 #include "storage/postgres_schema_set.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/common/shared_ptr.hpp"

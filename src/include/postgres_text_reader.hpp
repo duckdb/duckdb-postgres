@@ -9,6 +9,7 @@
 #pragma once
 
 #include "postgres_result_reader.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_result.hpp"
 

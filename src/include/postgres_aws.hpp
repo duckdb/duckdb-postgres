@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstdint>
+#include "duckdb/main/attached_database.hpp"
 #include <string>
 
 #include "duckdb.hpp"

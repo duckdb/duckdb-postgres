@@ -1,4 +1,6 @@
 #include "postgres_aws.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database.hpp"
 
 #include <mutex>
 #include <stdexcept>

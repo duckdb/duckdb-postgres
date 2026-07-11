@@ -9,6 +9,7 @@
 #pragma once
 
 #include <mutex>
+#include "duckdb/main/client_context.hpp"
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/mutex.hpp"

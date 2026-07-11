@@ -1,4 +1,5 @@
 #include "storage/postgres_connection_pool.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include <thread>
 

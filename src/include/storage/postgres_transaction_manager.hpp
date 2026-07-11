@@ -9,6 +9,8 @@
 #pragma once
 
 #include "duckdb/transaction/transaction_manager.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "storage/postgres_catalog.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "duckdb/common/reference_map.hpp"

@@ -1,4 +1,5 @@
 #include "postgres_connection.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "postgres_binary_reader.hpp"
 
 namespace duckdb {

@@ -1,4 +1,6 @@
 #include "storage/postgres_transaction.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "storage/postgres_catalog.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/catalog/catalog_entry/index_catalog_entry.hpp"

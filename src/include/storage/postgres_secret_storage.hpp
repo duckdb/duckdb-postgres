@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/main/secret/secret_storage.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "storage/postgres_connection_pool.hpp"
 

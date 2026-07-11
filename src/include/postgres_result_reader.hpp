@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "postgres_conversion.hpp"
 #include "postgres_utils.hpp"

@@ -1,4 +1,6 @@
 #include "storage/postgres_catalog.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/execution/operator/persistent/physical_merge_into.hpp"
 #include "duckdb/planner/operator/logical_merge_into.hpp"
 #include "storage/postgres_update.hpp"

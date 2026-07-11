@@ -1,4 +1,5 @@
 #include "postgres_oauth.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include <cstdlib>
 #include <cstring>

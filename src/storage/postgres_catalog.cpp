@@ -1,4 +1,7 @@
 #include "storage/postgres_catalog.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_oauth.hpp"

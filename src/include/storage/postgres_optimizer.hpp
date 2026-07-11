@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/main/config.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/optimizer/optimizer_extension.hpp"
 
 namespace duckdb {

@@ -1,4 +1,6 @@
 #include "postgres_binary_file_reader.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/common/file_system.hpp"
 
 namespace duckdb {
 

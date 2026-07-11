@@ -1,4 +1,5 @@
 #include "postgres_utils.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 
 #include "dbconnector/query/query_writer.hpp"
 
