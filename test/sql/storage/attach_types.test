@@ -68,7 +68,10 @@ true	127	32767	2147483647	9223372036854775807	255	65535	4294967295	2000-01-01	24
 NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 
 # filter pushdown
-foreach column_name bool tinyint smallint int bigint utinyint usmallint uint date time timestamp timestamp_s timestamp_ms timestamp_ns time_tz timestamp_tz dec_4_1 dec_9_4 dec_18_6 dec38_10 uuid interval varchar blob bit small_enum medium_enum large_enum int_array double_array date_array timestamp_array timestamptz_array varchar_array
+# TODO: re-add varchar_array. Since duckdb#23539 (nested comparison semantics) an equality
+# comparison on a list containing NULL evaluates to NULL, so the value cannot be round-tripped
+# through `WHERE col = <constant>` anymore. The test_all_types varchar_array holds a NULL element.
+foreach column_name bool tinyint smallint int bigint utinyint usmallint uint date time timestamp timestamp_s timestamp_ms timestamp_ns time_tz timestamp_tz dec_4_1 dec_9_4 dec_18_6 dec38_10 uuid interval varchar blob bit small_enum medium_enum large_enum int_array double_array date_array timestamp_array timestamptz_array
 
 statement ok
 SET VARIABLE minimum_value=(SELECT MIN({column_name}) min_val FROM s.all_types);
