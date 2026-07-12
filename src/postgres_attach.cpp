@@ -1,4 +1,5 @@
 #include "duckdb.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 

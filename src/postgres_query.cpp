@@ -1,4 +1,5 @@
 #include "duckdb.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "postgres_parameters.hpp"
@@ -85,6 +86,10 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		// the prepare/describe just done — no extra round-trip — and defer execution to
 		// InitGlobalState (execution time, not bind, so EXPLAIN does not run it).
 		result->command_only = true;
+		// This invocation wraps a command with no result set (DDL, or DML without RETURNING). Tell the
+		// binder via the return-type modifier so that when this is routed through CONNECT the outer
+		// statement is reported as NOTHING and displays like a native command (no spurious result table).
+		input.table_function.call_return_type = StatementReturnType::NOTHING;
 		return_types.emplace_back(LogicalType::BOOLEAN);
 		names.emplace_back("Success");
 		result->SetCatalog(pg_catalog);

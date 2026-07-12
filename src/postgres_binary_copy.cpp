@@ -1,4 +1,5 @@
 #include "postgres_binary_copy.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "postgres_binary_writer.hpp"
 #include "postgres_binary_file_reader.hpp"
 #include "duckdb/common/serializer/buffered_file_writer.hpp"

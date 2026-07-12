@@ -1,4 +1,5 @@
 #include "storage/postgres_optimizer.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/operator/logical_limit.hpp"

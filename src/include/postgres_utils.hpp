@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/main/client_context.hpp"
 #include <libpq-fe.h>
 #include "postgres_version.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"

@@ -9,6 +9,7 @@
 #pragma once
 
 #include "postgres_utils.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "postgres_parameters.hpp"
 #include "postgres_result.hpp"
 #include "duckdb/common/shared_ptr.hpp"

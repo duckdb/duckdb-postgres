@@ -1,4 +1,5 @@
 #include "storage/postgres_transaction_manager.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/main/attached_database.hpp"
 
 namespace duckdb {

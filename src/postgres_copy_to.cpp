@@ -1,4 +1,5 @@
 #include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/common/vector/map_vector.hpp"
 #include "duckdb/common/vector/struct_vector.hpp"
 

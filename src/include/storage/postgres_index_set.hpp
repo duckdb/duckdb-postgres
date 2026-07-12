@@ -9,6 +9,8 @@
 #pragma once
 
 #include "storage/postgres_catalog_set.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "storage/postgres_index_entry.hpp"
 
 namespace duckdb {

@@ -9,6 +9,7 @@
 #pragma once
 
 #include "postgres_binary_parser.hpp"
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/common/file_system.hpp"
 
 namespace duckdb {

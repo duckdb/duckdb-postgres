@@ -1,4 +1,5 @@
 #include "postgres_secrets.hpp"
+#include "duckdb/main/client_context.hpp"
 
 #include <algorithm>
 #include <vector>
