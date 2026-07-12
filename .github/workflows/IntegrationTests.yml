@@ -345,6 +345,7 @@ jobs:
         PGPASSWORD: postgres
         PGSSLMODE: require
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        SANITIZER_BUILD: 1
         LOCAL_EXTENSION_REPO: 'build/relassert/repository'
       run: |
         source ./create-postgres-tables.sh
