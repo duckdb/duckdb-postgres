@@ -1,0 +1,83 @@
+# name: test/sql/storage/catalog_cache_staged_signature_cross_connection.test
+# description: a pending staleness signature staged by one connection's open explicit transaction must not be promoted or discarded by a concurrent, unrelated autocommit write from a different connection
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok con1
+USE s
+
+statement ok con1
+DROP TABLE IF EXISTS staged_sig_test
+
+statement ok con1
+CREATE TABLE staged_sig_test(i INTEGER)
+
+statement ok con1
+INSERT INTO s.staged_sig_test VALUES (42)
+
+# prime con1's cache
+query I con1
+SELECT column_name FROM duckdb_columns() WHERE table_name = 'staged_sig_test' ORDER BY column_name
+----
+i
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES)
+
+statement ok con2
+USE s2
+
+# con1 opens an explicit transaction, alters the table, and forces a reload that stages a
+# pending signature (not yet committed to con1's PostgresTableSet::staleness_signature)
+statement ok con1
+BEGIN
+
+statement ok con1
+ALTER TABLE s.staged_sig_test ADD COLUMN j INTEGER
+
+query I con1
+SELECT j FROM s.staged_sig_test
+----
+NULL
+
+# concurrently, con2 (autocommit, unrelated connection) writes a *different* table in the
+# same schema and commits - this must not promote or clobber con1's still-pending signature
+statement ok con2
+DROP TABLE IF EXISTS staged_sig_unrelated
+
+statement ok con2
+CREATE TABLE staged_sig_unrelated(x INTEGER)
+
+# con1 rolls back its own transaction - its pending signature (with column j) must be discarded,
+# not promoted, regardless of what con2 did concurrently
+statement ok con1
+ROLLBACK
+
+statement error con1
+SELECT j FROM s.staged_sig_test
+----
+not found
+
+# con1's cache must still correctly see con2's committed, unrelated change on the next access
+query I con1
+SELECT table_name FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'staged_sig_unrelated'
+----
+staged_sig_unrelated
+
+statement ok con1
+DROP TABLE staged_sig_test
+
+statement ok con1
+DROP TABLE staged_sig_unrelated
+
+statement ok con2
+USE memory
+
+statement ok con2
+DETACH s2

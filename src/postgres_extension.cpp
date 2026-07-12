@@ -213,6 +213,18 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "Use SQL-standard information_schema views for ATTACH-time schema discovery instead of pg_catalog."
 	    "For compatibility with pg protocol compatible databases like spanner, cockroach, redshift, ...",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting);
+	config.AddExtensionOption(
+	    "pg_staleness_query_enabled",
+	    "Whether or not the table catalog cache checks Postgres for external DDL changes before serving a "
+	    "cache hit. Defaults to the opposite of pg_use_information_schema_introspection when not explicitly set "
+	    "(off for pg protocol compatible databases that may not support the underlying query, on for Postgres).",
+	    LogicalType::BOOLEAN, Value(), PostgresClearCacheFunction::ClearCacheOnSetting);
+	config.AddExtensionOption(
+	    "pg_staleness_query",
+	    "Custom query used in place of the default table staleness query when pg_staleness_query_enabled "
+	    "resolves to true. Must contain a ${SCHEMA} placeholder and return at least 3 columns "
+	    "(identity, name, revision marker). Empty (default) uses the built-in pg_class/xmin query.",
+	    LogicalType::VARCHAR, Value(), PostgresClearCacheFunction::ClearCacheOnSetting);
 	config.AddExtensionOption("pg_statement_timeout_millis",
 	                          "Postgres statement timeout in milliseconds to set on scan connections",
 	                          LogicalType::UINTEGER, Value());
