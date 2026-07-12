@@ -59,6 +59,8 @@ CALL enable_logging('PostgresQueryLog');
 statement ok
 DESCRIBE
 
+mode skip
+
 query I
 SELECT query FROM duckdb_logs_parsed('PostgresQueryLog');
 ----

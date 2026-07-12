@@ -86,6 +86,22 @@ bool PostgresUtils::UseInformationSchemaIntrospection(optional_ptr<ClientContext
 	return false;
 }
 
+bool PostgresUtils::StalenessQueryEnabled(ClientContext &context) {
+	Value value;
+	if (context.TryGetCurrentSetting("pg_staleness_query_enabled", value) && !value.IsNull()) {
+		return BooleanValue::Get(value);
+	}
+	return !UseInformationSchemaIntrospection(&context);
+}
+
+string PostgresUtils::GetCustomStalenessQuery(ClientContext &context) {
+	Value value;
+	if (context.TryGetCurrentSetting("pg_staleness_query", value) && !value.IsNull()) {
+		return StringValue::Get(value);
+	}
+	return string();
+}
+
 string PostgresUtils::DataTypeToTypeName(const string &data_type) {
 	// Map SQL-standard information_schema.columns.data_type values to the
 	// pg_type.typname

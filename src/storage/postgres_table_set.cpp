@@ -209,6 +209,27 @@ void PostgresTableSet::LoadEntries(ClientContext &context, PostgresTransaction &
 	}
 }
 
+string PostgresTableSet::GetStalenessQuery(ClientContext &context) const {
+	if (!PostgresUtils::StalenessQueryEnabled(context)) {
+		return string();
+	}
+	auto custom_query = PostgresUtils::GetCustomStalenessQuery(context);
+	if (!custom_query.empty()) {
+		if (custom_query.find("${SCHEMA}") == string::npos) {
+			throw InvalidInputException("pg_staleness_query must contain a ${SCHEMA} placeholder");
+		}
+		return StringUtil::Replace(custom_query, "${SCHEMA}", KeywordHelper::WriteQuoted(schema.name));
+	}
+	string base_query = R"(
+SELECT pg_class.oid, relname, pg_class.xmin
+FROM pg_class
+JOIN pg_namespace ON relnamespace = pg_namespace.oid
+WHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND pg_namespace.nspname = ${SCHEMA}
+ORDER BY pg_class.oid;
+)";
+	return StringUtil::Replace(base_query, "${SCHEMA}", KeywordHelper::WriteQuoted(schema.name));
+}
+
 unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction &transaction,
                                                              PostgresSchemaEntry &schema, const string &table_name) {
 	auto query = PostgresUtils::UseInformationSchemaIntrospection(transaction.GetContext())
@@ -259,7 +280,9 @@ optional_ptr<CatalogEntry> PostgresTableSet::ReloadEntry(PostgresTransaction &tr
 		return nullptr;
 	}
 	auto table_entry = make_shared_ptr<PostgresTableEntry>(catalog, schema, *table_info);
-	return CreateEntry(transaction, std::move(table_entry));
+	auto result = CreateEntry(transaction, std::move(table_entry));
+	RefreshStalenessSignature(transaction, /*use_transaction_connection=*/false);
+	return result;
 }
 
 // FIXME - this is almost entirely copied from TableCatalogEntry::ColumnsToSQL - should be unified
@@ -381,7 +404,9 @@ optional_ptr<CatalogEntry> PostgresTableSet::CreateTable(PostgresTransaction &tr
 	auto create_sql = GetPostgresCreateTable(info.Base());
 	transaction.Query(create_sql);
 	auto tbl_entry = make_shared_ptr<PostgresTableEntry>(catalog, schema, info.Base());
-	return CreateEntry(transaction, std::move(tbl_entry));
+	auto result = CreateEntry(transaction, std::move(tbl_entry));
+	RefreshStalenessSignature(transaction, /*use_transaction_connection=*/true);
+	return result;
 }
 
 string PostgresTableSet::GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry) {
