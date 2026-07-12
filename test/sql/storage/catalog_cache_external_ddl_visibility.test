@@ -1,0 +1,52 @@
+# name: test/sql/storage/catalog_cache_external_ddl_visibility.test
+# description: DDL from a separate ClientContext must become visible without an explicit pg_clear_cache() call
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# con1: prime an empty-schema cache
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok con1
+USE s
+
+statement ok con1
+DROP TABLE IF EXISTS ext_ddl_visibility_tbl
+
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'ext_ddl_visibility_tbl'
+----
+0
+
+# con2: a genuinely separate ClientContext, attaching the same physical database
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES)
+
+statement ok con2
+USE s2
+
+statement ok con2
+CREATE TABLE ext_ddl_visibility_tbl AS SELECT 1 AS x
+
+# con1: re-query without any pg_clear_cache() call from either connection
+query I con1
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'ext_ddl_visibility_tbl'
+----
+1
+
+query I con1
+SELECT x FROM ext_ddl_visibility_tbl
+----
+1
+
+statement ok con1
+DROP TABLE ext_ddl_visibility_tbl
+
+statement ok con2
+USE memory
+
+statement ok con2
+DETACH s2

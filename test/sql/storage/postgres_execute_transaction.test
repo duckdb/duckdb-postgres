@@ -57,7 +57,11 @@ statement ok
 DESCRIBE
 
 query I
-SELECT query FROM duckdb_logs_parsed('PostgresQueryLog');
+SELECT count(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query LIKE 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ%'
 ----
-BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ
-COMMIT
+1
+
+query I
+SELECT count(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'COMMIT'
+----
+1

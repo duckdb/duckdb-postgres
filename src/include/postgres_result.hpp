@@ -48,6 +48,10 @@ public:
 		D_ASSERT(res);
 		return PQntuples(res);
 	}
+	idx_t ColumnCount() {
+		D_ASSERT(res);
+		return PQnfields(res);
+	}
 	idx_t AffectedRows() {
 		auto affected = PQcmdTuples(res);
 		if (!affected) {

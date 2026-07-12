@@ -1,0 +1,58 @@
+# name: test/sql/storage/catalog_cache_identity_swap_detected.test
+# description: drop+create in the same schema that leaves row count unchanged must still be detected as stale (adversarial case that rules out a pure cardinality or xmin-aggregation staleness signal)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok con1
+USE s
+
+statement ok con1
+DROP TABLE IF EXISTS identity_swap_foo
+
+statement ok con1
+DROP TABLE IF EXISTS identity_swap_bar
+
+statement ok con1
+CREATE TABLE identity_swap_foo AS SELECT 1 AS x
+
+# prime the cache with foo present
+query I con1
+SELECT table_name FROM duckdb_tables() WHERE table_name LIKE 'identity_swap_%' ORDER BY table_name
+----
+identity_swap_foo
+
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES)
+
+statement ok con2
+USE s2
+
+# net pg_class row count for this schema is unchanged: one dropped, one created
+statement ok con2
+DROP TABLE identity_swap_foo
+
+statement ok con2
+CREATE TABLE identity_swap_bar AS SELECT 2 AS y
+
+# con1 must see bar and must NOT still see foo, despite unchanged cardinality
+# (filtered to database_name = 's' - con2's own s2 attach of the same physical
+# DB would otherwise also surface identity_swap_bar a second time)
+query I con1
+SELECT table_name FROM duckdb_tables() WHERE database_name = 's' AND table_name LIKE 'identity_swap_%' ORDER BY table_name
+----
+identity_swap_bar
+
+statement ok con1
+DROP TABLE identity_swap_bar
+
+statement ok con2
+USE memory
+
+statement ok con2
+DETACH s2
