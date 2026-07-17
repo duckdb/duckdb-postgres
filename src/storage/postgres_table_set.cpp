@@ -123,6 +123,10 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 		column.SetDefaultValue(std::move(expressions[0]));
 	}
 	auto &create_info = *table_info.create_info;
+	if (!result.IsNull(row, 7)) {
+		auto attnum = result.GetInt64(row, 7);
+		table_info.attnum_to_logical[attnum] = create_info.columns.LogicalColumnCount();
+	}
 	if (is_not_null) {
 		create_info.constraints.push_back(
 		    make_uniq<NotNullConstraint>(LogicalIndex(create_info.columns.PhysicalColumnCount())));
@@ -144,11 +148,12 @@ void PostgresTableSet::AddConstraint(PostgresResult &result, idx_t row, Postgres
 	auto splits = StringUtil::Split(constraint_key.substr(1, constraint_key.size() - 2), ",");
 	vector<string> columns;
 	for (auto &split : splits) {
-		auto index = std::stoull(split);
-		if (index <= 0 || index > create_info.columns.LogicalColumnCount()) {
+		auto attnum = std::stoll(split);
+		auto entry = table_info.attnum_to_logical.find(attnum);
+		if (entry == table_info.attnum_to_logical.end()) {
 			return;
 		}
-		columns.push_back(create_info.columns.GetColumn(LogicalIndex(index - 1)).Name());
+		columns.push_back(create_info.columns.GetColumn(LogicalIndex(entry->second)).Name());
 	}
 
 	create_info.constraints.push_back(make_uniq<UniqueConstraint>(std::move(columns), constraint_type == "p"));
