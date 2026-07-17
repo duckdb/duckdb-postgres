@@ -13,6 +13,7 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/common/unordered_map.hpp"
 #include "postgres_utils.hpp"
 
 namespace duckdb {
@@ -39,6 +40,7 @@ struct PostgresTableInfo {
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
 	int64_t approx_num_pages = 0;
+	unordered_map<int64_t, idx_t> attnum_to_logical;
 };
 
 class PostgresTableEntry : public TableCatalogEntry {
