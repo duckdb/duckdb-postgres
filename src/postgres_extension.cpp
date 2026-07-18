@@ -218,13 +218,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "Whether or not the table catalog cache checks Postgres for external DDL changes before serving a "
 	    "cache hit. Defaults to the opposite of pg_use_information_schema_introspection when not explicitly set "
 	    "(off for pg protocol compatible databases that may not support the underlying query, on for Postgres).",
-	    LogicalType::BOOLEAN, Value(), PostgresClearCacheFunction::ClearCacheOnSetting);
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting, SetScope::GLOBAL);
 	config.AddExtensionOption(
 	    "pg_staleness_query",
 	    "Custom query used in place of the default table staleness query when pg_staleness_query_enabled "
 	    "resolves to true. Must contain a ${SCHEMA} placeholder and return at least 3 columns "
 	    "(identity, name, revision marker). Empty (default) uses the built-in pg_class/xmin query.",
-	    LogicalType::VARCHAR, Value(), PostgresClearCacheFunction::ClearCacheOnSetting);
+	    LogicalType::VARCHAR, Value(), PostgresClearCacheFunction::ClearCacheOnSetting, SetScope::GLOBAL);
 	config.AddExtensionOption("pg_statement_timeout_millis",
 	                          "Postgres statement timeout in milliseconds to set on scan connections",
 	                          LogicalType::UINTEGER, Value());

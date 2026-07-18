@@ -9,6 +9,9 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
+statement ok
+SET GLOBAL pg_staleness_query_enabled = TRUE
+
 statement ok con1
 USE s
 
@@ -56,3 +59,6 @@ USE memory
 
 statement ok con2
 DETACH s2
+
+statement ok
+RESET GLOBAL pg_staleness_query_enabled
