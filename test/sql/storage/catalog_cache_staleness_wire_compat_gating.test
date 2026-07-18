@@ -12,6 +12,9 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc1 (TYPE POSTGRES)
 
+statement ok
+SET GLOBAL pg_staleness_query_enabled = TRUE
+
 statement ok con1
 DROP TABLE IF EXISTS wc1.public.staleness_gating_tbl1
 
@@ -43,6 +46,9 @@ DETACH wc1
 # ---------------------------------------------------------------------------
 # Default-off when compat mode is signaled
 # ---------------------------------------------------------------------------
+statement ok
+SET GLOBAL pg_staleness_query_enabled = NULL
+
 statement ok con1
 SET pg_use_information_schema_introspection=true
 
@@ -87,7 +93,7 @@ statement ok con1
 SET pg_use_information_schema_introspection=true
 
 statement ok con1
-SET pg_staleness_query_enabled=true
+SET GLOBAL pg_staleness_query_enabled=true
 
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc3 (TYPE POSTGRES)
@@ -121,7 +127,7 @@ statement ok con1
 RESET pg_use_information_schema_introspection
 
 statement ok con1
-RESET pg_staleness_query_enabled
+RESET GLOBAL pg_staleness_query_enabled
 
 statement ok con1
 DETACH wc3
@@ -130,7 +136,7 @@ DETACH wc3
 # Explicit override wins, off-direction
 # ---------------------------------------------------------------------------
 statement ok con1
-SET pg_staleness_query_enabled=false
+SET GLOBAL pg_staleness_query_enabled=false
 
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc4 (TYPE POSTGRES)
@@ -161,7 +167,7 @@ statement ok con2
 DETACH wc4b
 
 statement ok con1
-RESET pg_staleness_query_enabled
+RESET GLOBAL pg_staleness_query_enabled
 
 statement ok con1
 DETACH wc4
@@ -169,8 +175,11 @@ DETACH wc4
 # ---------------------------------------------------------------------------
 # Custom query used in place of the default
 # ---------------------------------------------------------------------------
+statement ok
+SET GLOBAL pg_staleness_query_enabled = TRUE
+
 statement ok con1
-SET pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE relkind IN (''r'',''v'',''m'',''f'',''p'') AND pg_namespace.nspname = ${SCHEMA} ORDER BY pg_class.oid'
+SET GLOBAL pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE relkind IN (''r'',''v'',''m'',''f'',''p'') AND pg_namespace.nspname = ${SCHEMA} ORDER BY pg_class.oid'
 
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc5 (TYPE POSTGRES)
@@ -201,7 +210,7 @@ statement ok con2
 DETACH wc5b
 
 statement ok con1
-RESET pg_staleness_query
+RESET GLOBAL pg_staleness_query
 
 statement ok con1
 DETACH wc5
@@ -210,7 +219,7 @@ DETACH wc5
 # Missing ${SCHEMA} placeholder is rejected before running
 # ---------------------------------------------------------------------------
 statement ok con1
-SET pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class ORDER BY pg_class.oid'
+SET GLOBAL pg_staleness_query='SELECT pg_class.oid, relname, pg_class.xmin FROM pg_class ORDER BY pg_class.oid'
 
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc6 (TYPE POSTGRES)
@@ -221,7 +230,7 @@ SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc6'
 <REGEX>:.*pg_staleness_query must contain a \$\{SCHEMA\} placeholder.*
 
 statement ok con1
-RESET pg_staleness_query
+RESET GLOBAL pg_staleness_query
 
 statement ok con1
 DETACH wc6
@@ -230,7 +239,7 @@ DETACH wc6
 # Wrong column count is rejected, malformed query fails loud
 # ---------------------------------------------------------------------------
 statement ok con1
-SET pg_staleness_query='SELECT pg_class.oid FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE pg_namespace.nspname = ${SCHEMA}'
+SET GLOBAL pg_staleness_query='SELECT pg_class.oid FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE pg_namespace.nspname = ${SCHEMA}'
 
 statement ok con1
 ATTACH 'dbname=postgresscanner' AS wc7 (TYPE POSTGRES)
@@ -241,7 +250,10 @@ SELECT count(*) FROM duckdb_tables() WHERE database_name = 'wc7'
 <REGEX>:.*pg_staleness_query must return at least 3 columns.*
 
 statement ok con1
-RESET pg_staleness_query
+RESET GLOBAL pg_staleness_query
 
 statement ok con1
 DETACH wc7
+
+statement ok
+RESET GLOBAL pg_staleness_query_enabled
