@@ -10,10 +10,6 @@ require-env PGOAUTHTOKEN
 
 require-env PG_OAUTH_DSN
 
-# Explicitly load the extension so settings are registered
-statement ok
-LOAD postgres_scanner;
-
 # Test 1: Connect using the pg_oauth_token DuckDB setting
 statement ok
 SET pg_oauth_token = '${PGOAUTHTOKEN}';
