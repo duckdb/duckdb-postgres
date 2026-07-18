@@ -5,7 +5,10 @@
 require postgres_scanner
 
 statement ok
-LOAD postgres_scanner;
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DETACH s
 
 # --- Non-existent file ---
 statement error
