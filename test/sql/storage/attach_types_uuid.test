@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE uuids(u UUID);
 
@@ -34,3 +39,8 @@ SELECT * FROM uuids
 NULL
 00000000-0000-0000-0000-000000000001
 ffffffff-ffff-ffff-ffff-ffffffffffff
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

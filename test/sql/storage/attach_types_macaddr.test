@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 # macaddress only
 statement ok
 DELETE FROM pg_macaddr
@@ -27,6 +32,11 @@ SELECT * FROM pg_macaddr
 ----
 08:00:2b:01:02:03
 NULL
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 
 
 # complex types, including list of macaddr
 statement ok

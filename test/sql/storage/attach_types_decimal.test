@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 # no scale (integers)
 statement ok
 CREATE OR REPLACE TABLE decimals(d DECIMAL(4,0));
@@ -183,3 +188,8 @@ SELECT * FROM decimals
 1234567891234567891.1234567891234567891
 9999999999999999999.9999999999999999999
 -9999999999999999999.9999999999999999999
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 query I
 SELECT * FROM pg_json
 ----
@@ -27,3 +32,8 @@ query I
 SELECT * FROM pg_json
 ----
 {"a": 42, "b": "string"}
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

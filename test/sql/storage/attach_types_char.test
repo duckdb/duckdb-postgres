@@ -22,6 +22,11 @@ hello	5
 (empty)	0
 NULL	NULL
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement error
 INSERT INTO chars VALUES ('this string is too long')
 ----
@@ -38,6 +43,9 @@ INSERT INTO chars VALUES ('hello'), ('world'), ('maxlength1'), ('hello     '), (
 
 statement ok
 COMMIT
+
+statement ok
+SET pg_use_text_protocol = FALSE
 
 query II
 SELECT c, LENGTH(c) FROM chars
@@ -71,7 +79,15 @@ hello     	10
      	5
 NULL	NULL
 
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement error
 INSERT INTO varchars_fixed_len VALUES ('this string is too long')
 ----
 value too long
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 
