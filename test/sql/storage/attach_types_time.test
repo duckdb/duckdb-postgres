@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE times(t TIME);
 
@@ -53,3 +58,8 @@ SELECT * FROM timestz
 NULL
 23:59:59+00
 23:59:59+06
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

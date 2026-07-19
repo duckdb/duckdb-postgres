@@ -9,6 +9,11 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE s.blobs(b BLOB);
 
@@ -27,3 +32,8 @@ SELECT * FROM s.blobs
 \x00\x00\x00
 NULL
 thisisalongstring\x00\x00withnullbytes
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

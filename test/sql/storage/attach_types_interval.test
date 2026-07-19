@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE attach_intervals(i INTERVAL);
 
@@ -38,3 +43,8 @@ NULL
 00:30:15
 2 months 2 days 00:15:00
 -2 days
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

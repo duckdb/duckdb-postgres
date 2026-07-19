@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 DROP TABLE IF EXISTS enums
 
@@ -52,6 +57,11 @@ sad
 happy
 NULL
 
+endloop
+
+statement ok
+RESET pg_use_text_protocol 
+
 # reconnect
 statement ok
 ATTACH ':memory:' AS x
@@ -67,6 +77,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
 USE s;
+
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
 
 query I
 SELECT UNNEST(enum_range(NULL::MOOD))
@@ -98,3 +113,8 @@ statement error
 CREATE OR REPLACE TABLE enums(e ENUM('sad', 'happy'));
 ----
 Enums in Postgres must be named
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

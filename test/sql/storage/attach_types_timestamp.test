@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE timestamps(t TIMESTAMP);
 
@@ -49,6 +54,11 @@ insert into timestamps values (TIMESTAMP 'infinity');
 statement ok
 insert into timestamps values (TIMESTAMP '-infinity');
 
+# TODO: BC with text proto
+
+statement ok
+SET pg_use_text_protocol = FALSE
+
 query I
 SELECT * FROM timestamps
 ----
@@ -59,6 +69,9 @@ NULL
 294247-01-10 04:00:54.775806
 infinity
 -infinity
+
+statement ok
+SET pg_use_text_protocol = {plain}
 
 # timestamptz
 statement ok
@@ -137,3 +150,8 @@ SELECT * FROM timestamp_tbl
 2000-01-01 00:00:00
 NULL
 1980-01-01 23:59:59.123456
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 

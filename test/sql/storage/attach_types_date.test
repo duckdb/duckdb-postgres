@@ -12,6 +12,11 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement ok
 USE s;
 
+foreach plain FALSE TRUE
+
+statement ok
+SET pg_use_text_protocol = {plain}
+
 statement ok
 CREATE OR REPLACE TABLE dates(d DATE);
 
@@ -58,6 +63,13 @@ statement error
 INSERT INTO dates VALUES (DATE '5881580-07-10');
 ----
 out of range
+
+endloop
+
+statement ok
+RESET pg_use_text_protocol 
+
+# TODO: BC with text proto
 
 query I
 SELECT * FROM dates
