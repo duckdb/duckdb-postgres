@@ -1,0 +1,107 @@
+# name: test/sql/storage/attach_on_conflict_dropped_column.test
+# description: ON CONFLICT must resolve UNIQUE/PRIMARY KEY constraints correctly after DROP COLUMN (issue #454)
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+# Postgres does not renumber attnums after DROP COLUMN, so a column dropped
+# physically before the key columns leaves a gap between the constraint's
+# attnums and the remaining columns. UNIQUE(a, b, c) has attnums {3, 4, 5}, and
+# dropping 'e' (attnum 2) must not break resolution of the conflict target.
+statement ok
+CREATE OR REPLACE TABLE s1.tbl(d INTEGER, e INTEGER, a INTEGER, b INTEGER, c INTEGER, UNIQUE(a, b, c));
+
+statement ok
+ALTER TABLE s1.tbl DROP COLUMN e;
+
+statement ok
+INSERT INTO s1.tbl(a, b, c, d) VALUES (1, 2, 3, 4);
+
+# DO NOTHING leaves the existing row untouched
+statement ok
+INSERT INTO s1.tbl(a, b, c, d) VALUES (1, 2, 3, 99) ON CONFLICT (a, b, c) DO NOTHING;
+
+query IIII
+SELECT d, a, b, c FROM s1.tbl
+----
+4	1	2	3
+
+# DO UPDATE targets the conflicting row
+statement ok
+INSERT INTO s1.tbl(a, b, c, d) VALUES (1, 2, 3, 7) ON CONFLICT (a, b, c) DO UPDATE SET d = excluded.d;
+
+query IIII
+SELECT d, a, b, c FROM s1.tbl
+----
+7	1	2	3
+
+# The same attnum gap must not silently shift the key onto the wrong in-range
+# columns: the real UNIQUE key is (a, b) (attnums {3, 4}), so (b, c) is not a
+# valid conflict target while (a, b) is.
+statement ok
+CREATE OR REPLACE TABLE s1.tbl2(d INTEGER, e INTEGER, a INTEGER, b INTEGER, c INTEGER, f INTEGER, UNIQUE(a, b));
+
+statement ok
+ALTER TABLE s1.tbl2 DROP COLUMN e;
+
+statement error
+INSERT INTO s1.tbl2(a, b, c) VALUES (1, 2, 3) ON CONFLICT (b, c) DO NOTHING;
+----
+The specified columns as conflict target are not referenced by a UNIQUE/PRIMARY KEY CONSTRAINT
+
+statement ok
+INSERT INTO s1.tbl2(a, b, c) VALUES (1, 2, 3) ON CONFLICT (a, b) DO NOTHING;
+
+# PRIMARY KEY decodes conkey the same way; verify the gap case there too.
+statement ok
+CREATE OR REPLACE TABLE s1.tbl3(d INTEGER, e INTEGER, a INTEGER, b INTEGER, PRIMARY KEY(a, b));
+
+statement ok
+ALTER TABLE s1.tbl3 DROP COLUMN e;
+
+statement ok
+INSERT INTO s1.tbl3(a, b, d) VALUES (1, 2, 10);
+
+statement ok
+INSERT INTO s1.tbl3(a, b, d) VALUES (1, 2, 20) ON CONFLICT (a, b) DO UPDATE SET d = excluded.d;
+
+query III
+SELECT a, b, d FROM s1.tbl3
+----
+1	2	20
+
+# Dropping a column that comes physically *after* the key columns leaves no gap
+# in the key's attnums, but must still resolve correctly.
+statement ok
+CREATE OR REPLACE TABLE s1.tbl4(a INTEGER, b INTEGER, e INTEGER, c INTEGER, UNIQUE(a, b));
+
+statement ok
+ALTER TABLE s1.tbl4 DROP COLUMN e;
+
+statement ok
+INSERT INTO s1.tbl4(a, b, c) VALUES (1, 2, 3);
+
+statement ok
+INSERT INTO s1.tbl4(a, b, c) VALUES (1, 2, 99) ON CONFLICT (a, b) DO NOTHING;
+
+query III
+SELECT a, b, c FROM s1.tbl4
+----
+1	2	3
+
+statement ok
+DROP TABLE s1.tbl
+
+statement ok
+DROP TABLE s1.tbl2
+
+statement ok
+DROP TABLE s1.tbl3
+
+statement ok
+DROP TABLE s1.tbl4
