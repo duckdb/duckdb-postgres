@@ -73,9 +73,6 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 	if (gstate.max_threads <= 1) {
 		return;
 	}
-	if (version.type_v == PostgresInstanceType::AURORA) {
-		return;
-	}
 	// SET TRANSACTION SNAPSHOT requires REPEATABLE READ or SERIALIZABLE
 	auto pg_catalog = bind_data.GetCatalog();
 	if (pg_catalog && pg_catalog->isolation_level == PostgresIsolationLevel::READ_COMMITTED) {
@@ -95,15 +92,10 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 		return;
 	}
 
-	result = con.TryQuery(
-	    context, "SELECT pg_is_in_recovery(), pg_export_snapshot(), (select count(*) from pg_stat_wal_receiver)");
+	// snapshot export works on replicas since PostgreSQL 10 and on RDS/Aurora, so no recovery check is needed
+	result = con.TryQuery(context, "SELECT pg_export_snapshot()");
 	if (result) {
-		auto in_recovery = result->GetBool(0, 0) || result->GetInt64(0, 2) > 0;
-		gstate.snapshot = "";
-		if (!in_recovery) {
-			gstate.snapshot = result->GetString(0, 1);
-		}
-		return;
+		gstate.snapshot = result->GetString(0, 0);
 	}
 }
 
