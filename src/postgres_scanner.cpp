@@ -451,6 +451,10 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 					lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection();
 				}
 				lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
+				// unlike the main-thread connection this one is not in a transaction yet, so we pin it to
+				// the snapshot to prevent reads at its own instant
+				PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode,
+				                    pg_catalog->isolation_level);
 			}
 			used_main_thread = true;
 			return true;
