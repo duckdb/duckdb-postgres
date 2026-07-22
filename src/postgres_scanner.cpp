@@ -67,9 +67,8 @@ private:
 	PostgresConnection connection;
 };
 
-static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version, const PostgresBindData &bind_data,
+static void PostgresGetSnapshot(ClientContext &context, const PostgresBindData &bind_data,
                                 PostgresGlobalState &gstate) {
-	unique_ptr<PostgresResult> result;
 	// by default disable snapshotting
 	gstate.snapshot = string();
 	if (gstate.max_threads <= 1) {
@@ -82,20 +81,8 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 	}
 	// reader threads can use the same snapshot
 	auto &con = gstate.GetConnection();
-	// pg_stat_wal_receiver was introduced in PostgreSQL 9.6
-	if (version < PostgresVersion(9, 6, 0)) {
-		result = con.TryQuery(context, "SELECT pg_is_in_recovery(), pg_export_snapshot()");
-		if (result) {
-			auto in_recovery = result->GetBool(0, 0);
-			if (!in_recovery) {
-				gstate.snapshot = result->GetString(0, 1);
-			}
-		}
-		return;
-	}
-
 	// snapshot export works on replicas since PostgreSQL 10 and on RDS/Aurora, so no recovery check is needed
-	result = con.TryQuery(context, "SELECT pg_export_snapshot()");
+	auto result = con.TryQuery(context, "SELECT pg_export_snapshot()");
 	if (result) {
 		gstate.snapshot = result->GetString(0, 0);
 	}
@@ -103,7 +90,6 @@ static void PostgresGetSnapshot(ClientContext &context, PostgresVersion version,
 
 void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind_data,
                                        int64_t approx_num_pages) {
-	bind_data.version = version;
 	// resolve the protocol before any decision that depends on it (ctid scan, max threads)
 	// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here
 	auto pg_catalog = bind_data.GetCatalog();
@@ -408,7 +394,7 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		result->collection->InitializeScan(result->scan_state);
 	} else {
 		// we create a transaction here, and get the snapshot id to enable transaction-safe parallelism
-		PostgresGetSnapshot(context, bind_data.version, bind_data, *result);
+		PostgresGetSnapshot(context, bind_data, *result);
 	}
 	return std::move(result);
 }
