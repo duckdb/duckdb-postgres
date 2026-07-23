@@ -30,7 +30,6 @@ struct PostgresBindData : public dbconnector::BindData {
 public:
 	PostgresBindData(ClientContext &context);
 
-	PostgresVersion version;
 	string schema_name;
 	string table_name;
 	string sql;
