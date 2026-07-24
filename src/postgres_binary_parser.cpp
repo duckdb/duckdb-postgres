@@ -156,6 +156,12 @@ void PostgresBinaryParser::ReadValue(const LogicalType &type, const PostgresType
 		FlatVector::SetNull(out_vec, output_offset, true);
 		return;
 	}
+	if (value_len < 0) {
+		// -1 is the only negative length Postgres emits - anything else would be converted to a huge
+		// unsigned length by the readers below
+		throw InvalidInputException("Invalid Postgres binary field length %d, only -1 (NULL) can be negative",
+		                            value_len);
+	}
 	switch (type.id()) {
 	case LogicalTypeId::SMALLINT:
 		D_ASSERT(value_len == sizeof(int16_t));
@@ -197,6 +203,10 @@ void PostgresBinaryParser::ReadValue(const LogicalType &type, const PostgresType
 	case LogicalTypeId::BLOB:
 	case LogicalTypeId::VARCHAR: {
 		if (postgres_type.info == PostgresTypeAnnotation::JSONB) {
+			if (value_len < 1) {
+				// the version byte is part of the value, so a zero length would underflow below
+				throw InvalidInputException("Need at least 1 byte to read a Postgres JSONB value, got %d", value_len);
+			}
 			auto version = ReadInteger<uint8_t>();
 			value_len--;
 			if (version != 1) {

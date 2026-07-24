@@ -141,7 +141,9 @@ private:
 	}
 
 	const char *ReadString(idx_t string_length) {
-		if (buffer_ptr + string_length > end) {
+		// compare against the bytes that are left rather than adding to buffer_ptr first - a corrupt
+		// length can be large enough to overflow the pointer and make the bounds check pass
+		if (buffer_ptr > end || string_length > idx_t(end - buffer_ptr)) {
 			throw IOException("Postgres binary reader - out of buffer in ReadString");
 		}
 		auto result = const_char_ptr_cast(buffer_ptr);

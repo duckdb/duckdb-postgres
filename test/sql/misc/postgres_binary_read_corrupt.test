@@ -1,0 +1,34 @@
+# name: test/sql/misc/postgres_binary_read_corrupt.test
+# description: Test reading postgres binary files with corrupt field lengths
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DETACH s
+
+# a field length of -2: only -1 (NULL) may be negative, anything else becomes a huge unsigned
+# length once it reaches ReadString(idx_t)
+statement error
+SELECT * FROM read_postgres_binary('test/data/postgres_binary_negative_length.bin', columns={a: 'VARCHAR'});
+----
+Invalid Postgres binary field length
+
+statement error
+SELECT * FROM read_postgres_binary('test/data/postgres_binary_negative_length.bin', columns={a: 'BLOB'});
+----
+Invalid Postgres binary field length
+
+statement error
+SELECT * FROM read_postgres_binary('test/data/postgres_binary_negative_length.bin', columns={a: 'INTEGER'});
+----
+Invalid Postgres binary field length
+
+# a field length that runs past the end of the data must be rejected rather than read
+statement error
+SELECT * FROM read_postgres_binary('test/data/postgres_binary_oversized_length.bin', columns={a: 'VARCHAR'});
+----
+out of buffer in ReadString
