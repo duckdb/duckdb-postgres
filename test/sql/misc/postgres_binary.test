@@ -12,6 +12,12 @@ CALL postgres_attach('dbname=postgresscanner');
 statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
+# DuckDB supports timestamps below PostgreSQL's minimum.
+statement error
+COPY (SELECT TIMESTAMP '290309-12-22 (BC)') TO '{TEST_DIR}/pg_binary.bin' (FORMAT postgres_binary);
+----
+out of range for Postgres
+
 # straightforward integer copy
 statement ok
 COPY (SELECT i::INT AS i FROM range(100) t(i)) TO '{TEST_DIR}/pg_binary.bin' (FORMAT postgres_binary);
@@ -33,7 +39,8 @@ CREATE TABLE all_types_tbl AS
 SELECT bool, smallint, int, bigint, float, double, dec_4_1, dec_9_4, dec_18_6, dec38_10,
 	case when date < '1992-01-01' then '4712-01-01 (BC)' else '5874896-01-01' end as date, -- postgres has more constrained date ranges
 	time,
-	timestamp, interval, uuid, blob,
+	case when timestamp < TIMESTAMP '4713-01-01 (BC)' then TIMESTAMP '4713-01-01 (BC)' else timestamp end as timestamp, -- postgres has a more constrained lower timestamp bound
+	interval, uuid, blob,
 	replace(varchar, chr(0), '') as varchar, -- postgres does not support null bytes in varchar columns
 	blob, int_array, varchar_array
 FROM test_all_types()

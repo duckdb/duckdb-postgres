@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/common/operator/subtract.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/serializer/memory_stream.hpp"
 #include "duckdb/common/vector/list_vector.hpp"
@@ -121,7 +122,14 @@ public:
 		if (value == timestamp_t::ninfinity()) {
 			return POSTGRES_NINFINITY;
 		}
-		return uint64_t(value.value - (POSTGRES_EPOCH_TS - DUCKDB_EPOCH_TS));
+		int64_t postgres_usec;
+		if (!TrySubtractOperator::Operation(value.value, static_cast<int64_t>(POSTGRES_EPOCH_TS - DUCKDB_EPOCH_TS),
+		                                    postgres_usec) ||
+		    postgres_usec < POSTGRES_MIN_TIMESTAMP || postgres_usec >= POSTGRES_END_TIMESTAMP) {
+			throw InvalidInputException("TIMESTAMP \"%s\" is out of range for Postgres' TIMESTAMP field",
+			                            Timestamp::ToString(value));
+		}
+		return static_cast<uint64_t>(postgres_usec);
 	}
 
 	void WriteTimestamp(timestamp_t value) {

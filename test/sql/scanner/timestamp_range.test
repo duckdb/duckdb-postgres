@@ -1,0 +1,48 @@
+# name: test/sql/scanner/timestamp_range.test
+# description: Reject Postgres timestamps outside DuckDB's supported range
+# group: [scanner]
+
+require postgres_scanner
+
+require parquet
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS timestamp_range_test')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE timestamp_range_test (id INTEGER PRIMARY KEY, ts TIMESTAMP, tstz TIMESTAMPTZ)')
+
+# postgres_execute sends this directly to PostgreSQL, whose timestamp range is wider than DuckDB's.
+statement ok
+CALL postgres_execute('s', 'INSERT INTO timestamp_range_test VALUES
+	(1, ''294276-12-31 23:59:59'', ''294276-12-31 23:59:59+00''),
+	(2, ''10000-01-01 00:00:00'',  ''10000-01-01 00:00:00+00''),
+	(3, ''2026-01-15 12:00:00'',   ''2026-01-15 12:00:00+00''),
+	(4, ''4713-01-01 BC'',         ''4713-01-01 BC'')')
+
+query III
+SELECT id, ts::VARCHAR, tstz::VARCHAR FROM s.timestamp_range_test WHERE id > 1 ORDER BY id
+----
+2	10000-01-01 00:00:00	10000-01-01 00:00:00+00
+3	2026-01-15 12:00:00	2026-01-15 12:00:00+00
+4	4713-01-01 (BC) 00:00:00	4713-01-01 (BC) 00:00:00+00
+
+statement error
+SELECT ts FROM s.timestamp_range_test WHERE id = 1
+----
+timestamp out of range
+
+statement error
+SELECT tstz FROM s.timestamp_range_test WHERE id = 1
+----
+timestamp out of range
+
+statement error
+COPY (SELECT ts, tstz FROM s.timestamp_range_test WHERE id = 1) TO '{TEST_DIR}/timestamp_range.parquet' (FORMAT PARQUET)
+----
+timestamp out of range

@@ -9,6 +9,8 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/common/exception/conversion_exception.hpp"
+#include "duckdb/common/operator/add.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "postgres_conversion.hpp"
 #include "postgres_utils.hpp"
@@ -110,7 +112,16 @@ private:
 		if (usec == POSTGRES_NINFINITY) {
 			return timestamp_t::ninfinity();
 		}
-		return timestamp_t(usec + (POSTGRES_EPOCH_TS - DUCKDB_EPOCH_TS));
+		int64_t timestamp_usec;
+		if (!TryAddOperator::Operation(static_cast<int64_t>(usec),
+		                               static_cast<int64_t>(POSTGRES_EPOCH_TS - DUCKDB_EPOCH_TS), timestamp_usec)) {
+			throw ConversionException("timestamp out of range");
+		}
+		auto timestamp = timestamp_t(timestamp_usec);
+		if (!timestamp.IsFinite()) {
+			throw ConversionException("timestamp out of range");
+		}
+		return timestamp;
 	}
 
 	inline interval_t ReadInterval() {
