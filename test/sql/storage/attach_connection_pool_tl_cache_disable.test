@@ -1,0 +1,66 @@
+# name: test/sql/storage/attach_connection_pool_tl_cache_disable.test
+# description: Test that disabling the thread-local cache hands parked connections back to the pool
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# the connection has to be parked and re-acquired on the same thread for this to be deterministic
+statement ok
+SET threads=1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
+CREATE OR REPLACE TABLE s.pool_tl_cache(i INTEGER);
+
+statement ok
+INSERT INTO s.pool_tl_cache VALUES (1), (2), (3);
+
+statement ok
+SELECT catalog_name FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=false, acquire_mode='wait', max_connections=1, wait_timeout_millis=5000)
+
+# control: with the cache off, a single connection is enough to run this query. If this fails the
+# rest of the test cannot distinguish a stranded connection from a query that needs two of them.
+query I
+SELECT count(*) FROM s.pool_tl_cache
+----
+3
+
+# park a connection in this thread's cache. The pool has to allow two connections for that to
+# happen at all - TryReturnToThreadLocal refuses to park while the pool is at capacity.
+statement ok
+SELECT catalog_name FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=true, max_connections=2)
+
+query I
+SELECT count(*) FROM s.pool_tl_cache
+----
+3
+
+query I
+SELECT thread_local_cache_enabled FROM postgres_configure_pool(catalog_name='s')
+----
+true
+
+statement ok
+SELECT catalog_name FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=false, max_connections=1)
+
+# the parked connection still counts against max_connections=1, so with the cache disabled this
+# query can only run if the connection was handed back to the pool instead of being stranded
+query I
+SELECT count(*) FROM s.pool_tl_cache
+----
+3
+
+query I
+SELECT thread_local_cache_enabled FROM postgres_configure_pool(catalog_name='s')
+----
+false
+
+statement ok
+DROP TABLE s.pool_tl_cache
+
+statement ok
+DETACH s
