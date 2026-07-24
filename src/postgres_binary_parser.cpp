@@ -54,7 +54,9 @@ void PostgresBinaryParser::CheckHeader() {
 	if (!buffer_ptr) {
 		throw IOException("buffer_ptr not set in CheckHeader");
 	}
-	if (buffer_ptr + header_len >= end) {
+	// a buffer holding exactly the header is valid - the reader hands one over when the first row does
+	// not fit alongside it
+	if (buffer_ptr + header_len > end) {
 		throw IOException("Unable to read binary COPY data, invalid header");
 	}
 	if (memcmp(buffer_ptr, PostgresConversion::COPY_HEADER, magic_len) != 0) {
