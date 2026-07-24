@@ -1,0 +1,61 @@
+# name: test/sql/storage/filter_pushdown_blob_in.test
+# description: Test pushing down IN filters over blob columns
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+SET pg_experimental_filter_pushdown=true
+
+statement ok
+CREATE OR REPLACE TABLE s.blob_in(id INTEGER, b BLOB);
+
+statement ok
+INSERT INTO s.blob_in VALUES (1, '\x01\x02'), (2, '\x03\x04'), (3, 'dpfkg'), (4, 'other'), (5, NULL);
+
+# blob constants in an IN list must be written as bytea literals, not bare hex digits
+query I
+SELECT id FROM s.blob_in WHERE b IN ('dpfkg'::BLOB, 'other'::BLOB) ORDER BY id
+----
+3
+4
+
+query I
+SELECT id FROM s.blob_in WHERE b IN ('\x01\x02'::BLOB, '\x03\x04'::BLOB) ORDER BY id
+----
+1
+2
+
+# a longer list, which the binder is more likely to keep as a COMPARE_IN expression
+query I
+SELECT id FROM s.blob_in WHERE b IN ('\x01\x02'::BLOB, '\x03\x04'::BLOB, 'dpfkg'::BLOB, 'other'::BLOB, '\xff'::BLOB, '\xfe'::BLOB) ORDER BY id
+----
+1
+2
+3
+4
+
+query I
+SELECT count(*) FROM s.blob_in WHERE b NOT IN ('dpfkg'::BLOB, 'other'::BLOB)
+----
+2
+
+# blobs containing quote and backslash bytes must survive the round trip
+statement ok
+INSERT INTO s.blob_in VALUES (6, '\x27\x5c');
+
+query I
+SELECT id FROM s.blob_in WHERE b IN ('\x27\x5c'::BLOB, '\x00'::BLOB) ORDER BY id
+----
+6
+
+statement ok
+DROP TABLE s.blob_in
+
+statement ok
+DETACH s
