@@ -1,0 +1,83 @@
+# name: test/sql/misc/postgres_binary_read_buffer.test
+# description: Test reading postgres binary files that span multiple read buffers
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+DETACH s
+
+# Each row here is 10 bytes (2 byte field count + 4 byte length + 4 byte payload) and the file
+# header is 19 bytes, so these buffers hold only a handful of rows at a time.
+statement ok
+COPY (SELECT i::INTEGER AS a FROM range(1000) t(i)) TO '{TEST_DIR}/many_rows.bin' (FORMAT postgres_binary);
+
+query III
+SELECT count(*), min(a), max(a) FROM read_postgres_binary('{TEST_DIR}/many_rows.bin', columns={a: 'INTEGER'}, buffer_size=64);
+----
+1000	0	999
+
+query III
+SELECT count(*), min(a), max(a) FROM read_postgres_binary('{TEST_DIR}/many_rows.bin', columns={a: 'INTEGER'}, buffer_size=32);
+----
+1000	0	999
+
+# a buffer with no room for a row next to the header: the header is a boundary of its own, so the
+# first row is carried over to the next fill rather than rejected
+query III
+SELECT count(*), min(a), max(a) FROM read_postgres_binary('{TEST_DIR}/many_rows.bin', columns={a: 'INTEGER'}, buffer_size=24);
+----
+1000	0	999
+
+# a buffer of exactly the header size
+query III
+SELECT count(*), min(a), max(a) FROM read_postgres_binary('{TEST_DIR}/many_rows.bin', columns={a: 'INTEGER'}, buffer_size=19);
+----
+1000	0	999
+
+# the values must round-trip exactly, not just in aggregate
+query I
+SELECT count(*) FROM (
+    SELECT a FROM read_postgres_binary('{TEST_DIR}/many_rows.bin', columns={a: 'INTEGER'}, buffer_size=64)
+    EXCEPT
+    SELECT i::INTEGER FROM range(1000) t(i)
+);
+----
+0
+
+# variable width columns and NULLs across buffer boundaries
+statement ok
+COPY (SELECT i::INTEGER AS a, ('str_' || i)::VARCHAR AS b, CASE WHEN i % 3 = 0 THEN NULL ELSE i::BIGINT END AS c FROM range(500) t(i)) TO '{TEST_DIR}/mixed_rows.bin' (FORMAT postgres_binary);
+
+query IIII
+SELECT count(*), count(c), min(b), max(a) FROM read_postgres_binary('{TEST_DIR}/mixed_rows.bin', columns={a: 'INTEGER', b: 'VARCHAR', c: 'BIGINT'}, buffer_size=128);
+----
+500	333	str_0	499
+
+# rows of 56 bytes (2 byte field count + 4 byte length + 50 byte payload): larger than
+# buffer_size - 19 but no larger than buffer_size, so they only fit once the header is out of the way
+statement ok
+COPY (SELECT repeat('x', 50) AS a FROM range(20) t(i)) TO '{TEST_DIR}/wide_rows.bin' (FORMAT postgres_binary);
+
+query III
+SELECT count(*), min(length(a)), max(length(a)) FROM read_postgres_binary('{TEST_DIR}/wide_rows.bin', columns={a: 'VARCHAR'}, buffer_size=64);
+----
+20	50	50
+
+# the same rows in a buffer of exactly one row
+query III
+SELECT count(*), min(length(a)), max(length(a)) FROM read_postgres_binary('{TEST_DIR}/wide_rows.bin', columns={a: 'VARCHAR'}, buffer_size=56);
+----
+20	50	50
+
+# a row genuinely larger than the whole buffer is still rejected
+statement ok
+COPY (SELECT repeat('y', 100) AS a FROM range(5) t(i)) TO '{TEST_DIR}/huge_rows.bin' (FORMAT postgres_binary);
+
+statement error
+SELECT count(*) FROM read_postgres_binary('{TEST_DIR}/huge_rows.bin', columns={a: 'VARCHAR'}, buffer_size=64);
+----
+row larger than the read buffer
