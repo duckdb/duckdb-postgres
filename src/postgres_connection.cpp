@@ -137,6 +137,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 		throw std::runtime_error("Failed to execute query \"" + queries + "\": " + string(PQerrorMessage(GetConn())));
 	}
 	vector<unique_ptr<PostgresResult>> results;
+	string error_message;
 	while (true) {
 		auto res = PQgetResult(GetConn());
 		if (!res) {
@@ -144,13 +145,18 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 		}
 		auto result = make_uniq<PostgresResult>(res);
 		if (ResultHasError(res)) {
-			throw std::runtime_error("Failed to execute query \"" + queries +
-			                         "\": " + string(PQresultErrorMessage(res)));
+			if (error_message.empty()) {
+				error_message = "Failed to execute query \"" + queries + "\": " + string(PQresultErrorMessage(res));
+			}
+			continue;
 		}
 		if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 			continue;
 		}
 		results.push_back(std::move(result));
+	}
+	if (!error_message.empty()) {
+		throw std::runtime_error(error_message);
 	}
 	int64_t end_time = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now())
 	                       .time_since_epoch()
