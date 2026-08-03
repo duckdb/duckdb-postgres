@@ -31,14 +31,7 @@ public:
 
 public:
 	bool TryGetConnection(PostgresPoolConnection &connection);
-	PostgresPoolConnection GetConnection();
-	//! Always returns a connection - even if the connection slots are exhausted
-	PostgresPoolConnection ForceGetConnection();
 
-	std::string GetHealthCheckQuery();
-	void SetHealthCheckQuery(const std::string &query);
-
-	static std::string DefaultHealthCheckQuery();
 	static void ValidatePoolAcquireMode(ClientContext &context, SetScope scope, Value &parameter);
 
 protected:
@@ -49,10 +42,8 @@ protected:
 private:
 	PostgresCatalog &postgres_catalog;
 
-	std::mutex config_mutex;
-	std::string health_check_query;
-
 	bool PoolEnabled();
+	static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &ctx);
 };
 
 class PostgresConfigurePoolFunction : public TableFunction {

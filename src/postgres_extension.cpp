@@ -289,8 +289,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "The query that is used to check that the connection is healthy. Setting this option to "
 	                          "an empty string disables the health check. " +
 	                              CreatePoolNote("health_check_query=SELECT 42"),
-	                          LogicalType::VARCHAR, PostgresConnectionPool::DefaultHealthCheckQuery(), nullptr,
-	                          SetScope::GLOBAL);
+	                          LogicalType::VARCHAR, default_pool_config.health_check_query, nullptr, SetScope::GLOBAL);
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;

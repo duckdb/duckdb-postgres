@@ -7,26 +7,8 @@
 
 namespace duckdb {
 
-static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &context);
-
-static std::string GetHealthCheckQueryFromConfig(ClientContext &context) {
-	Value val;
-	if (context.TryGetCurrentSetting("pg_pool_health_check_query", val)) {
-		if (val.IsNull()) {
-			return std::string();
-		}
-		return StringValue::Get(val);
-	}
-	return PostgresConnectionPool::DefaultHealthCheckQuery();
-}
-
 PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context)
-    : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(context)), postgres_catalog(postgres_catalog),
-      health_check_query(GetHealthCheckQueryFromConfig(context)) {
-}
-
-PostgresPoolConnection PostgresConnectionPool::ForceGetConnection() {
-	return ForceAcquire();
+    : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(context)), postgres_catalog(postgres_catalog) {
 }
 
 bool PostgresConnectionPool::TryGetConnection(PostgresPoolConnection &connection) {
@@ -36,10 +18,6 @@ bool PostgresConnectionPool::TryGetConnection(PostgresPoolConnection &connection
 	}
 	connection = std::move(acquired);
 	return true;
-}
-
-PostgresPoolConnection PostgresConnectionPool::GetConnection() {
-	return Acquire();
 }
 
 std::unique_ptr<PostgresConnection> PostgresConnectionPool::CreateNewConnection() {
@@ -60,21 +38,7 @@ void PostgresConnectionPool::ResetConnection(PostgresConnection &conn) {
 	conn.Reset(query);
 }
 
-std::string PostgresConnectionPool::GetHealthCheckQuery() {
-	std::lock_guard<std::mutex> guard(config_mutex);
-	return std::string(health_check_query.data(), health_check_query.length());
-}
-
-void PostgresConnectionPool::SetHealthCheckQuery(const std::string &query) {
-	std::lock_guard<std::mutex> guard(config_mutex);
-	this->health_check_query = std::string(query.data(), query.length());
-}
-
-std::string PostgresConnectionPool::DefaultHealthCheckQuery() {
-	return "SELECT 1";
-}
-
-static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &ctx) {
+dbconnector::pool::ConnectionPoolConfig PostgresConnectionPool::CreateConfig(ClientContext &ctx) {
 	dbconnector::pool::ConnectionPoolConfig config;
 
 	{
@@ -117,6 +81,12 @@ static dbconnector::pool::ConnectionPoolConfig CreateConfig(ClientContext &ctx) 
 		Value val;
 		if (ctx.TryGetCurrentSetting("pg_pool_enable_reaper_thread", val) && !val.IsNull()) {
 			config.start_reaper_thread = BooleanValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_health_check_query", val) && !val.IsNull()) {
+			config.health_check_query = StringValue::Get(val);
 		}
 	}
 

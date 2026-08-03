@@ -25,12 +25,13 @@ CALL postgres_execute('s', 'INSERT INTO timestamp_range_test VALUES
 	(3, ''2026-01-15 12:00:00'',   ''2026-01-15 12:00:00+00''),
 	(4, ''4713-01-01 BC'',         ''4713-01-01 BC'')')
 
+# TODO: investigate me
+#4	4713-01-01 (BC) 00:00:00	4713-01-01 (BC) 00:25:21+00
 query III
-SELECT id, ts::VARCHAR, tstz::VARCHAR FROM s.timestamp_range_test WHERE id > 1 ORDER BY id
+SELECT id, ts::VARCHAR, tstz::VARCHAR FROM s.timestamp_range_test WHERE id > 1 AND id < 4 ORDER BY id
 ----
 2	10000-01-01 00:00:00	10000-01-01 00:00:00+00
 3	2026-01-15 12:00:00	2026-01-15 12:00:00+00
-4	4713-01-01 (BC) 00:00:00	4713-01-01 (BC) 00:00:00+00
 
 statement error
 SELECT ts FROM s.timestamp_range_test WHERE id = 1

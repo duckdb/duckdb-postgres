@@ -70,7 +70,7 @@ static string ComputeStalenessSignature(PostgresResult &result) {
 //! a backend slot) for the round-trip.
 static unique_ptr<PostgresResult> RunStalenessQuery(Catalog &catalog, ClientContext &context,
                                                     const string &staleness_query) {
-	auto connection = catalog.Cast<PostgresCatalog>().GetConnectionPool().GetConnection();
+	auto connection = catalog.Cast<PostgresCatalog>().GetConnectionPool().Acquire();
 	return connection.GetConnection().Query(context, staleness_query);
 }
 

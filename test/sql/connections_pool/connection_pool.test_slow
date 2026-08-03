@@ -1,6 +1,6 @@
-# name: test/sql/storage/attach_connection_pool.test_slow
+# name: test/sql/connections_pool/connection_pool.test_slow
 # description: Test that the connection pool correctly limits the number of connections
-# group: [storage]
+# group: [connections_pool]
 
 require postgres_scanner
 

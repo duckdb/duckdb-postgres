@@ -1,6 +1,6 @@
-# name: test/sql/storage/attach_connection_pool_options.test
+# name: test/sql/connections_pool/connection_pool_options.test
 # description: Test connection pool options
-# group: [storage]
+# group: [connections_pool]
 
 require postgres_scanner
 
@@ -211,6 +211,59 @@ SELECT current_setting('pg_pool_max_connections')
 
 statement ok
 RESET GLOBAL pg_connection_cache
+
+statement ok
+DETACH s
+
+# health check query
+
+query I
+SELECT current_setting('pg_pool_health_check_query')
+----
+SELECT 1
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+statement ok
+DETACH s
+
+statement ok
+SET GLOBAL pg_pool_health_check_query = 'SELECT_FAIL'
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query I
+SELECT current_setting('pg_pool_health_check_query')
+----
+SELECT_FAIL
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
+
+statement ok
+RESET GLOBAL pg_pool_health_check_query
 
 statement ok
 DETACH s

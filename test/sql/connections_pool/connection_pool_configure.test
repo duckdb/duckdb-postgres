@@ -1,16 +1,10 @@
-# name: test/sql/storage/attach_connection_pool_configure.test
+# name: test/sql/connections_pool/connection_pool_configure.test
 # description: Test connection pool live configuration
-# group: [storage]
+# group: [connections_pool]
 
 require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
-
-statement ok
-ATTACH 'dbname=postgresscanner' AS loader (TYPE POSTGRES);
-
-statement ok
-DETACH loader;
 
 statement ok
 SET pg_pool_max_connections = 8
@@ -154,6 +148,60 @@ Catalog not found
 
 statement ok
 DETACH s1
+
+statement ok
+DETACH s
+
+# health check query
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	SELECT 1
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+query II
+SELECT catalog_name, health_check_query
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT_FAIL')
+----
+s	SELECT_FAIL
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+query II
+SELECT catalog_name, available_connections
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
 
 statement ok
 DETACH s
