@@ -434,7 +434,7 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 				// we HAVE to open a new connection
 				{
 					auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
-					lstate.pool_connection = pg_catalog->GetConnectionPool().ForceGetConnection();
+					lstate.pool_connection = pg_catalog->GetConnectionPool().ForceAcquire();
 				}
 				lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
 				// unlike the main-thread connection this one is not in a transaction yet, so we pin it to

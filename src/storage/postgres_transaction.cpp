@@ -16,7 +16,7 @@ PostgresTransaction::PostgresTransaction(PostgresCatalog &postgres_catalog, Tran
     : Transaction(manager, context), access_mode(postgres_catalog.access_mode),
       isolation_level(postgres_catalog.isolation_level) {
 	auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
-	connection = postgres_catalog.GetConnectionPool().GetConnection();
+	connection = postgres_catalog.GetConnectionPool().Acquire();
 }
 
 PostgresTransaction::~PostgresTransaction() = default;

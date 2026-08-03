@@ -92,7 +92,7 @@ PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, str
 	PostgresPoolConnection connection;
 	{
 		auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(ctx);
-		connection = connection_pool->GetConnection();
+		connection = connection_pool->Acquire();
 	}
 	this->version = connection.GetConnection().GetPostgresVersion(ctx);
 }
@@ -264,7 +264,7 @@ void PostgresCatalog::RegisterSecretStorage() {
 	}
 
 	// Look up whether the table exists in DB
-	auto connection = connection_pool->GetConnection();
+	auto connection = connection_pool->Acquire();
 	bool secret_storage_table_exists = secret_storage_table.Exists(connection.GetConnection());
 
 	string attached_database_name = GetAttached().GetName().GetIdentifierName();
