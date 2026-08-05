@@ -1,6 +1,6 @@
-# name: test/sql/connections_pool/connection_pool_configure.test
+# name: test/sql/connection_pool/connection_pool_configure.test
 # description: Test connection pool live configuration
-# group: [connections_pool]
+# group: [connection_pool]
 
 require postgres_scanner
 
