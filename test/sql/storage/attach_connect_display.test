@@ -1,0 +1,162 @@
+# name: test/sql/storage/attach_connect_display.test
+# description: Test validation of the CONNECT_DISPLAY attach option
+# group: [storage]
+
+require postgres_scanner
+
+# CONNECT_DISPLAY is validated while binding the ATTACH, before any connection is made, so none of this
+# needs a Postgres to connect to. Values that pass validation get as far as the connection attempt, which
+# is why the accepted cases below expect "Unable to connect to Postgres at".
+
+# NULL is rejected by DuckDB itself, before the option reaches the Postgres extension
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY NULL)
+----
+NULL is not supported as a valid option for ATTACH option "connect_display"
+
+# the value ends up in the shell prompt verbatim, so escape sequences must not survive
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'rds://x' || chr(27) || '[31m')
+----
+must not contain control characters
+
+# newline, carriage return and tab would all break up the prompt
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'line1' || chr(10) || 'line2')
+----
+must not contain control characters
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a' || chr(13))
+----
+must not contain control characters
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a' || chr(9) || 'b')
+----
+must not contain control characters
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a' || chr(127))
+----
+must not contain control characters
+
+# C1 control characters - 0xC2 0x9B is CSI, which some terminals honour. These are multi-byte in UTF-8,
+# so a check that only looks at bytes below 0x20 would let them through.
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY chr(194) || chr(155))
+----
+must not contain control characters
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY chr(194) || chr(128))
+----
+must not contain control characters
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY repeat('x', 1025))
+----
+must be at most 1024 columns wide, was 1025
+
+# the limit is on rendered width, so wide characters count double
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY repeat('日', 513))
+----
+must be at most 1024 columns wide, was 1026
+
+# unrecognized options are still rejected
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY_NAME 'rds://my-instance')
+----
+Unrecognized option for Postgres attach: connect_display_name
+
+# --- values that pass validation ---
+
+# a realistic endpoint is nowhere near the width limit
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'redshift://my-cluster.abc123xyz789.eu-west-1.redshift.amazonaws.com:5439/analytics')
+----
+Unable to connect to Postgres at
+
+# exactly at the width limit, in both narrow and wide characters
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY repeat('x', 1024))
+----
+Unable to connect to Postgres at
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY repeat('日', 512))
+----
+Unable to connect to Postgres at
+
+# printable non-ASCII is fine - only control characters are rejected
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'rds://café-日本-🚀')
+----
+Unable to connect to Postgres at
+
+# an empty display string is accepted and falls back to the derived postgres://host:port
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY '')
+----
+Unable to connect to Postgres at
+
+# the option name is matched case insensitively
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, connect_display 'rds://x')
+----
+Unable to connect to Postgres at
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CoNnEcT_DiSpLaY 'rds://x')
+----
+Unable to connect to Postgres at
+
+# whitespace and zero width characters are not control characters, so they are accepted
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY '   ')
+----
+Unable to connect to Postgres at
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a' || chr(8203) || 'b')
+----
+Unable to connect to Postgres at
+
+# there is no test for invalid UTF-8 because it cannot be reached from SQL - DuckDB VARCHAR is always
+# valid UTF-8, and casting a BLOB to VARCHAR yields the escaped text form rather than the raw bytes.
+# The UTF-8 check in ExtractConnectDisplay guards the C++ path, where a Value is built directly.
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY CAST('\xC3\x28'::BLOB AS VARCHAR))
+----
+Unable to connect to Postgres at
+
+# non-VARCHAR values are accepted and converted with ToString(), matching how SECRET is handled
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 42)
+----
+Unable to connect to Postgres at
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY ['a','b'])
+----
+Unable to connect to Postgres at
+
+# --- the option must not disturb the rest of the attach ---
+
+# omitting it entirely still binds - it is an optional constructor argument
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES)
+----
+Unable to connect to Postgres at
+
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'rds://x', SCHEMA 'public', READ_ONLY)
+----
+Unable to connect to Postgres at
+
+# repeating the option is resolved by DuckDB before the extension sees it
+statement error
+ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a', CONNECT_DISPLAY 'b')
+----
+Unable to connect to Postgres at
