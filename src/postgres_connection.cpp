@@ -101,8 +101,8 @@ unique_ptr<PostgresResult> PostgresConnection::TryQuery(optional_ptr<ClientConte
 
 	if (ResultHasError(result)) {
 		if (error_message) {
-			*error_message = StringUtil::Format("Failed to execute query \"" + query +
-			                                    "\": " + string(PQresultErrorMessage(result)));
+			*error_message =
+			    StringUtil::Format("Failed to execute query \"" + query + "\": " + string(PQerrorMessage(GetConn())));
 		}
 		PQclear(result);
 		return nullptr;
