@@ -34,7 +34,7 @@ public:
 	explicit PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path, AccessMode access_mode,
 	                         vector<string> schemas_to_load, PostgresIsolationLevel isolation_level,
 	                         const string &secret_name, SecretStorageTable secret_storage_table_p,
-	                         PostgresTextProtocolMode text_protocol_mode);
+	                         PostgresTextProtocolMode text_protocol_mode, string connect_display = string());
 	~PostgresCatalog();
 
 	string attach_path;
@@ -149,6 +149,8 @@ private:
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	string default_schema;
 	SecretStorageTable secret_storage_table;
+	//! Overrides what the shell prompt displays for this catalog - see GetConnectDisplay
+	string connect_display;
 
 	PostgresAwsRdsTokenConfig rds_token_config;
 	std::mutex rds_token_mutex;

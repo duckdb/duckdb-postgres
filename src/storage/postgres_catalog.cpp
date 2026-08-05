@@ -30,6 +30,12 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, cons
 }
 
 string PostgresCatalog::GetConnectDisplay() {
+	if (!connect_display.empty()) {
+		// an explicit display string was provided in the ATTACH - this is used by extensions that attach
+		// Postgres compatible databases (such as AWS RDS or Redshift) through this extension, so that the
+		// prompt can show how the database was attached instead of the Postgres connection we ended up with
+		return connect_display;
+	}
 	// `postgres://<host>[:<port>]` — standard postgres URI shorthand. dbname is already shown
 	// via current_database in the prompt, so it's omitted here.
 	string host, port;
@@ -73,12 +79,13 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, string attach_path_p,
                                  AccessMode access_mode, vector<string> schemas_to_load,
                                  PostgresIsolationLevel isolation_level, const string &secret_name,
-                                 SecretStorageTable secret_storage_table_p, PostgresTextProtocolMode text_protocol_mode)
+                                 SecretStorageTable secret_storage_table_p, PostgresTextProtocolMode text_protocol_mode,
+                                 string connect_display_p)
     : Catalog(db_p), attach_path(std::move(attach_path_p)), access_mode(access_mode), isolation_level(isolation_level),
       text_protocol_mode(text_protocol_mode), schemas(*this, schemas_to_load),
       connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)),
       default_schema(schemas_to_load.size() > 0 ? schemas_to_load[0] : std::string()),
-      secret_storage_table(std::move(secret_storage_table_p)) {
+      secret_storage_table(std::move(secret_storage_table_p)), connect_display(std::move(connect_display_p)) {
 	auto secret_entry = GetSecretEntry(ctx, secret_name);
 	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(secret_entry);
 	if (!rds_token_config.Enabled()) {
