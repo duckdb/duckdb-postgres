@@ -87,6 +87,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	PostgresTextProtocolMode text_protocol_mode = PostgresTextProtocolMode::AUTO;
 	string secret_storage_table_name;
 	bool secret_storage_table_specified_explicitly = false;
+	string connect_display;
 	for (auto &entry : attach_options.options) {
 		auto lower_name = StringUtil::Lower(entry.first);
 		if (lower_name == "secret") {
@@ -112,6 +113,11 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 		} else if (lower_name == "secret_storage_table") {
 			secret_storage_table_name = entry.second.ToString();
 			secret_storage_table_specified_explicitly = true;
+		} else if (lower_name == "connect_display") {
+			if (entry.second.IsNull()) {
+				throw BinderException("Value for \"CONNECT_DISPLAY\" option must not be null");
+			}
+			connect_display = entry.second.ToString();
 		} else {
 			throw BinderException("Unrecognized option for Postgres attach: %s", entry.first);
 		}
@@ -120,7 +126,7 @@ static unique_ptr<Catalog> PostgresAttach(optional_ptr<StorageExtensionInfo> sto
 	                                        secret_storage_table_specified_explicitly);
 	return make_uniq<PostgresCatalog>(context, db, std::move(attach_path), attach_options.access_mode,
 	                                  std::move(schemas_to_load), isolation_level, secret_name,
-	                                  std::move(secret_storage_table), text_protocol_mode);
+	                                  std::move(secret_storage_table), text_protocol_mode, std::move(connect_display));
 }
 
 static unique_ptr<TransactionManager> PostgresCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
