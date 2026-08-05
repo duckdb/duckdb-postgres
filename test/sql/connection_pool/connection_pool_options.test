@@ -1,6 +1,6 @@
-# name: test/sql/connections_pool/connection_pool_options.test
+# name: test/sql/connection_pool/connection_pool_options.test
 # description: Test connection pool options
-# group: [connections_pool]
+# group: [connection_pool]
 
 require postgres_scanner
 

@@ -1,11 +1,19 @@
 #include "storage/postgres_connection_pool.hpp"
-#include "duckdb/main/client_context.hpp"
 
+#include <memory>
 #include <thread>
+
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/function/table_function.hpp"
+
+#include "dbconnector/functions/configure_pool.hpp"
 
 #include "storage/postgres_catalog.hpp"
 
 namespace duckdb {
+
+using dbconnector::functions::ConfigurePool;
 
 PostgresConnectionPool::PostgresConnectionPool(PostgresCatalog &postgres_catalog, ClientContext &context)
     : dbconnector::pool::ConnectionPool<PostgresConnection>(CreateConfig(context)), postgres_catalog(postgres_catalog) {
@@ -109,6 +117,22 @@ void PostgresConnectionPool::ValidatePoolAcquireMode(ClientContext &context, Set
 				    "pg_pool_pool_acquire_mode='%s' requires pg_pool_max_connections > 0 (pooling enabled)", mode_str);
 			}
 		}
+	}
+}
+
+static shared_ptr<PostgresConnectionPool> GetConnnectionPoolFromCatalog(Catalog &catalog) {
+	if (catalog.GetCatalogType() != "postgres") {
+		return nullptr;
+	}
+	return catalog.Cast<PostgresCatalog>().GetConnectionPoolPtr();
+}
+
+PostgresConfigurePoolFunction::PostgresConfigurePoolFunction()
+    : TableFunction("postgres_configure_pool", std::vector<LogicalType>(),
+                    ConfigurePool::Function<PostgresConnection, GetConnnectionPoolFromCatalog>, ConfigurePool::Bind,
+                    ConfigurePool::InitGlobalState, ConfigurePool::InitLocalState) {
+	for (auto &en : ConfigurePool::NamedParameters()) {
+		named_parameters[en.first] = en.second;
 	}
 }
 
