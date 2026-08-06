@@ -16,19 +16,34 @@ Transaction &PostgresTransactionManager::StartTransaction(ClientContext &context
 	return result;
 }
 
-ErrorData PostgresTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
-	auto &postgres_transaction = transaction.Cast<PostgresTransaction>();
-	postgres_transaction.Commit();
+void PostgresTransactionManager::DestroyTransaction(Transaction &transaction) {
 	lock_guard<mutex> l(transaction_lock);
 	transactions.erase(transaction);
-	return ErrorData();
+}
+
+ErrorData PostgresTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
+	auto &postgres_transaction = transaction.Cast<PostgresTransaction>();
+	ErrorData error;
+	try {
+		postgres_transaction.Commit();
+	} catch (const std::exception &ex) {
+		error = ErrorData(ex);
+	} catch (...) {
+		error = ErrorData("Server COMMIT failed");
+	}
+	DestroyTransaction(transaction);
+	return error;
 }
 
 void PostgresTransactionManager::RollbackTransaction(Transaction &transaction) {
 	auto &postgres_transaction = transaction.Cast<PostgresTransaction>();
-	postgres_transaction.Rollback();
-	lock_guard<mutex> l(transaction_lock);
-	transactions.erase(transaction);
+	try {
+		postgres_transaction.Rollback();
+	} catch (...) {
+		DestroyTransaction(transaction);
+		throw;
+	}
+	DestroyTransaction(transaction);
 }
 
 void PostgresTransactionManager::Checkpoint(ClientContext &context, bool force) {
