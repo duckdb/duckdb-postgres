@@ -14,8 +14,8 @@ SELECT * FROM postgres_query(s, 'select count(*) from tpch.lineitem, tpch.lineit
 ----
 canceling statement due to statement timeout
 
-# A connection-level FATAL is delivered while the local transaction is doing
-# unrelated work, then surfaced by its rollback.
+# The server closes the connection while the local transaction is doing
+# unrelated work, then the failure is surfaced by its rollback.
 statement ok
 ATTACH 'dbname=postgresscanner port=5432 sslmode=allow options=''-c idle_in_transaction_session_timeout=100''' AS idle_timeout (TYPE POSTGRES, READ_ONLY);
 
@@ -33,4 +33,4 @@ SELECT sum(i) FROM range(1000000000) t(i);
 statement error
 ROLLBACK;
 ----
-terminating connection due to idle-in-transaction timeout
+server closed the connection unexpectedly
