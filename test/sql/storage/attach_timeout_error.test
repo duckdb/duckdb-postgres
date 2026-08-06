@@ -13,3 +13,24 @@ statement error
 SELECT * FROM postgres_query(s, 'select count(*) from tpch.lineitem, tpch.lineitem t2, tpch.lineitem t3');
 ----
 canceling statement due to statement timeout
+
+# The server closes the connection while the local transaction is doing
+# unrelated work, then the failure is surfaced by its rollback.
+statement ok
+ATTACH 'dbname=postgresscanner port=5432 sslmode=allow options=''-c idle_in_transaction_session_timeout=100''' AS idle_timeout (TYPE POSTGRES, READ_ONLY);
+
+statement ok
+BEGIN;
+
+query I
+CALL postgres_query('idle_timeout', 'SELECT 1');
+----
+1
+
+statement ok
+SELECT sum(i) FROM range(1000000000) t(i);
+
+statement error
+ROLLBACK;
+----
+server closed the connection unexpectedly
