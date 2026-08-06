@@ -1,0 +1,90 @@
+# name: test/sql/storage/attach_rollback_throws.test
+# description: Test that a throw on a server ROLLBACK or COMMIT does not leak a pool connection
+# group: [storage]
+
+# see: https://github.com/duckdb/duckdb-postgres/issues/545
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# ROLLBACK throws
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# a connection is opened on ATTACH and kept in the pool
+query II
+SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+# kill Postgres backend of our connection, ROLLBACK is attempted and fails
+statement error
+CALL postgres_execute('s', 'SELECT pg_terminate_backend(pg_backend_pid())')
+----
+pg_terminate_backend
+
+# connection must have been discarded, as it cannot pass the health check on returning it to the pool
+query II
+SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
+
+statement ok
+DETACH s
+
+# COMMIT throws
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE s1_pid = (SELECT pid FROM postgres_query('s', 'SELECT pg_backend_pid() AS pid'))
+
+statement ok
+USE s
+
+statement ok
+BEGIN TRANSACTION
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+statement ok
+SET pg_use_text_protocol=TRUE
+
+statement ok
+CALL postgres_query('s1', 'SELECT pg_terminate_backend($1)', params=row(getvariable(s1_pid)))
+
+statement ok
+RESET pg_use_text_protocol
+
+query II
+SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+----
+s	1
+
+statement error
+COMMIT
+----
+closed
+
+query II
+SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+----
+s	0
+
+statement ok
+DETACH s1
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

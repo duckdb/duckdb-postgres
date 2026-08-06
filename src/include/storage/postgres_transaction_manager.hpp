@@ -28,6 +28,8 @@ public:
 	void Checkpoint(ClientContext &context, bool force = false) override;
 
 private:
+	void DestroyTransaction(Transaction &transaction);
+
 	PostgresCatalog &postgres_catalog;
 	mutex transaction_lock;
 	reference_map_t<Transaction, unique_ptr<PostgresTransaction>> transactions;
