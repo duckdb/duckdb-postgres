@@ -17,7 +17,6 @@ add_library(
   postgres_table_entry.cpp
   postgres_table_set.cpp
   postgres_transaction.cpp
-  postgres_transaction_manager.cpp
   postgres_type_entry.cpp
   postgres_type_set.cpp
   postgres_update.cpp)
