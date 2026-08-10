@@ -1,0 +1,55 @@
+# name: test/sql/storage/multi_scan_aggregate.test
+# description: Test multiple simultaneous scans that are aggregated on DuckDB side
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CREATE OR REPLACE TABLE s.aggr_union_test_a AS
+SELECT '2020-01-01' insert_date, unnest(range(1<<14)) amount
+
+statement ok
+CREATE OR REPLACE TABLE s.aggr_union_test_b AS
+SELECT '2021-01-01' insert_date, unnest(range(1<<14)) amount
+
+# Note, 'divide()' is necessary to prevent remote-execute pushdown
+
+query II
+SELECT date(t.insert_date) AS d, divide(sum(t.amount), 1) AS s
+FROM s.aggr_union_test_a t
+GROUP BY 1
+----
+2020-01-01	134209536
+
+query II
+SELECT date(t.insert_date) AS d, divide(sum(t.amount), 1) AS s
+FROM s.aggr_union_test_b t
+GROUP BY 1
+----
+2021-01-01	134209536
+
+query II
+SELECT date(t.insert_date) AS d, divide(sum(t.amount), 1) AS s
+FROM s.aggr_union_test_a t
+GROUP BY 1
+UNION ALL
+SELECT date(t.insert_date) AS d, divide(sum(t.amount), 1) AS s
+FROM s.aggr_union_test_b t
+GROUP BY 1   
+----
+2020-01-01	134209536
+2021-01-01	134209536
+
+statement ok
+DROP TABLE s.aggr_union_test_a
+
+statement ok
+DROP TABLE s.aggr_union_test_b
+
+statement ok
+DETACH s;
