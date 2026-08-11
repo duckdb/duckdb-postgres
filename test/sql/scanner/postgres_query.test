@@ -144,3 +144,40 @@ statement error
 select count(*) from postgres_query('s1', 'SELECT * FROM nonexistent_table');
 ----
 does not exist
+
+# DML
+
+query I
+FROM postgres_query('s1', 'DROP TABLE IF EXISTS query_dml_test')
+----
+-1
+
+query I
+FROM postgres_query('s1', 'CREATE TABLE query_dml_test(col1 INT)')
+----
+-1
+
+query I
+FROM postgres_query('s1', 'INSERT INTO query_dml_test values(41), (42)')
+----
+2
+
+query I
+FROM postgres_query('s1', 'UPDATE query_dml_test SET col1 = 43')
+----
+2
+
+query I
+FROM postgres_query('s1', 'UPDATE query_dml_test SET col1 = 44 WHERE 1 < 0')
+----
+0
+
+query II
+SELECT column_name, column_type FROM (
+  DESCRIBE FROM postgres_query('s1', 'UPDATE query_dml_test SET col1 = 44 WHERE 1 < 0')
+)
+----
+rowcount	BIGINT
+
+statement ok
+CALL postgres_query('s1', 'DROP TABLE query_dml_test')

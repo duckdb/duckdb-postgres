@@ -23,8 +23,8 @@ struct PGExecuteBindData : public TableFunctionData {
 
 static duckdb::unique_ptr<FunctionData> PGExecuteBind(ClientContext &context, TableFunctionBindInput &input,
                                                       vector<LogicalType> &return_types, vector<string> &names) {
-	return_types.emplace_back(LogicalType::BOOLEAN);
-	names.emplace_back("Success");
+	return_types.emplace_back(LogicalType::BIGINT);
+	names.emplace_back("rowcount");
 
 	// look up the database to query
 	auto db_name = input.inputs[0].GetValue<string>();
@@ -52,15 +52,20 @@ static duckdb::unique_ptr<FunctionData> PGExecuteBind(ClientContext &context, Ta
 static void PGExecuteFunction(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &data = data_p.bind_data->CastNoConst<PGExecuteBindData>();
 	if (data.finished) {
+		output.SetChildCardinality(0);
 		return;
 	}
 	auto &transaction = Transaction::Get(context, data.pg_catalog).Cast<PostgresTransaction>();
+	unique_ptr<PostgresResult> res;
 	if (data.use_transaction) {
-		transaction.Query(data.query);
+		res = transaction.Query(data.query);
 	} else {
-		transaction.QueryWithoutTransaction(data.query);
+		res = transaction.QueryWithoutTransaction(data.query);
 	}
 
+	int64_t *vec_data = FlatVector::GetDataMutable<int64_t>(output.data[0]);
+	vec_data[0] = res->AffectedRows();
+	output.SetChildCardinality(1);
 	data.finished = true;
 }
 
