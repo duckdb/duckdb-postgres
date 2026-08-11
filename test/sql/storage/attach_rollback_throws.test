@@ -23,7 +23,7 @@ s	1
 statement error
 CALL postgres_execute('s', 'SELECT pg_terminate_backend(pg_backend_pid())')
 ----
-pg_terminate_backend
+terminating connection due to administrator command
 
 # connection must have been discarded, as it cannot pass the health check on returning it to the pool
 query II

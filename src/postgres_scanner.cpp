@@ -534,7 +534,10 @@ static void PostgresScan(ClientContext &context, TableFunctionInput &data, DataC
 	auto &gstate = data.global_state->Cast<PostgresGlobalState>();
 
 	if (gstate.collection) {
-		gstate.collection->Scan(gstate.scan_state, output);
+		bool scan_happened = gstate.collection->Scan(gstate.scan_state, output);
+		if (!scan_happened) {
+			output.SetChildCardinality(0);
+		}
 		return;
 	}
 	auto &local_state = data.local_state->Cast<PostgresLocalState>();

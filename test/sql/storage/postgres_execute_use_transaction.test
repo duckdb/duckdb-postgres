@@ -12,20 +12,17 @@ ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 statement error
 CALL postgres_execute('s', 'VACUUM')
 ----
-Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+Invalid Error: Failed to execute query "VACUUM": ERROR:  VACUUM cannot run inside a transaction block
 
 statement error
 CALL postgres_execute('s', 'VACUUM', use_transaction=true)
 ----
-Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+Invalid Error: Failed to execute query "VACUUM": ERROR:  VACUUM cannot run inside a transaction block
 
 statement error
 CALL postgres_execute('s', 'VACUUM', use_transaction=true)
 ----
-Invalid Error: Failed to execute query "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-VACUUM": ERROR:  VACUUM cannot run inside a transaction block
+Invalid Error: Failed to execute query "VACUUM": ERROR:  VACUUM cannot run inside a transaction block
 
 statement ok
 CALL postgres_execute('s', 'VACUUM', use_transaction=false)
