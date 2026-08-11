@@ -27,3 +27,40 @@ statement error
 CALL postgres_execute('s', 'CREATE TABLE public.my_unlogged_table(i INTEGER)')
 ----
 already exists
+
+# row count
+
+query I
+FROM postgres_execute('s', 'DROP TABLE IF EXISTS query_dml_test')
+----
+-1
+
+query I
+FROM postgres_execute('s', 'CREATE TABLE query_dml_test(col1 INT)')
+----
+-1
+
+query I
+FROM postgres_execute('s', 'INSERT INTO query_dml_test values(41), (42)')
+----
+2
+
+query I
+FROM postgres_execute('s', 'UPDATE query_dml_test SET col1 = 43')
+----
+2
+
+query I
+FROM postgres_execute('s', 'UPDATE query_dml_test SET col1 = 44 WHERE 1 < 0')
+----
+0
+
+query II
+SELECT column_name, column_type FROM (
+  DESCRIBE FROM postgres_execute('s', 'UPDATE query_dml_test SET col1 = 44 WHERE 1 < 0')
+)
+----
+rowcount	BIGINT
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE query_dml_test')
