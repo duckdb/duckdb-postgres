@@ -39,7 +39,7 @@ CALL postgres_query('s', 'SELECT 42')
 42
 
 statement ok
-CALL postgres_execute('s', 'INSERT INTO postgres_execute_attempt VALUES (42); INSERT INTO postgres_execute_attempt VALUES (84)')
+CALL postgres_execute('s', 'INSERT INTO postgres_execute_attempt VALUES (42), (84)')
 
 statement ok
 COMMIT
