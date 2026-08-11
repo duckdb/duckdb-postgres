@@ -148,4 +148,16 @@ PostgresQueryFunction::PostgresQueryFunction()
 	projection_pushdown = true;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }
+
+PostgresExecuteFunction::PostgresExecuteFunction()
+    : TableFunction("postgres_execute", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
+	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
+	named_parameters["params"] = LogicalType::ANY;
+	PostgresScanFunction scan_function;
+	init_global = scan_function.init_global;
+	init_local = scan_function.init_local;
+	function = scan_function.function;
+	projection_pushdown = true;
+	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
+}
 } // namespace duckdb
