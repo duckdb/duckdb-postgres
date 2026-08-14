@@ -1,0 +1,57 @@
+# name: test/sql/scanner/remote_connect.test
+# description: Test CONNECT statement
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+query I
+SELECT current_database()
+----
+memory
+
+statement ok
+CONNECT 'dbname=postgresscanner' (TYPE POSTGRES)
+
+query I
+SELECT current_database()
+----
+postgresscanner
+
+statement ok
+DROP TABLE IF EXISTS connect_test
+
+statement ok
+CREATE TABLE connect_test(col1 INT)
+
+statement ok
+INSERT INTO connect_test values (41), (42)
+
+statement error
+FROM connect_test
+----
+Failed to prepare query
+
+query I
+SELECT col1::regclass FROM connect_test ORDER BY col1
+----
+41
+42
+
+# unittester ignores StatementReturnType::NOTHING
+query I
+UPDATE connect_test SET col1 = 43
+----
+2
+
+statement ok
+DROP TABLE connect_test
+
+statement ok
+DISCONNECT
+
+query I
+SELECT current_database()
+----
+memory
