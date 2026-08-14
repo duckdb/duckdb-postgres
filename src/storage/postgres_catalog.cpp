@@ -12,6 +12,8 @@
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
+#include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
@@ -24,6 +26,9 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, cons
 	vector<unique_ptr<ParsedExpression>> args;
 	args.push_back(make_uniq<ConstantExpression>(Value(GetName())));
 	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	args.push_back(make_uniq<ComparisonExpression>(ExpressionType::COMPARE_EQUAL,
+	                                               make_uniq<ColumnRefExpression>("suppress_dml_output"),
+	                                               make_uniq<ConstantExpression>(Value::BOOLEAN(true))));
 	auto func_ref = make_uniq<TableFunctionRef>();
 	func_ref->function = make_uniq<FunctionExpression>("postgres_query", std::move(args));
 	return func_ref;

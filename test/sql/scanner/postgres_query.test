@@ -181,3 +181,26 @@ rowcount	BIGINT
 
 statement ok
 CALL postgres_query('s1', 'DROP TABLE query_dml_test')
+
+# suppress DML output
+
+statement ok
+CALL postgres_query('s1', 'DROP TABLE IF EXISTS dml_output_test')
+
+statement ok
+CALL postgres_query('s1', 'CREATE TABLE dml_output_test (col1 INT)')
+
+statement ok
+CALL postgres_query('s1', 'INSERT INTO dml_output_test values(41),(42)')
+
+# unittester ignores StatementReturnType::NOTHING
+query I
+CALL postgres_query('s1', 'UPDATE dml_output_test SET col1 = 43', suppress_dml_output=TRUE)
+----
+2
+
+statement ok
+CALL postgres_query('s1', 'DROP TABLE dml_output_test')
+
+statement ok
+DETACH s1

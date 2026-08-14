@@ -11,6 +11,17 @@
 
 namespace duckdb {
 
+static bool ExtractFlag(TableFunctionBindInput &input, const string &name, bool default_val) {
+	auto it = input.named_parameters.find(Identifier(name));
+	if (it != input.named_parameters.end()) {
+		Value &bool_val = it->second;
+		if (!bool_val.IsNull()) {
+			return BooleanValue::Get(bool_val);
+		}
+	}
+	return default_val;
+}
+
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types, vector<string> &names) {
 	auto result = make_uniq<PostgresBindData>(context);
@@ -40,12 +51,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		StringUtil::RTrim(sql);
 	}
 
-	bool use_transaction = true;
-	for (auto &kv : input.named_parameters) {
-		if (kv.first == "use_transaction") {
-			use_transaction = BooleanValue::Get(kv.second);
-		}
-	}
+	bool use_transaction = ExtractFlag(input, "use_transaction", true);
 
 	vector<Value> param_values;
 	auto params_it = input.named_parameters.find("params");
@@ -86,10 +92,12 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		// the prepare/describe just done — no extra round-trip — and defer execution to
 		// InitGlobalState (execution time, not bind, so EXPLAIN does not run it).
 		result->command_only = true;
-		// This invocation wraps a command with no result set (DDL, or DML without RETURNING). Tell the
-		// binder via the return-type modifier so that when this is routed through CONNECT the outer
-		// statement is reported as NOTHING and displays like a native command (no spurious result table).
-		input.table_function.call_return_type = StatementReturnType::NOTHING;
+		if (ExtractFlag(input, "suppress_dml_output", false)) {
+			// This invocation wraps a command with no result set (DDL, or DML without RETURNING). Tell the
+			// binder via the return-type modifier so that when this is routed through CONNECT the outer
+			// statement is reported as NOTHING and displays like a native command (no spurious result table).
+			input.table_function.call_return_type = StatementReturnType::NOTHING;
+		}
 		return_types.emplace_back(LogicalType::BIGINT);
 		names.emplace_back("rowcount");
 		result->SetCatalog(pg_catalog);
@@ -141,6 +149,7 @@ PostgresQueryFunction::PostgresQueryFunction()
     : TableFunction("postgres_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
 	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
 	named_parameters["params"] = LogicalType::ANY;
+	named_parameters["suppress_dml_output"] = LogicalType::BOOLEAN;
 	PostgresScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;
