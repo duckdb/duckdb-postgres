@@ -14,7 +14,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      duckdb_version: dfd87550849406b1823812222ef92525724780d3
+      duckdb_version: 326202015f4e5ed031c898ab1bc0860cd614cac1
       ci_tools_version: main
       extension_name: postgres_scanner
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw'
@@ -27,7 +27,7 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
     secrets: inherit
     with:
-      duckdb_version: dfd87550849406b1823812222ef92525724780d3
+      duckdb_version: 326202015f4e5ed031c898ab1bc0860cd614cac1
       ci_tools_version: main
       extension_name: postgres_scanner
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw'

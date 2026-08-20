@@ -216,10 +216,12 @@ void PostgresHstoreToJsonFun(DataChunk &args, ExpressionState &state, Vector &re
 void RegisterHstoreFunctions(ExtensionLoader &loader) {
 	auto hstore_get = ScalarFunction("postgres_hstore_get", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                 LogicalType::VARCHAR, PostgresHstoreGetFun);
+	hstore_get.SetFallible();
 	loader.RegisterFunction(hstore_get);
 
 	auto hstore_to_json =
 	    ScalarFunction("postgres_hstore_to_json", {LogicalType::VARCHAR}, LogicalType::JSON(), PostgresHstoreToJsonFun);
+	hstore_to_json.SetFallible();
 	loader.RegisterFunction(hstore_to_json);
 }
 

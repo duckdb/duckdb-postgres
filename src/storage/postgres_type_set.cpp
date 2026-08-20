@@ -60,8 +60,7 @@ void PostgresTypeSet::CreateEnum(PostgresTransaction &transaction, PostgresResul
 	for (idx_t enum_idx = 0; enum_idx < enum_count; enum_idx++) {
 		duckdb_levels.SetValue(enum_idx, result.GetString(start_row + enum_idx, 3));
 	}
-	info.type = LogicalType::ENUM(duckdb_levels, enum_count);
-	info.type.SetAlias(info.GetTypeName().GetIdentifierName());
+	info.type = LogicalType::ENUM(duckdb_levels, enum_count).WithAlias(info.GetTypeName().GetIdentifierName());
 	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, postgres_type);
 	CreateEntry(transaction, std::move(type_entry));
 }
@@ -128,8 +127,7 @@ void PostgresTypeSet::CreateCompositeType(PostgresTransaction &transaction, Post
 		    Identifier(type_name), PostgresUtils::TypeToLogicalType(&transaction, &schema, type_data, child_type)));
 		postgres_type.children.push_back(std::move(child_type));
 	}
-	info.type = LogicalType::STRUCT(std::move(child_types));
-	info.type.SetAlias(info.GetTypeName().GetIdentifierName());
+	info.type = LogicalType::STRUCT(std::move(child_types)).WithAlias(info.GetTypeName().GetIdentifierName());
 	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, postgres_type);
 	CreateEntry(transaction, std::move(type_entry));
 }
@@ -207,7 +205,7 @@ optional_ptr<CatalogEntry> PostgresTypeSet::CreateType(PostgresTransaction &tran
 
 	auto create_sql = GetCreateTypeSQL(info);
 	conn.Execute(transaction.GetContext(), create_sql);
-	info.type.SetAlias(info.GetTypeName().GetIdentifierName());
+	info.type = info.type.WithAlias(info.GetTypeName().GetIdentifierName());
 	auto pg_type = PostgresUtils::CreateEmptyPostgresType(info.type);
 	auto type_entry = make_shared_ptr<PostgresTypeEntry>(catalog, schema, info, pg_type);
 	return CreateEntry(transaction, std::move(type_entry));

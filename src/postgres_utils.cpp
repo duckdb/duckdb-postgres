@@ -371,9 +371,7 @@ LogicalType PostgresUtils::ToPostgresType(const LogicalType &input) {
 			auto &type = StructType::GetChildType(input, c);
 			new_types.push_back(make_pair(name, ToPostgresType(type)));
 		}
-		auto result = LogicalType::STRUCT(std::move(new_types));
-		result.SetAlias(input.GetAlias());
-		return result;
+		return LogicalType::STRUCT(std::move(new_types)).WithAlias(input.GetAlias());
 	}
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
