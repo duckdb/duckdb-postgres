@@ -23,7 +23,7 @@ static bool ExtractFlag(TableFunctionBindInput &input, const string &name, bool 
 }
 
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names) {
+                                            vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto result = make_uniq<PostgresBindData>(context);
 
 	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
@@ -99,11 +99,11 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 			input.table_function.call_return_type = StatementReturnType::NOTHING;
 		}
 		return_types.emplace_back(LogicalType::BIGINT);
-		names.emplace_back("rowcount");
+		names.emplace_back(Identifier("rowcount"));
 		result->SetCatalog(pg_catalog);
 		result->dsn = con.GetDSN();
 		result->types = return_types;
-		result->names = names;
+		result->names.emplace_back(names[0].GetIdentifierName());
 		result->read_only = false;
 		result->sql = std::move(sql);
 		result->use_transaction = use_transaction;
@@ -136,7 +136,9 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->SetCatalog(pg_catalog);
 	result->dsn = con.GetDSN();
 	result->types = return_types;
-	result->names = names;
+	for (auto &nm : names) {
+		result->names.emplace_back(nm.GetIdentifierName());
+	}
 	result->read_only = false;
 	result->sql = std::move(sql);
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));

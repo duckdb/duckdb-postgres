@@ -47,7 +47,7 @@ public:
 	string GetCatalogType() override {
 		return "postgres";
 	}
-	string GetDefaultSchema() const override {
+	Identifier GetDefaultSchema() const override {
 		return default_schema.empty() ? "public" : default_schema;
 	}
 
@@ -147,7 +147,7 @@ private:
 	PostgresVersion version;
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
-	string default_schema;
+	Identifier default_schema;
 	SecretStorageTable secret_storage_table;
 	//! Overrides what the shell prompt displays for this catalog - see GetConnectDisplay
 	string connect_display;

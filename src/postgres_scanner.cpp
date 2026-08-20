@@ -171,7 +171,7 @@ void PostgresBindData::SetTable(PostgresTableEntry &table) {
 }
 
 static unique_ptr<FunctionData> PostgresBind(ClientContext &context, TableFunctionBindInput &input,
-                                             vector<LogicalType> &return_types, vector<string> &names) {
+                                             vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto bind_data = make_uniq<PostgresBindData>(context);
 
 	bind_data->dsn = input.inputs[0].GetValue<string>();
@@ -186,7 +186,7 @@ static unique_ptr<FunctionData> PostgresBind(ClientContext &context, TableFuncti
 
 	bind_data->postgres_types = info->postgres_types;
 	for (auto &col : info->create_info->columns.Logical()) {
-		names.push_back(col.GetName().GetIdentifierName());
+		names.push_back(col.GetName());
 		return_types.push_back(col.GetType());
 	}
 	bind_data->names = info->postgres_names;

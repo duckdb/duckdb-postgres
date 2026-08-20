@@ -157,7 +157,7 @@ static void PostgresBinaryReadScan(ClientContext &context, TableFunctionInput &d
 }
 
 static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, TableFunctionBindInput &input,
-                                                       vector<LogicalType> &return_types, vector<string> &names) {
+                                                       vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto result = make_uniq<PostgresBinaryReadBindData>();
 	result->file_path = input.inputs[0].GetValue<string>();
 
@@ -173,12 +173,12 @@ static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, T
 		auto col_type_str = column_map[i].GetValue<string>();
 		auto col_type = TransformStringToLogicalType(col_type_str, context);
 
-		names.push_back(col_name.GetIdentifierName());
+		names.push_back(col_name);
 		return_types.push_back(col_type);
 		result->postgres_types.push_back(PostgresUtils::CreateEmptyPostgresType(col_type));
 	}
 
-	result->names = names;
+	result->names = IdentifiersToStrings(names);
 	result->types = return_types;
 
 	if (input.named_parameters.count("buffer_size")) {
