@@ -54,12 +54,16 @@ bool PostgresBinaryReader::FetchNextBuffer() {
 		return false;
 	}
 
+	// take ownership of the buffer before validating it, so that a short read
+	// does not leak it - PQgetCopyData allocates even when it returns a length
+	// we cannot use
+	buffer = new_buffer;
+
 	// len -2 is error
 	// we expect at least 2 bytes in each message for the tuple count
 	if (!new_buffer || len < sizeof(int16_t)) {
 		throw IOException("Unable to read binary COPY data from Postgres: %s", string(PQerrorMessage(con.GetConn())));
 	}
-	buffer = new_buffer;
 	parser.SetBuffer(buffer, len);
 	return true;
 }
