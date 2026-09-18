@@ -16,6 +16,12 @@ SELECT current_setting('pg_use_information_schema_introspection')
 ----
 false
 
+statement ok
+DROP VIEW IF EXISTS pgc.public.is_view
+
+statement ok
+CREATE VIEW pgc.public.is_view AS SELECT 1 AS i
+
 # snapshot schema as obtained the pg way
 statement ok
 CREATE TEMP TABLE pgc_tables AS SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name='pgc' AND schema_name NOT IN ('pg_catalog', 'information_schema')
@@ -28,6 +34,16 @@ SET pg_use_information_schema_introspection=true
 
 statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+query T
+SELECT table_type FROM information_schema.tables WHERE table_catalog = 's' AND table_name = 'is_view'
+----
+VIEW
+
+query I
+SELECT i FROM s.public.is_view
+----
+1
 
 # the two paths discover the same tables
 query I
@@ -82,6 +98,9 @@ BIGINT	VARCHAR	TIMESTAMP WITH TIME ZONE	BOOLEAN
 
 statement ok
 DROP TABLE s.public.is_types
+
+statement ok
+DROP VIEW s.public.is_view
 
 statement ok
 DETACH s

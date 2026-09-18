@@ -37,7 +37,7 @@ SELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,
     attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,
     NULL constraint_type, NULL constraint_key, type_ns.nspname AS type_schema,
     col_desc.description AS column_comment,
-    tbl_desc.description AS table_comment
+    tbl_desc.description AS table_comment, pg_class.relkind
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid
@@ -51,7 +51,7 @@ SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, N
     NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,
     pg_constraint.oid AS constraint_id, contype AS constraint_type,
     conkey AS constraint_key, NULL AS type_schema,
-    NULL AS column_comment, NULL AS table_comment
+    NULL AS column_comment, NULL AS table_comment, pg_class.relkind
 FROM pg_class
 JOIN pg_namespace ON relnamespace = pg_namespace.oid
 JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)
@@ -76,21 +76,23 @@ string PostgresTableSet::GetInitializeQueryInformationSchema(const string &schem
 
 string PostgresTableSet::GetInitializeQueryInformationSchema(const vector<string> &schemas, const string &table) {
 	string base_query = R"(
-SELECT table_schema AS namespace_id, table_name AS relname, 0 AS relpages, column_name AS attname,
-    data_type AS type_name, -1 AS type_modifier, 0 AS ndim, ordinal_position AS attnum,
-    CASE WHEN is_nullable = 'NO' THEN 't' ELSE 'f' END AS notnull,
+SELECT c.table_schema AS namespace_id, c.table_name AS relname, 0 AS relpages, c.column_name AS attname,
+    c.data_type AS type_name, -1 AS type_modifier, 0 AS ndim, c.ordinal_position AS attnum,
+    CASE WHEN c.is_nullable = 'NO' THEN 't' ELSE 'f' END AS notnull,
     NULL AS constraint_id, NULL AS constraint_type, NULL AS constraint_key,
-    NULL AS type_schema, NULL AS column_comment, NULL AS table_comment
-FROM information_schema.columns
-WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast') ${CONDITION}
-ORDER BY table_schema, table_name, ordinal_position;
+    NULL AS type_schema, NULL AS column_comment, NULL AS table_comment,
+    CASE t.table_type WHEN 'VIEW' THEN 'v' WHEN 'FOREIGN' THEN 'f' ELSE 'r' END AS relkind
+FROM information_schema.columns c
+JOIN information_schema.tables t USING (table_schema, table_name)
+WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast') ${CONDITION}
+ORDER BY c.table_schema, c.table_name, c.ordinal_position;
 )";
 	string condition;
 	if (schemas.size() > 0) {
-		condition += "AND table_schema IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
+		condition += "AND c.table_schema IN (" + PostgresUtils::WriteLiteralsCommaSeparated(schemas) + ")";
 	}
 	if (!table.empty()) {
-		condition += " AND table_name=" + PostgresUtils::WriteLiteral(table);
+		condition += " AND c.table_name=" + PostgresUtils::WriteLiteral(table);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -189,6 +191,7 @@ void PostgresTableSet::CreateEntries(PostgresTransaction &transaction, PostgresR
 			}
 			info = make_uniq<PostgresTableInfo>(schema, table_name);
 			info->approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
+			info->relkind = result.GetString(row, 15)[0];
 			// Read table-level comment from column 14
 			if (!result.IsNull(row, 14)) {
 				info->create_info->comment = Value(result.GetString(row, 14));
@@ -254,6 +257,7 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(PostgresTransaction
 		return nullptr;
 	}
 	auto table_info = make_uniq<PostgresTableInfo>(schema, table_name);
+	table_info->relkind = result->GetString(0, 15)[0];
 	auto type_config = PostgresTypeConfig::FromContext(transaction.GetContext());
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(&transaction, &schema, type_config, *result, row, *table_info);
@@ -277,6 +281,7 @@ unique_ptr<PostgresTableInfo> PostgresTableSet::GetTableInfo(ClientContext &cont
 		throw InvalidInputException("Table %s does not contain any columns.", table_name);
 	}
 	auto table_info = make_uniq<PostgresTableInfo>(schema_name, table_name);
+	table_info->relkind = result->GetString(0, 15)[0];
 	auto type_config = PostgresTypeConfig::FromContext(context);
 	for (idx_t row = 0; row < rows; row++) {
 		AddColumnOrConstraint(nullptr, nullptr, type_config, *result, row, *table_info);

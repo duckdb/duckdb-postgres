@@ -42,6 +42,7 @@ struct PostgresTableInfo {
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
 	int64_t approx_num_pages = 0;
+	char relkind = 'r';
 	unordered_map<int64_t, idx_t> attnum_to_logical;
 };
 
@@ -56,6 +57,7 @@ public:
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
 
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
+	string GetSQLTableType() const override;
 
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
@@ -72,6 +74,7 @@ public:
 	//! We track these separately because of case sensitivity - Postgres allows e.g. the columns "ID" and "id" together
 	//! We would in this case remap them to "ID" and "id:1", while postgres_names store the original names
 	vector<string> postgres_names;
+	char relkind;
 	//! The approximate number of pages a table consumes in Postgres
 	std::atomic<int64_t> approx_num_pages;
 };

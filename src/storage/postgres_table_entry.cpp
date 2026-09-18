@@ -13,7 +13,7 @@
 namespace duckdb {
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info), relkind('r') {
 	for (idx_t c = 0; c < columns.LogicalColumnCount(); c++) {
 		auto &col = columns.GetColumnMutable(LogicalIndex(c));
 		if (col.GetType().HasAlias()) {
@@ -27,9 +27,13 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info), postgres_types(std::move(info.postgres_types)),
-      postgres_names(std::move(info.postgres_names)) {
+      postgres_names(std::move(info.postgres_names)), relkind(info.relkind) {
 	D_ASSERT(postgres_types.size() == columns.LogicalColumnCount());
 	approx_num_pages.store(info.approx_num_pages, std::memory_order_release);
+}
+
+string PostgresTableEntry::GetSQLTableType() const {
+	return relkind == 'v' ? "VIEW" : TableCatalogEntry::GetSQLTableType();
 }
 
 unique_ptr<BaseStatistics> PostgresTableEntry::GetStatistics(ClientContext &context, column_t column_id) {

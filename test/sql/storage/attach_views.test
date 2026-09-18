@@ -23,6 +23,34 @@ SELECT i FROM v1
 ----
 42
 
+query T
+SELECT table_type FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'v1'
+----
+VIEW
+
+query T
+SELECT table_type FROM information_schema.tables WHERE table_catalog = 's' AND table_name = 'v1'
+----
+VIEW
+
+# Reload the view through the bulk catalog path
+statement ok
+USE memory
+
+statement ok
+DETACH s
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+query T
+SELECT table_type FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'v1'
+----
+VIEW
+
 statement error
 CREATE VIEW v1 AS SELECT 84;
 ----
