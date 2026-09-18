@@ -10,6 +10,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/common/types/interval.hpp"
+#include "duckdb/common/types/geometry_crs.hpp"
 #include "duckdb/common/serializer/memory_stream.hpp"
 #include "postgres_conversion.hpp"
 
@@ -207,6 +208,44 @@ public:
 		stream.WriteData(const_data_ptr_cast(str_data), str_size);
 	}
 
+	//! Write GEOMETRY to PostGIS. If the type carries CRS metadata, writes EWKB
+	//! (WKB with SRID) so PostGIS receives the correct SRID.
+	void WriteGeometry(string_t value, const LogicalType &type) {
+		if (!GeoType::HasCRS(type)) {
+			WriteRawBlob(value);
+			return;
+		}
+		auto &crs = GeoType::GetCRS(type);
+
+		// Extract SRID from CRS identifier (e.g., "EPSG:4326" → 4326)
+		auto &id = crs.GetIdentifier();
+		auto colon = id.find(':');
+		if (colon == string::npos) {
+			WriteRawBlob(value);
+			return;
+		}
+		int32_t srid;
+		try {
+			srid = std::stoi(id.substr(colon + 1));
+		} catch (...) {
+			WriteRawBlob(value);
+			return;
+		}
+
+		// Write EWKB: WKB with SRID flag set on the type field + 4-byte SRID inserted.
+		// [byte_order:1] [type|0x20000000:4] [srid:4] [coordinates...]
+		auto wkb_size = value.GetSize();
+		auto wkb_data = const_data_ptr_cast(value.GetData());
+		WriteRawInteger<int32_t>(NumericCast<int32_t>(wkb_size + 4));
+		stream.WriteData(wkb_data, 1); // byte order
+		uint32_t wkb_type;
+		memcpy(&wkb_type, wkb_data + 1, 4);
+		wkb_type |= 0x20000000;
+		stream.WriteData(const_data_ptr_cast(reinterpret_cast<const uint8_t *>(&wkb_type)), 4); // type + SRID flag
+		stream.WriteData(const_data_ptr_cast(reinterpret_cast<const uint8_t *>(&srid)), 4); // SRID (LE, matching WKB)
+		stream.WriteData(wkb_data + 5, wkb_size - 5);                                       // rest of payload
+	}
+
 	void WriteVarchar(string_t value) {
 		auto str_size = value.GetSize();
 		auto str_data = value.GetData();
@@ -354,7 +393,7 @@ public:
 		}
 		case LogicalTypeId::GEOMETRY: {
 			auto data = FlatVector::GetData<string_t>(col)[r];
-			WriteRawBlob(data);
+			WriteGeometry(data, type);
 			break;
 		}
 		case LogicalTypeId::ENUM: {
