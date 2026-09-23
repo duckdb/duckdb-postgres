@@ -24,11 +24,11 @@ namespace duckdb {
 
 unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, const string &sql) {
 	vector<unique_ptr<ParsedExpression>> args;
-	args.push_back(make_uniq<ConstantExpression>(Value(GetName())));
-	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	args.push_back(ConstantExpression::FromValue(Value(GetName())));
+	args.push_back(ConstantExpression::FromValue(Value(sql)));
 	args.push_back(make_uniq<ComparisonExpression>(ExpressionType::COMPARE_EQUAL,
 	                                               make_uniq<ColumnRefExpression>("suppress_dml_output"),
-	                                               make_uniq<ConstantExpression>(Value::BOOLEAN(true))));
+	                                               ConstantExpression::FromValue(Value::BOOLEAN(true))));
 	auto func_ref = make_uniq<TableFunctionRef>();
 	func_ref->function = make_uniq<FunctionExpression>("postgres_query", std::move(args));
 	return func_ref;
