@@ -13,7 +13,7 @@
 namespace duckdb {
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info), columns(std::move(info.columns)) {
 	for (idx_t c = 0; c < columns.LogicalColumnCount(); c++) {
 		auto &col = columns.GetColumnMutable(LogicalIndex(c));
 		if (col.GetType().HasAlias()) {
@@ -26,10 +26,14 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 }
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info)
-    : TableCatalogEntry(catalog, schema, *info.create_info), postgres_types(std::move(info.postgres_types)),
-      postgres_names(std::move(info.postgres_names)) {
+    : TableCatalogEntry(catalog, schema, *info.create_info), columns(std::move(info.create_info->columns)),
+      postgres_types(std::move(info.postgres_types)), postgres_names(std::move(info.postgres_names)) {
 	D_ASSERT(postgres_types.size() == columns.LogicalColumnCount());
 	approx_num_pages.store(info.approx_num_pages, std::memory_order_release);
+}
+
+const ColumnList &PostgresTableEntry::GetColumns() const {
+	return columns;
 }
 
 unique_ptr<BaseStatistics> PostgresTableEntry::GetStatistics(ClientContext &context, column_t column_id) {

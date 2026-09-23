@@ -51,6 +51,8 @@ public:
 	PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info);
 
 public:
+	const ColumnList &GetColumns() const override;
+
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
@@ -64,6 +66,9 @@ public:
 	PostgresCopyFormat GetCopyFormat(ClientContext &context);
 
 	static dbconnector::attached::AttachedTable Lookup(ClientContext &ctx, QualifiedName name);
+
+protected:
+	ColumnList columns;
 
 public:
 	//! Postgres type annotations
