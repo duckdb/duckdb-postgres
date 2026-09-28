@@ -12,9 +12,9 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.6
     with:
-      ci_tools_version: main
+      ci_tools_version: v1.5.6
       extension_name: postgres_scanner
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw'
       opt_in_archs: 'linux_amd64_musl;linux_arm64_musl;windows_amd64_arm'
@@ -23,10 +23,10 @@ jobs:
   duckdb-stable-deploy:
     name: Deploy extension binaries
     needs: duckdb-stable-build
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@v1.5.6
     secrets: inherit
     with:
-      ci_tools_version: main
+      ci_tools_version: v1.5.6
       extension_name: postgres_scanner
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw'
       opt_in_archs: 'linux_amd64_musl;linux_arm64_musl;windows_amd64_arm'
