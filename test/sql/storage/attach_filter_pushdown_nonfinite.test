@@ -1,0 +1,286 @@
+# name: test/sql/storage/attach_filter_pushdown_nonfinite.test
+# description: Test filter pushdown with non-finite input for expressions when remote execute is not supported
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CREATE OR REPLACE TABLE s.filter_pushdown_test_infinite(col1 FLOAT, col2 DOUBLE, col3 DATE, col4 TIMESTAMP)
+
+statement ok
+INSERT INTO s.filter_pushdown_test_infinite values (41.0, 42.0, '2020-12-31', '2020-12-31 23:59:59')
+
+# ExpressionType::COMPARE_IN:
+
+# FLOAT
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 IN ('inf'::FLOAT, 'nan'::FLOAT, 41.0::FLOAT)
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 IN ('inf'::FLOAT, 'nan'::FLOAT, 41.0::FLOAT)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col1 IN \('inf'::FLOAT, 'nan'::FLOAT, 41.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 IN ('inf'::FLOAT, 'nan'::FLOAT)
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 IN ('inf'::FLOAT, 'nan'::FLOAT)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col1 IN \('inf'::FLOAT, 'nan'::FLOAT\)\).*
+
+# DOUBLE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 IN ('inf'::DOUBLE, 'nan'::DOUBLE, 42.0::DOUBLE)
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 IN ('inf'::DOUBLE, 'nan'::DOUBLE, 42.0::DOUBLE)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col2 IN \(1e1000, 'nan'::DOUBLE, 42.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 IN ('inf'::DOUBLE, 'nan'::DOUBLE)
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 IN ('inf'::DOUBLE, 'nan'::DOUBLE)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col2 IN \(1e1000, 'nan'::DOUBLE\)\).*
+
+# DATE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 IN ('inf'::DATE, '2020-12-31'::DATE)
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 IN ('inf'::DATE, '2020-12-31'::DATE)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col3 IN \('infinity'::DATE, '2020-12-31'::DATE\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 IN ('inf'::DATE)
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 IN ('inf'::DATE)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col3 = 'infinity'::DATE.*
+
+# TIMESTAMP
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 IN ('inf'::TIMESTAMP, '2020-12-31 23:59:59'::TIMESTAMP)
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 IN ('inf'::TIMESTAMP, '2020-12-31 23:59:59'::TIMESTAMP)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(col4 IN \('infinity'::TIMESTAMP, '2020-12-31 23:59:59'::TIMESTAMP\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 IN ('inf'::TIMESTAMP)
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 IN ('inf'::TIMESTAMP)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col4 = 'infinity'::TIMESTAMP.*
+
+# ExpressionType::COMPARE_EQUAL
+
+# FLOAT
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 = 'inf'::FLOAT OR col1 = 'nan'::FLOAT OR col1 = 41.0::FLOAT
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 = 'inf'::FLOAT OR col1 = 'nan'::FLOAT OR col1 = 41.0::FLOAT
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col1 = 'inf'::FLOAT\) OR \(col1 = 'nan'::FLOAT\) OR \(col1 = 41.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 = 'inf'::FLOAT OR col1 = 'nan'::FLOAT
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 = 'inf'::FLOAT OR col1 = 'nan'::FLOAT
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col1 = 'inf'::FLOAT\) OR \(col1 = 'nan'::FLOAT\)\).*
+
+# DOUBLE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 = 'inf'::DOUBLE OR col2 = 'nan'::DOUBLE OR col2 = 42.0::DOUBLE
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 = 'inf'::DOUBLE OR col2 = 'nan'::DOUBLE OR col2 = 42.0::DOUBLE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col2 = 1e1000\) OR \(col2 = 'nan'::DOUBLE\) OR \(col2 = 42.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 = 'inf'::DOUBLE OR col2 = 'nan'::DOUBLE
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 = 'inf'::DOUBLE OR col2 = 'nan'::DOUBLE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col2 = 1e1000\) OR \(col2 = 'nan'::DOUBLE\)\).*
+
+# DATE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 = 'inf'::DATE OR col3 = '2020-12-31'::DATE
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 = 'inf'::DATE OR col3 = '2020-12-31'::DATE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col3 = 'infinity'::DATE\) OR \(col3 = '2020-12-31'::DATE\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 = 'inf'::DATE
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 = 'inf'::DATE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col3 = 'infinity'::DATE.*
+
+# TIMESTAMP
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 = 'inf'::TIMESTAMP OR col4 = '2020-12-31 23:59:59'::TIMESTAMP
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 = 'inf'::TIMESTAMP OR col4 = '2020-12-31 23:59:59'::TIMESTAMP
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col4 = 'infinity'::TIMESTAMP\) OR \(col4 = '2020-12-31 23:59:59'::TIMESTAMP\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 = 'inf'::TIMESTAMP
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 = 'inf'::TIMESTAMP
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col4 = 'infinity'::TIMESTAMP.*
+
+# ExpressionType::COMPARE_GREATERTHAN
+
+# FLOAT
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 > 'inf'::FLOAT OR col1 > 'nan'::FLOAT OR col1 > 40.0::FLOAT
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 > 'inf'::FLOAT OR col1 > 'nan'::FLOAT OR col1 > 40.0::FLOAT
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col1 > 'inf'::FLOAT\) OR \(col1 > 'nan'::FLOAT\) OR \(col1 > 40.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 > 'inf'::FLOAT OR col1 > 'nan'::FLOAT
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col1 > 'inf'::FLOAT OR col1 > 'nan'::FLOAT
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col1 > 'inf'::FLOAT\) OR \(col1 > 'nan'::FLOAT\)\).*
+
+# DOUBLE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 > 'inf'::DOUBLE OR col2 > 'nan'::DOUBLE OR col2 > 40.0::DOUBLE
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 > 'inf'::DOUBLE OR col2 > 'nan'::DOUBLE OR col2 > 40.0::DOUBLE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col2 > 1e1000\) OR \(col2 > 'nan'::DOUBLE\) OR \(col2 > 40.0\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 > 'inf'::DOUBLE OR col2 > 'nan'::DOUBLE
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col2 > 'inf'::DOUBLE OR col2 > 'nan'::DOUBLE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col2 > 1e1000\) OR \(col2 > 'nan'::DOUBLE\)\).*
+
+# DATE
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 > 'inf'::DATE OR col3 > '2020-12-30'::DATE
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 > 'inf'::DATE OR col3 > '2020-12-30'::DATE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col3 > 'infinity'::DATE\) OR \(col3 > '2020-12-30'::DATE\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 > 'inf'::DATE
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col3 > 'inf'::DATE
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col3 > 'infinity'::DATE.*
+
+# TIMESTAMP
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 > 'inf'::TIMESTAMP OR col4 > '2020-12-31 23:59:58'::TIMESTAMP
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 > 'inf'::TIMESTAMP OR col4 > '2020-12-31 23:59:58'::TIMESTAMP
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col4 > 'infinity'::TIMESTAMP\) OR \(col4 > '2020-12-31 23:59:58'::TIMESTAMP\)\).*
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 > 'inf'::TIMESTAMP
+----
+0
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.filter_pushdown_test_infinite WHERE col4 > 'inf'::TIMESTAMP
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*col4 > 'infinity'::TIMESTAMP.*
