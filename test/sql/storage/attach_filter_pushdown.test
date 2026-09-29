@@ -1,5 +1,5 @@
 # name: test/sql/storage/attach_filter_pushdown.test
-# description: Test experimental filter pushdown
+# description: Test filter pushdown for expressions when remote execute is not supported
 # group: [storage]
 
 require postgres_scanner
@@ -7,58 +7,358 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
-CREATE OR REPLACE TABLE s1.filter_pushdown(i INTEGER)
+CREATE OR REPLACE TABLE s.filter_pushdown_test(col1 INTEGER, col2 VARCHAR)
 
 statement ok
-INSERT INTO s1.filter_pushdown FROM range(1000000)
+INSERT INTO s.filter_pushdown_test values (41, 'foo'), (42, 'bar'), (44, NULL)
+
+# ExpressionClass::BOUND_CONJUNCTION
+
+# ExpressionType::CONJUNCTION_AND
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 = 41 AND col2 = 'foo'
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 = 41 AND col2 = 'foo'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 = 41.*col2 = 'foo'.*
+
+# ExpressionType::CONJUNCTION_OR
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE (col1 = 41 AND col2 = 'foo') OR col2 = 'bar'
+----
+41
+42
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE (col1 = 41 AND col2 = 'foo') OR col2 = 'bar'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*\(\(col2 = 'foo'\) OR \(col2 = 'bar'\)\).*
+
+# ExpressionClass::BOUND_OPERATOR
+
+# ExpressionType::OPERATOR_IS_NULL
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NULL
+----
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NULL
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 IS NULL.*
+
+# ExpressionType::OPERATOR_IS_NOT_NULL
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NOT NULL
+----
+41
+42
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NOT NULL
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 IS NOT NULL.*
+
+# ExpressionType::COMPARE_IN:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 IN (41, 44)
+----
+41
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 IN (41, 44)
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: optional: \(col1 IN \(41, 44\)\).*
+
+# indirect reference
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE len(col2) IN (3, 4)
+----
+41
+42
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE len(col2) IN (3, 4)
+----
+physical_plan	<!REGEX>:.*Postgres Scan.*Filters:.*
+
+# ExpressionClass::BOUND_FUNCTION
+
+# ExpressionType::COMPARE_EQUAL:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 = 41
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 = 41
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 = 41.*
+
+# ExpressionType::COMPARE_NOTEQUAL:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 != 41
+----
+42
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 != 41
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 != 41.*
+
+# ExpressionType::COMPARE_LESSTHAN:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 < 42
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 < 42
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 < 42.*
+
+# ExpressionType::COMPARE_GREATERTHAN:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 > 42
+----
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 > 42
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 > 42.*
+
+# ExpressionType::COMPARE_LESSTHANOREQUALTO:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 <= 41
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 <= 41
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 <= 41.*
+
+# ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 >= 44
+----
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col1 >= 44
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col1 >= 44.*
+
+# ExpressionType::COMPARE_DISTINCT_FROM:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS DISTINCT FROM 'foo'
+----
+42
+44
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS DISTINCT FROM 'foo'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 IS DISTINCT FROM 'foo'.*
+
+# ExpressionType::COMPARE_NOT_DISTINCT_FROM:
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NOT DISTINCT FROM 'foo'
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 IS NOT DISTINCT FROM 'foo'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 IS NOT DISTINCT FROM 'foo'.*
+
+# VARCHAR comparison logic
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 = 'foo'
+----
+41
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 = 'foo'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 = 'foo'.*
+
+query I
+SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 = 'FOO'
+----
+
+query II
+EXPLAIN SELECT divide(col1, 1) FROM s.filter_pushdown_test WHERE col2 = 'FOO'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: col2 = 'FOO'.*
 
 statement ok
-SET pg_experimental_filter_pushdown=true
+DROP TABLE s.filter_pushdown_test
 
-query I
-SELECT * FROM s1.filter_pushdown WHERE i=52525
-----
-52525
-
-query I
-SELECT * FROM s1.filter_pushdown WHERE i IN (32, 52525, 777777) ORDER BY ALL
-----
-32
-52525
-777777
+# VARCHAR
 
 statement ok
-CREATE OR REPLACE TABLE s1.filter_pushdown_types(v VARCHAR, d DATE);
+CREATE OR REPLACE TABLE s.filter_pushdown_string(i STRING)
 
 statement ok
-INSERT INTO s1.filter_pushdown_types VALUES ('hello world', DATE '1992-01-01'), (NULL, NULL), ('I''m here', DATE '2020-01-01');
+INSERT INTO s.filter_pushdown_string SELECT CAST(range AS STRING) FROM range(10000);
+
+query II
+SELECT i, divide(len(i), 1) FROM s.filter_pushdown_string WHERE i = '5252'
+----
+5252	4
+
+query II
+EXPLAIN SELECT i, divide(len(i), 1) FROM s.filter_pushdown_string WHERE i = '5252'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: i = '5252'.*
+
+query II
+SELECT i, divide(len(i), 1) FROM s.filter_pushdown_string WHERE i > '10' ORDER BY i LIMIT 10
+----
+100	3
+1000	4
+1001	4
+1002	4
+1003	4
+1004	4
+1005	4
+1006	4
+1007	4
+1008	4
+
+query II
+EXPLAIN SELECT i, divide(len(i), 1) FROM s.filter_pushdown_string WHERE i > '10' ORDER BY i LIMIT 10
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*i > '10'.*
+
+statement ok
+DROP TABLE s.filter_pushdown_string
+
+# timestamp pushdown
+
+statement ok
+CREATE OR REPLACE TABLE s.datetime_tbl(id INTEGER, d DATE, ts TIMESTAMP)
+
+statement ok
+INSERT INTO s.datetime_tbl VALUES (1, '2020-02-03', '2029-02-14 08:47:23'),(2, '1000-01-01', '1970-01-01 00:00:01.000000'), (3, '9999-12-31', '2038-01-18 22:14:07.499999'), (4, NULL, NULL)
 
 query I
-SELECT v FROM s1.filter_pushdown_types WHERE v IN ('hello world', 'I''m here') ORDER BY ALL
+SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE d >= DATE '2000-01-01'
 ----
-I'm here
-hello world
+2
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE d >= DATE '2000-01-01'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: d >= '2000-01-01'::DATE.*
 
 query I
-SELECT v FROM s1.filter_pushdown_types WHERE v='I''m here'
+SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE ts >= TIMESTAMP '2000-01-01'
 ----
-I'm here
+2
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE ts >= TIMESTAMP '2000-01-01'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*ts >= '2000-01-01 00:00:00'::TIMESTAMP.*
 
 query I
-SELECT d FROM s1.filter_pushdown_types WHERE d=DATE '1992-01-01'
+SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE ts >= TIMESTAMP '2000-01-01'
 ----
-1992-01-01
+2
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.datetime_tbl WHERE ts >= TIMESTAMP '2000-01-01'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters:.*ts >= '2000-01-01 00:00:00'::TIMESTAMP.*
+
+statement ok
+DROP TABLE s.datetime_tbl
+
+# boolean pushdown
+
+statement ok
+CREATE OR REPLACE TABLE s.booleans_tbl(b BOOLEAN);
+
+statement ok
+INSERT INTO s.booleans_tbl VALUES (false), (true), (NULL);
 
 query I
-SELECT * FROM s1.composites_of_composites WHERE b.k < 8
+SELECT divide(b::INT, 1) FROM s.booleans_tbl WHERE b = true
 ----
-{'a': {'i': 1, 'j': 2}, 'k': 3}
-{'a': {'i': 4, 'j': 5}, 'k': 6}
+1
+
+query II
+EXPLAIN SELECT divide(b::INT, 1) FROM s.booleans_tbl WHERE b = true
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: b = true.*
+
+statement ok
+DROP TABLE s.booleans_tbl
+
+# string pushdown
+
+statement ok
+CREATE OR REPLACE TABLE s.text_tbl(v VARCHAR(4), c CHAR(4), t TEXT);
+
+statement ok
+INSERT INTO s.text_tbl VALUES ('ab  ', 'ab  ', 'thisisalongstring'), ('', '', ''), ('🦆', '🦆', '🦆🦆🦆🦆'), (NULL, NULL, NULL)
 
 query I
-SELECT * FROM s1.composites_of_composites WHERE b.a.j = 5
+SELECT divide(COUNT(*), 1) FROM s.text_tbl WHERE v= '🦆'
 ----
-{'a': {'i': 4, 'j': 5}, 'k': 6}
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.text_tbl WHERE v= '🦆'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: v = '🦆'.*
+
+statement ok
+DROP TABLE s.text_tbl
+
+# blob pushdown
+
+statement ok
+CREATE OR REPLACE TABLE s.blob_tbl(bl BLOB);
+
+statement ok
+INSERT INTO s.blob_tbl VALUES (''), ('\x80'), (NULL)
+
+query I
+SELECT divide(COUNT(*), 1) FROM s.blob_tbl WHERE bl= BLOB '\x80'
+----
+1
+
+query II
+EXPLAIN SELECT divide(COUNT(*), 1) FROM s.blob_tbl WHERE bl= BLOB '\x80'
+----
+physical_plan	<REGEX>:.*Postgres Scan.*Filters: bl = '\\x80'::BLOB.*
+
+statement ok
+DROP TABLE s.blob_tbl

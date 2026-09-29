@@ -8,6 +8,7 @@
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/parser/constraints/unique_constraint.hpp"
+#include "postgres_filter_pushdown.hpp"
 #include "postgres_scanner.hpp"
 
 namespace duckdb {
@@ -72,6 +73,9 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 	Value filter_pushdown;
 	if (context.TryGetCurrentSetting("pg_experimental_filter_pushdown", filter_pushdown)) {
 		function.filter_pushdown = BooleanValue::Get(filter_pushdown);
+	}
+	if (function.filter_pushdown) {
+		function.pushdown_expression = PostgresFilterPushdown::CanPushExpressionDown;
 	}
 	return function;
 }
