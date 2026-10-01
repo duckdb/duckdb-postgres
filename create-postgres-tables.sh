@@ -24,7 +24,7 @@ CALL dbgen(sf=0.01, schema='tpch');
 CALL dsdgen(sf=0.01, schema='tpcds');
 EXPORT DATABASE '${ABS_DIR_PREFIX}/postgresscannertmp';
 " | \
-$DUCKDB_PATH
+$DUCKDB_PATH -unsigned
 
 dropdb --if-exists postgresscanner
 createdb postgresscanner
