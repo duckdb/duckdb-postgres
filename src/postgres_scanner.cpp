@@ -605,8 +605,7 @@ static void PostgresScanSerialize(Serializer &serializer, const optional_ptr<Fun
 	throw NotImplementedException("PostgresScanSerialize");
 }
 
-static unique_ptr<FunctionData> PostgresScanDeserialize(Deserializer &deserializer,
-                                                        BoundTableFunction &function) {
+static unique_ptr<FunctionData> PostgresScanDeserialize(Deserializer &deserializer, BoundTableFunction &function) {
 	throw NotImplementedException("PostgresScanDeserialize");
 }
 
