@@ -94,14 +94,20 @@ ORDER BY relname;
 	data.finished = true;
 }
 
-PostgresAttachFunction::PostgresAttachFunction()
-    : TableFunction("postgres_attach", {LogicalType::VARCHAR}, AttachFunction, AttachBind) {
-	named_parameters["overwrite"] = LogicalType::BOOLEAN;
-	named_parameters["filter_pushdown"] = LogicalType::BOOLEAN;
+static FunctionSignature PostgresAttachSignature() {
+	FunctionSignature signature;
+	signature.AddParameter("dsn", LogicalType::VARCHAR).WithTypedKwargs("options", [&](TypedKwargs &options) {
+		options.Add("overwrite", LogicalType::BOOLEAN)
+		    .Add("filter_pushdown", LogicalType::BOOLEAN)
+		    .Add("source_schema", LogicalType::VARCHAR)
+		    .Add("sink_schema", LogicalType::VARCHAR)
+		    .Add("suffix", LogicalType::VARCHAR);
+	});
+	return signature;
+}
 
-	named_parameters["source_schema"] = LogicalType::VARCHAR;
-	named_parameters["sink_schema"] = LogicalType::VARCHAR;
-	named_parameters["suffix"] = LogicalType::VARCHAR;
+PostgresAttachFunction::PostgresAttachFunction()
+    : TableFunction("postgres_attach", PostgresAttachSignature(), AttachFunction, AttachBind) {
 }
 
 } // namespace duckdb

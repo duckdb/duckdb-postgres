@@ -163,12 +163,22 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	return std::move(result);
 }
 
+static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
+	FunctionSignature signature;
+	signature.AddParameter("database", LogicalType::VARCHAR)
+	    .AddParameter("sql", LogicalType::VARCHAR)
+	    .WithTypedKwargs("options", [&](TypedKwargs &options) {
+		    options.Add("use_transaction", LogicalType::BOOLEAN).Add("params", LogicalType::ANY);
+		    if (suppress_dml_output) {
+			    options.Add("suppress_dml_output", LogicalType::BOOLEAN);
+		    }
+		    options.Add("prepare", LogicalType::BOOLEAN);
+	    });
+	return signature;
+}
+
 PostgresQueryFunction::PostgresQueryFunction()
-    : TableFunction("postgres_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
-	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
-	named_parameters["params"] = LogicalType::ANY;
-	named_parameters["suppress_dml_output"] = LogicalType::BOOLEAN;
-	named_parameters["prepare"] = LogicalType::BOOLEAN;
+    : TableFunction("postgres_query", PostgresQuerySignature(true), nullptr, PGQueryBind) {
 	PostgresScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;
@@ -178,10 +188,7 @@ PostgresQueryFunction::PostgresQueryFunction()
 }
 
 PostgresExecuteFunction::PostgresExecuteFunction()
-    : TableFunction("postgres_execute", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
-	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
-	named_parameters["params"] = LogicalType::ANY;
-	named_parameters["prepare"] = LogicalType::BOOLEAN;
+    : TableFunction("postgres_execute", PostgresQuerySignature(false), nullptr, PGQueryBind) {
 	PostgresScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;

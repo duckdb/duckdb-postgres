@@ -162,7 +162,7 @@ static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, T
 	auto result = make_uniq<PostgresBinaryReadBindData>();
 	result->file_path = input.inputs[0].GetValue<string>();
 
-	if (!input.named_parameters.count("columns")) {
+	if (!input.named_parameters.contains("columns")) {
 		throw BinderException("read_postgres_binary requires a 'columns' parameter, "
 		                      "e.g. columns={col1: 'INTEGER', col2: 'VARCHAR'}");
 	}
@@ -182,7 +182,7 @@ static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, T
 	result->names = names;
 	result->types = return_types;
 
-	if (input.named_parameters.count("buffer_size")) {
+	if (input.named_parameters.contains("buffer_size")) {
 		result->buffer_size = input.named_parameters.at("buffer_size").GetValue<uint64_t>();
 	}
 
@@ -190,7 +190,7 @@ static unique_ptr<FunctionData> ReadPostgresBinaryBind(ClientContext &context, T
 }
 
 static void PostgresBinaryReadSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data_p,
-                                        const TableFunction &function) {
+                                        const BoundTableFunction &function) {
 	auto &bind_data = bind_data_p->Cast<PostgresBinaryReadBindData>();
 	serializer.WriteProperty(100, "file_path", bind_data.file_path);
 	serializer.WriteProperty(101, "names", bind_data.names);
@@ -198,7 +198,8 @@ static void PostgresBinaryReadSerialize(Serializer &serializer, const optional_p
 	serializer.WriteProperty(103, "buffer_size", bind_data.buffer_size);
 }
 
-static unique_ptr<FunctionData> PostgresBinaryReadDeserialize(Deserializer &deserializer, TableFunction &function) {
+static unique_ptr<FunctionData> PostgresBinaryReadDeserialize(Deserializer &deserializer,
+                                                              BoundTableFunction &function) {
 	auto result = make_uniq<PostgresBinaryReadBindData>();
 	deserializer.ReadProperty(100, "file_path", result->file_path);
 	deserializer.ReadProperty(101, "names", result->names);
@@ -222,11 +223,17 @@ PostgresBinaryCopyFunction::PostgresBinaryCopyFunction() : CopyFunction("postgre
 	copy_from_function = PostgresReadBinaryFunction();
 }
 
+static FunctionSignature ReadPostgresBinarySignature() {
+	FunctionSignature signature;
+	signature.AddParameter("file_path", LogicalType::VARCHAR).WithTypedKwargs("options", [&](TypedKwargs &options) {
+		options.Add("columns", LogicalType::ANY).Add("buffer_size", LogicalType::UBIGINT);
+	});
+	return signature;
+}
+
 PostgresReadBinaryFunction::PostgresReadBinaryFunction()
-    : TableFunction("read_postgres_binary", {LogicalType::VARCHAR}, PostgresBinaryReadScan, ReadPostgresBinaryBind,
-                    PostgresBinaryReadInitGlobal) {
-	named_parameters["columns"] = LogicalType::ANY;
-	named_parameters["buffer_size"] = LogicalType::UBIGINT;
+    : TableFunction("read_postgres_binary", ReadPostgresBinarySignature(), PostgresBinaryReadScan,
+                    ReadPostgresBinaryBind, PostgresBinaryReadInitGlobal) {
 	serialize = PostgresBinaryReadSerialize;
 	deserialize = PostgresBinaryReadDeserialize;
 }

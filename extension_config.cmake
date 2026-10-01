@@ -3,7 +3,6 @@
 # Extension from this repo
 duckdb_extension_load(postgres_scanner
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
-    DONT_LINK
 )
 
 duckdb_extension_load(tpch)
