@@ -601,11 +601,12 @@ double PostgresScanProgress(ClientContext &context, const FunctionData *bind_dat
 }
 
 static void PostgresScanSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data_p,
-                                  const TableFunction &function) {
+                                  const BoundTableFunction &function) {
 	throw NotImplementedException("PostgresScanSerialize");
 }
 
-static unique_ptr<FunctionData> PostgresScanDeserialize(Deserializer &deserializer, TableFunction &function) {
+static unique_ptr<FunctionData> PostgresScanDeserialize(Deserializer &deserializer,
+                                                        BoundTableFunction &function) {
 	throw NotImplementedException("PostgresScanDeserialize");
 }
 
@@ -621,8 +622,12 @@ static BindInfo PostgresGetBindInfo(const optional_ptr<FunctionData> bind_data_p
 }
 
 PostgresScanFunction::PostgresScanFunction()
-    : TableFunction("postgres_scan", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, PostgresScan,
-                    PostgresBind, PostgresInitGlobalState, PostgresInitLocalState) {
+    : TableFunction("postgres_scan",
+                    FunctionSignature()
+                        .AddPositionalOnly("dsn", LogicalType::VARCHAR)
+                        .AddPositionalOnly("schema_name", LogicalType::VARCHAR)
+                        .AddPositionalOnly("table_name", LogicalType::VARCHAR),
+                    PostgresScan, PostgresBind, PostgresInitGlobalState, PostgresInitLocalState) {
 	to_string = PostgresScanToString;
 	serialize = PostgresScanSerialize;
 	deserialize = PostgresScanDeserialize;
@@ -635,7 +640,11 @@ PostgresScanFunction::PostgresScanFunction()
 }
 
 PostgresScanFunctionFilterPushdown::PostgresScanFunctionFilterPushdown()
-    : TableFunction("postgres_scan_pushdown", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+    : TableFunction("postgres_scan_pushdown",
+                    FunctionSignature()
+                        .AddPositionalOnly("dsn", LogicalType::VARCHAR)
+                        .AddPositionalOnly("schema_name", LogicalType::VARCHAR)
+                        .AddPositionalOnly("table_name", LogicalType::VARCHAR),
                     PostgresScan, PostgresBind, PostgresInitGlobalState, PostgresInitLocalState) {
 	to_string = PostgresScanToString;
 	serialize = PostgresScanSerialize;

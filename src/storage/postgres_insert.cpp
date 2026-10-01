@@ -432,7 +432,7 @@ bool PostgresCatalog::IsPostgresScan(const string &name) {
 void PostgresCatalog::MaterializePostgresScans(PhysicalOperator &op) {
 	if (op.type == PhysicalOperatorType::TABLE_SCAN) {
 		auto &table_scan = op.Cast<PhysicalTableScan>();
-		if (PostgresCatalog::IsPostgresScan(table_scan.function.name.GetIdentifierName())) {
+		if (PostgresCatalog::IsPostgresScan(table_scan.function.GetName().GetIdentifierName())) {
 			auto &bind_data = table_scan.bind_data->Cast<PostgresBindData>();
 			bind_data.requires_materialization = true;
 			bind_data.max_threads = 1;
