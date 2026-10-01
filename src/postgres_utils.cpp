@@ -326,11 +326,17 @@ LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> t
 	} else if (pgtypename == "char" || pgtypename == "bpchar") {
 		postgres_type.info = PostgresTypeAnnotation::FIXED_LENGTH_CHAR;
 		return LogicalType::VARCHAR;
-	} else if (pgtypename == "varchar" || pgtypename == "text" || pgtypename == "json") {
+	} else if (pgtypename == "varchar" || pgtypename == "text") {
 		return LogicalType::VARCHAR;
+	} else if (pgtypename == "json") {
+		auto json_type = LogicalType::VARCHAR;
+		json_type.SetAlias("JSON");
+		return json_type;
 	} else if (pgtypename == "jsonb") {
 		postgres_type.info = PostgresTypeAnnotation::JSONB;
-		return LogicalType::VARCHAR;
+		auto json_type = LogicalType::VARCHAR;
+		json_type.SetAlias("JSON");
+		return json_type;
 	} else if (pgtypename == "geometry") {
 		// PostGIS encodes the column-level SRID in the type modifier of
 		// `geometry(TYPE, SRID)` columns. The bit layout is:
