@@ -54,6 +54,10 @@ protected:
 private:
 	//! Runs LoadEntries + RefreshStalenessSignature, must be called with load_lock held
 	void LoadEntriesLocked(ClientContext &context, PostgresTransaction &transaction);
+	//! Must be called with load_lock held
+	void ClearEntriesLocked();
+	//! Returns with entry_lock held
+	unique_lock<mutex> LoadEntriesForRead(ClientContext &context, PostgresTransaction &transaction);
 
 protected:
 public:

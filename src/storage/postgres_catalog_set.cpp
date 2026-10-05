@@ -15,9 +15,8 @@ PostgresCatalogSet::PostgresCatalogSet(Catalog &catalog, bool is_loaded_p)
 
 optional_ptr<CatalogEntry> PostgresCatalogSet::GetEntry(ClientContext &context, PostgresTransaction &transaction,
                                                         const string &name) {
-	TryLoadEntries(context, transaction);
 	{
-		lock_guard<mutex> l(entry_lock);
+		auto l = LoadEntriesForRead(context, transaction);
 		auto entry = entries.find(name);
 		if (entry != entries.end()) {
 			// entry found
@@ -110,6 +109,17 @@ void PostgresCatalogSet::LoadEntriesLocked(ClientContext &context, PostgresTrans
 	loading_thread = thread_id();
 }
 
+unique_lock<mutex> PostgresCatalogSet::LoadEntriesForRead(ClientContext &context, PostgresTransaction &transaction) {
+	while (true) {
+		TryLoadEntries(context, transaction);
+		unique_lock<mutex> l(entry_lock);
+		// the loading thread may read partially loaded entries
+		if (is_loaded || loading_thread == ThreadUtil::GetThreadId()) {
+			return l;
+		}
+	}
+}
+
 void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransaction &transaction) {
 	if (HasInternalDependencies()) {
 		if (is_loaded || loading_thread == ThreadUtil::GetThreadId()) {
@@ -130,7 +140,7 @@ void PostgresCatalogSet::TryLoadEntries(ClientContext &context, PostgresTransact
 			if (signature == staleness_signature) {
 				return;
 			}
-			ClearEntries();
+			ClearEntriesLocked();
 		}
 		// else: someone else cleared/reloaded while we were checking - fall through to the
 		// reload below, still holding load_lock.
@@ -175,8 +185,7 @@ void PostgresCatalogSet::DropEntry(PostgresTransaction &transaction, DropInfo &i
 
 void PostgresCatalogSet::Scan(ClientContext &context, PostgresTransaction &transaction,
                               const std::function<void(CatalogEntry &)> &callback) {
-	TryLoadEntries(context, transaction);
-	lock_guard<mutex> l(entry_lock);
+	auto l = LoadEntriesForRead(context, transaction);
 	for (auto &entry : entries) {
 		transaction.ReferenceEntry(entry.second);
 		callback(*entry.second);
@@ -196,6 +205,11 @@ optional_ptr<CatalogEntry> PostgresCatalogSet::CreateEntry(PostgresTransaction &
 }
 
 void PostgresCatalogSet::ClearEntries() {
+	lock_guard<mutex> load_guard(load_lock);
+	ClearEntriesLocked();
+}
+
+void PostgresCatalogSet::ClearEntriesLocked() {
 	lock_guard<mutex> entry_guard(entry_lock);
 	entry_map.clear();
 	entries.clear();
