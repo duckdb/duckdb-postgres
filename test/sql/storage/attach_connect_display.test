@@ -159,4 +159,4 @@ Unable to connect to Postgres at
 statement error
 ATTACH 'dbname=nope' AS d (TYPE POSTGRES, CONNECT_DISPLAY 'a', CONNECT_DISPLAY 'b')
 ----
-Unable to connect to Postgres at
+Parser Error: Unexpected duplicate option "connect_display"
