@@ -121,7 +121,7 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 		column.SetComment(Value(column_comment));
 	}
 	if (!default_value.empty()) {
-		auto expressions = Parser::ParseExpressionList(default_value);
+		auto expressions = Parser::GetBuiltinParser().ParseExpressionList(default_value);
 		if (expressions.empty()) {
 			throw InternalException("Expression list is empty");
 		}
