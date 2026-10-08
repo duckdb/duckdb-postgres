@@ -18,7 +18,7 @@ loop i 0 16
 concurrentloop j 0 16
 
 statement ok
-CALL pg_clear_cache()
+CALL postgres_clear_cache()
 
 query I
 SELECT divide(count(*), 1) FROM s.concurrent_drop_test

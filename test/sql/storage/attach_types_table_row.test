@@ -29,7 +29,7 @@ statement ok
 CALL postgres_execute('s', 'CREATE VIEW row_types.widget_row AS SELECT w FROM row_types.widget AS w');
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query II
 SELECT w.id, w.label FROM row_types.widget_row
@@ -44,7 +44,7 @@ statement ok
 CALL postgres_execute('s', 'INSERT INTO row_types.wrapper VALUES (1, ROW(2, ''nested''))');
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query III
 SELECT id, payload.id, payload.label FROM row_types.wrapper
@@ -56,7 +56,7 @@ statement ok
 SET pg_use_text_protocol=true;
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query II
 SELECT w.id, w.label FROM row_types.widget_row
@@ -99,7 +99,7 @@ statement ok
 CALL postgres_execute('s', 'INSERT INTO row_types_b.wrapper VALUES (1, ROW(2, ''nested''))');
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query II
 SELECT w.id, w.label FROM row_types_b.widget_view
@@ -115,7 +115,7 @@ statement ok
 SET pg_use_text_protocol=true;
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query II
 SELECT w.id, w.label FROM row_types_b.widget_view

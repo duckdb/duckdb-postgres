@@ -93,7 +93,7 @@ NULL
 # clear cache, then query again
 # this forces us to load the metadata from postgres itself
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query I
 SELECT * FROM two_dimensional_array
