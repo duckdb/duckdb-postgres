@@ -75,12 +75,11 @@ static void PostgresGetSnapshot(ClientContext &context, const PostgresBindData &
 		return;
 	}
 	// SET TRANSACTION SNAPSHOT requires REPEATABLE READ or SERIALIZABLE
-	if (!bind_data.catalog_name.empty()) {
-		auto attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
-		auto &pg_catalog = attached_catalog.Get<PostgresCatalog>();
-		if (pg_catalog.isolation_level == PostgresIsolationLevel::READ_COMMITTED) {
-			return;
-		}
+	D_ASSERT(!bind_data.catalog_name.empty());
+	auto attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
+	auto &pg_catalog = attached_catalog.Get<PostgresCatalog>();
+	if (pg_catalog.isolation_level == PostgresIsolationLevel::READ_COMMITTED) {
+		return;
 	}
 	// reader threads can use the same snapshot
 	auto &con = gstate.GetConnection();
@@ -134,7 +133,8 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 	bind_data.SetTablePages(static_cast<idx_t>(approx_num_pages));
 }
 
-PostgresBindData::PostgresBindData(ClientContext &context) {
+PostgresBindData::PostgresBindData(ClientContext &context, const Identifier &catalog_name_p)
+    : catalog_name(catalog_name_p) {
 	Value text_protocol;
 	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_protocol)) {
 		if (BooleanValue::Get(text_protocol)) {
@@ -164,32 +164,9 @@ void PostgresGlobalState::SetConnection(shared_ptr<OwnedPostgresConnection> conn
 	this->connection = PostgresConnection(std::move(connection));
 }
 
-static unique_ptr<FunctionData> PostgresBind(ClientContext &context, TableFunctionBindInput &input,
-                                             vector<LogicalType> &return_types, vector<Identifier> &names) {
-	auto bind_data = make_uniq<PostgresBindData>(context);
-
-	bind_data->dsn = input.inputs[0].GetValue<string>();
-	bind_data->schema_name = input.inputs[1].GetValue<string>();
-	bind_data->table_name = input.inputs[2].GetValue<string>();
-	bind_data->attach_path = bind_data->dsn;
-
-	auto con = PostgresConnection::Open(bind_data->dsn, bind_data->attach_path);
-	auto version = con.GetPostgresVersion(context);
-	// query the table schema so we can interpret the bits in the pages
-	auto info = PostgresTableSet::GetTableInfo(context, con, bind_data->schema_name, bind_data->table_name);
-
-	bind_data->postgres_types = info->postgres_types;
-	for (auto &col : info->create_info->columns.Logical()) {
-		names.push_back(col.GetName());
-		return_types.push_back(col.GetType());
-	}
-	bind_data->names = info->postgres_names;
-	bind_data->types = return_types;
-	bind_data->can_use_main_thread = true;
-	bind_data->requires_materialization = false;
-
-	PostgresScanFunction::PrepareBind(version, context, *bind_data, info->approx_num_pages, nullptr);
-	return std::move(bind_data);
+static unique_ptr<FunctionData> PostgresBind(ClientContext &, TableFunctionBindInput &, vector<LogicalType> &,
+                                             vector<Identifier> &) {
+	throw InternalException("PostgresBind");
 }
 
 static bool ContainsCastToVarchar(const PostgresType &type) {
@@ -325,17 +302,15 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 	auto result = make_uniq<PostgresGlobalState>(PostgresMaxThreads(context, input.bind_data.get()));
 	optional_ptr<PostgresCatalog> pg_catalog = nullptr;
 	dbconnector::attached::AttachedCatalog attached_catalog;
-	if (!bind_data.catalog_name.empty()) {
-		attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
-		pg_catalog = &attached_catalog.Get<PostgresCatalog>();
-	}
+	D_ASSERT(!bind_data.catalog_name.empty());
+	attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
+	pg_catalog = &attached_catalog.Get<PostgresCatalog>();
 
 	if (bind_data.command_only) {
 		// A command (no result columns). Execute it here — at execution time, so EXPLAIN does not
 		// fire it — and hand back a rowcount result through the materialized-collection
 		// fast path (PostgresScan returns gstate.collection directly, and GetLocalState short-circuits
 		// when a collection is present, so no postgres scan connection is opened).
-		D_ASSERT(pg_catalog);
 		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
 		unique_ptr<PostgresResult> pg_res;
 		if (bind_data.use_transaction) {
@@ -358,18 +333,9 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		return std::move(result);
 	}
 
-	if (pg_catalog) {
-		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
-		auto &con =
-		    bind_data.use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
-		result->SetConnection(con.GetConnection());
-	} else {
-		auto con = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
-		if (bind_data.use_transaction) {
-			PostgresScanConnect(context, con, string(), AccessMode::READ_ONLY, PostgresIsolationLevel::REPEATABLE_READ);
-		}
-		result->SetConnection(std::move(con));
-	}
+	auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
+	auto &con = bind_data.use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
+	result->SetConnection(con.GetConnection());
 	if (bind_data.requires_materialization) {
 		// if requires_materialization is enabled we scan and materialize the table in its entirety up-front
 		vector<LogicalType> types;
@@ -427,10 +393,9 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
                                                const PostgresBindData &bind_data) {
 	optional_ptr<PostgresCatalog> pg_catalog = nullptr;
 	dbconnector::attached::AttachedCatalog attached_catalog;
-	if (!bind_data.catalog_name.empty()) {
-		attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
-		pg_catalog = &attached_catalog.Get<PostgresCatalog>();
-	}
+	D_ASSERT(!bind_data.catalog_name.empty());
+	attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
+	pg_catalog = &attached_catalog.Get<PostgresCatalog>();
 	{
 		lock_guard<mutex> parallel_lock(lock);
 		if (!used_main_thread) {
@@ -454,20 +419,14 @@ bool PostgresGlobalState::TryOpenNewConnection(ClientContext &context, PostgresL
 		}
 	}
 
-	if (pg_catalog) {
-		{
-			auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
-			if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
-				return false;
-			}
+	{
+		auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(context);
+		if (!pg_catalog->GetConnectionPool().TryGetConnection(lstate.pool_connection)) {
+			return false;
 		}
-		lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
-		PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode, pg_catalog->isolation_level);
-	} else {
-		lstate.connection = PostgresConnection::Open(bind_data.dsn, bind_data.attach_path);
-		PostgresScanConnect(context, lstate.connection, snapshot, AccessMode::READ_ONLY,
-		                    PostgresIsolationLevel::REPEATABLE_READ);
 	}
+	lstate.connection = PostgresConnection(lstate.pool_connection.GetConnection().GetConnection());
+	PostgresScanConnect(context, lstate.connection, snapshot, pg_catalog->access_mode, pg_catalog->isolation_level);
 	return true;
 }
 
@@ -635,25 +594,6 @@ PostgresScanFunction::PostgresScanFunction()
 	table_scan_progress = PostgresScanProgress;
 	get_bind_info = PostgresGetBindInfo;
 	projection_pushdown = true;
-	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
-}
-
-PostgresScanFunctionFilterPushdown::PostgresScanFunctionFilterPushdown()
-    : TableFunction("postgres_scan_pushdown",
-                    FunctionSignature()
-                        .AddPositionalOnly("dsn", LogicalType::VARCHAR)
-                        .AddPositionalOnly("schema_name", LogicalType::VARCHAR)
-                        .AddPositionalOnly("table_name", LogicalType::VARCHAR),
-                    PostgresScan, PostgresBind, PostgresInitGlobalState, PostgresInitLocalState) {
-	to_string = PostgresScanToString;
-	serialize = PostgresScanSerialize;
-	deserialize = PostgresScanDeserialize;
-	get_partition_data = PostgresGetPartitionData;
-	cardinality = PostgresScanCardinality;
-	table_scan_progress = PostgresScanProgress;
-	get_bind_info = PostgresGetBindInfo;
-	projection_pushdown = true;
-	filter_pushdown = true;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }
 

@@ -7,15 +7,10 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner');
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
-USE s;
-
-loop i 0 2
+USE s
 
 query IIIIIIII
 select * from pg_numtypes;
@@ -50,4 +45,5 @@ ford	T	black
 statement ok
 USE memory
 
-endloop
+statement ok
+DETACH s

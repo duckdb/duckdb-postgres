@@ -30,7 +30,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	// Instead of failing, run it as a command and return a single-row Success result. We reuse
 	// the prepare/describe just done — no extra round-trip — and defer execution to
 	// InitGlobalState (execution time, not bind, so EXPLAIN does not run it).
-	auto result = make_uniq<PostgresBindData>(context);
+	auto result = make_uniq<PostgresBindData>(context, pg_catalog.GetName());
 	result->command_only = true;
 	if (ExtractFlag(input, "suppress_dml_output", false)) {
 		// This invocation wraps a command with no result set (DDL, or DML without RETURNING). Tell the
@@ -40,7 +40,6 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	}
 	return_types.emplace_back(LogicalType::BIGINT);
 	names.emplace_back(Identifier("rowcount"));
-	result->catalog_name = pg_catalog.GetName();
 	result->dsn = con.GetDSN();
 	result->types = return_types;
 	result->names.emplace_back(names[0].GetIdentifierName());
@@ -123,7 +122,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	if (nfields <= 0) {
 		return BindDML(context, input, return_types, names, pg_catalog, con, std::move(sql), use_transaction);
 	}
-	auto result = make_uniq<PostgresBindData>(context);
+	auto result = make_uniq<PostgresBindData>(context, pg_catalog.GetName());
 	auto type_config = PostgresTypeConfig::FromContext(context);
 	for (idx_t c = 0; c < nfields; c++) {
 		PostgresType postgres_type;
@@ -149,7 +148,6 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 
 	// set up the bind data
 	result->type_config = type_config;
-	result->catalog_name = pg_catalog.GetName();
 	result->dsn = con.GetDSN();
 	result->types = return_types;
 	for (auto &nm : names) {

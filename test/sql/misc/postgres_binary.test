@@ -7,9 +7,6 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner');
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 # DuckDB supports timestamps below PostgreSQL's minimum.

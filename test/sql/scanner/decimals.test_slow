@@ -7,7 +7,10 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner');
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
 
 query I
 SELECT * FROM dec_0_1
@@ -132488,3 +132491,9 @@ SELECT * FROM dec_18_18
 100000000000000000.000000000000000001
 -100000000000000000.000000000000000001
 0.0
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

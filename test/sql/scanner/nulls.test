@@ -7,7 +7,10 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner');
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
 
 query IIIIIIIIII
 select * from nulltest;
@@ -16,3 +19,9 @@ select * from nulltest;
 1	NULL	3	4	NULL	6	7	8	NULL	10	
 NULL	NULL	3	4	5	6	7	NULL	NULL	NULL	
 NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

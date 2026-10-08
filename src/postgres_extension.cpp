@@ -121,15 +121,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Register the OAuth bearer token hook before any connections are made
 	PostgresInitOAuthHook();
 
-	PostgresScanFunction postgres_fun;
-	loader.RegisterFunction(postgres_fun);
-
-	PostgresScanFunctionFilterPushdown postgres_fun_filter_pushdown;
-	loader.RegisterFunction(postgres_fun_filter_pushdown);
-
-	PostgresAttachFunction attach_func;
-	loader.RegisterFunction(attach_func);
-
 	PostgresClearCacheFunction clear_cache_func;
 	loader.RegisterFunction(clear_cache_func);
 
