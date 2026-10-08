@@ -7,22 +7,18 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner');
-
-statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
-USE s;
-
-loop i 0 2
+USE s
 
 query II
-SELECT * from daterange_array;
+SELECT * from daterange_array
 ----
 1108	['["2010-01-01 14:30:00","2010-01-01 15:30:00")']
 
 statement ok
 USE memory
 
-endloop
+statement ok
+DETACH s

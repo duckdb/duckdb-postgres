@@ -31,10 +31,6 @@ static void GatherPostgresScans(LogicalOperator &op, PostgresOperators &result) 
 			return;
 		}
 		auto &bind_data = get.bind_data->Cast<PostgresBindData>();
-		if (bind_data.catalog_name.empty()) {
-			// "postgres_scan" functions are fully independent - we can always stream them
-			return;
-		}
 		result.scans[bind_data.catalog_name.GetIdentifierName()].push_back(get);
 	}
 	// recurse into children

@@ -426,7 +426,7 @@ PhysicalOperator &AddCastToPostgresTypes(ClientContext &context, PhysicalPlanGen
 }
 
 bool PostgresCatalog::IsPostgresScan(const string &name) {
-	return name == "postgres_scan" || name == "postgres_scan_pushdown" || name == "postgres_query";
+	return name == "postgres_scan" || name == "postgres_query";
 }
 
 void PostgresCatalog::MaterializePostgresScans(PhysicalOperator &op) {

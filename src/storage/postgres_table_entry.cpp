@@ -49,13 +49,12 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
 	auto &transaction = Transaction::Get(context, catalog).Cast<PostgresTransaction>();
 
-	auto result = make_uniq<PostgresBindData>(context);
+	auto result = make_uniq<PostgresBindData>(context, pg_catalog.GetName());
 
 	result->schema_name = schema.name.GetIdentifierName();
 	result->table_name = name.GetIdentifierName();
 	result->dsn = transaction.GetDSN();
 	result->attach_path = pg_catalog.attach_path;
-	result->catalog_name = pg_catalog.GetName();
 	result->qualified_table_name = QualifiedName(ParentCatalog().GetName(), ParentSchema().name, name);
 	result->context_ptr = transaction.context;
 	for (auto &col : columns.Logical()) {

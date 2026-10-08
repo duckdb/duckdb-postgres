@@ -7,9 +7,21 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner', source_schema='some_schema');
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+SET schema 'some_schema'
 
 query I
-SELECT * FROM some_table;
+SELECT * FROM some_table
 ----
 two
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

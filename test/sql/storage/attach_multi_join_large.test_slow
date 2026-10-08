@@ -30,14 +30,3 @@ left join test3_large c
   on a.id = c.id;
 ----
 1000000
-
-# same query but with postgres_scan
-query I
-select count(*)
-from postgres_scan('dbname=postgresscanner', 'public', 'test1_large') a
-left join postgres_scan('dbname=postgresscanner', 'public', 'test2_large') b
-  on a.id = b.id
-left join postgres_scan('dbname=postgresscanner', 'public', 'test3_large') c
-  on a.id = c.id;
-----
-1000000

@@ -9,7 +9,13 @@ require postgres_scanner
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
 statement ok
-CALL postgres_attach('dbname=postgresscanner', source_schema='tpch', filter_pushdown=true);
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+SET schema 'tpch'
 
 loop i 1 9
 
@@ -28,3 +34,9 @@ PRAGMA tpch({i})
 <FILE>:duckdb/extension/tpch/dbgen/answers/sf0.01/q{i}.csv
 
 endloop
+
+statement ok
+USE memory
+
+statement ok
+DETACH s

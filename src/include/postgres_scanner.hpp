@@ -28,7 +28,7 @@ struct PostgresBindData : public dbconnector::BindData {
 	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
 
 public:
-	PostgresBindData(ClientContext &context);
+	PostgresBindData(ClientContext &context, const Identifier &catalog_name);
 
 	string schema_name;
 	string table_name;
@@ -85,22 +85,12 @@ public:
 	}
 };
 
-class PostgresAttachFunction : public TableFunction {
-public:
-	PostgresAttachFunction();
-};
-
 class PostgresScanFunction : public TableFunction {
 public:
 	PostgresScanFunction();
 
 	static void PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind,
 	                        int64_t approx_num_pages, optional_ptr<PostgresCatalog> pg_catalog);
-};
-
-class PostgresScanFunctionFilterPushdown : public TableFunction {
-public:
-	PostgresScanFunctionFilterPushdown();
 };
 
 class PostgresClearCacheFunction : public TableFunction {
