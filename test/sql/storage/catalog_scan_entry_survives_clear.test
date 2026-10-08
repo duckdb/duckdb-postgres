@@ -1,5 +1,5 @@
 # name: test/sql/storage/catalog_scan_entry_survives_clear.test
-# description: PostgresCatalogSet::Scan entries must survive a concurrent pg_clear_cache()
+# description: PostgresCatalogSet::Scan entries must survive a concurrent postgres_clear_cache()
 # group: [storage]
 
 require postgres_scanner
@@ -24,7 +24,7 @@ SELECT count(*) >= 0 FROM duckdb_tables()
 1
 
 statement ok
-CALL pg_clear_cache()
+CALL postgres_clear_cache()
 
 query I
 SELECT table_name FROM duckdb_tables() WHERE table_name = 'scan_survives_clear_tbl'

@@ -28,7 +28,7 @@ statement ok
 SET pg_numeric_as_varchar=true
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 # with pg_numeric_as_varchar the values are read as varchar without precision loss
 query I
@@ -60,7 +60,7 @@ statement ok
 CALL postgres_execute('s', 'INSERT INTO unbound_numeric_arrays VALUES (ARRAY[12345678901234567890123456789012345678901234567890::NUMERIC, 2])')
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query I
 SELECT n FROM s.unbound_numeric_arrays
@@ -78,7 +78,7 @@ statement ok
 CALL postgres_execute('s', 'INSERT INTO oversized_numerics VALUES (1234567890123456789012345678901234567890.0123456789)')
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query I
 SELECT typeof(n) FROM s.oversized_numerics
@@ -94,7 +94,7 @@ statement ok
 SET pg_numeric_as_varchar=false
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query I
 SELECT typeof(n) FROM s.unbound_numerics LIMIT 1

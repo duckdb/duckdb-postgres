@@ -30,7 +30,7 @@ CALL postgres_execute('s', $$COMMENT ON COLUMN comment_test.name IS 'this is a c
 
 # Clear DuckDB's metadata cache so fresh comments are loaded
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 # Verify the table comment appears in duckdb_tables()
 query I

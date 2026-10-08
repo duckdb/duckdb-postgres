@@ -13,7 +13,7 @@ statement ok
 BEGIN
 
 statement ok
-CALL pg_clear_cache();
+CALL postgres_clear_cache();
 
 query III
 select * from postgres_query('s1', 'SELECT * FROM cars');

@@ -64,7 +64,7 @@ INSERT INTO s.public.is_types VALUES (NULL, NULL, NULL, NULL)
 
 # force a fresh introspection of the new table
 statement ok
-CALL pg_clear_cache()
+CALL postgres_clear_cache()
 
 query IIII
 SELECT i, name, ts, flag FROM s.public.is_types ORDER BY i NULLS LAST

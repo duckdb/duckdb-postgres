@@ -1,5 +1,5 @@
 # name: test/sql/storage/catalog_cache_external_ddl_visibility.test
-# description: DDL from a separate ClientContext must become visible without an explicit pg_clear_cache() call
+# description: DDL from a separate ClientContext must become visible without an explicit postgres_clear_cache() call
 # group: [storage]
 
 require postgres_scanner
@@ -34,7 +34,7 @@ USE s2
 statement ok con2
 CREATE TABLE ext_ddl_visibility_tbl AS SELECT 1 AS x
 
-# con1: re-query without any pg_clear_cache() call from either connection
+# con1: re-query without any postgres_clear_cache() call from either connection
 query I con1
 SELECT count(*) FROM duckdb_tables() WHERE database_name = 's' AND table_name = 'ext_ddl_visibility_tbl'
 ----
