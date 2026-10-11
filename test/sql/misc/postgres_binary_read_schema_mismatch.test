@@ -1,0 +1,62 @@
+# name: test/sql/misc/postgres_binary_read_schema_mismatch.test
+# description: Reading a postgres binary file with a type list that does not match the file is an error, not wrong data
+# group: [misc]
+
+require postgres_scanner
+
+statement ok
+LOAD postgres_scanner
+
+# --- field width mismatch: a BIGINT column read as INTEGER ---
+statement ok
+COPY (SELECT i::INTEGER AS id, 180388626432::BIGINT AS amount FROM range(1, 6) t(i)) TO '{TEST_DIR}/width_mismatch.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('{TEST_DIR}/width_mismatch.bin', columns={id: 'INTEGER', amount: 'BIGINT'});
+----
+1	180388626432
+2	180388626432
+3	180388626432
+4	180388626432
+5	180388626432
+
+statement error
+SELECT * FROM read_postgres_binary('{TEST_DIR}/width_mismatch.bin', columns={id: 'INTEGER', amount: 'INTEGER'});
+----
+expected 4 bytes for a value of type INTEGER, got 8
+
+# --- variable-length source: a DECIMAL column read as BIGINT ---
+statement ok
+COPY (SELECT 123.45::DECIMAL(10,2) AS amount) TO '{TEST_DIR}/decimal_as_bigint.bin' (FORMAT postgres_binary);
+
+query I
+SELECT * FROM read_postgres_binary('{TEST_DIR}/decimal_as_bigint.bin', columns={amount: 'DECIMAL(10,2)'});
+----
+123.45
+
+statement error
+SELECT * FROM read_postgres_binary('{TEST_DIR}/decimal_as_bigint.bin', columns={amount: 'BIGINT'});
+----
+expected 8 bytes for a value of type BIGINT, got 12
+
+# --- field count mismatch: a two column file read as one column ---
+statement ok
+COPY (SELECT i::INTEGER AS a, (i * 10)::INTEGER AS b FROM range(1, 4) t(i)) TO '{TEST_DIR}/count_mismatch.bin' (FORMAT postgres_binary);
+
+query II
+SELECT * FROM read_postgres_binary('{TEST_DIR}/count_mismatch.bin', columns={a: 'INTEGER', b: 'INTEGER'});
+----
+1	10
+2	20
+3	30
+
+statement error
+SELECT * FROM read_postgres_binary('{TEST_DIR}/count_mismatch.bin', columns={a: 'INTEGER'});
+----
+expected 1 field(s) per row, got 2
+
+# --- array header too short: a scalar column read as a list ---
+statement error
+SELECT * FROM read_postgres_binary('{TEST_DIR}/count_mismatch.bin', columns={a: 'INTEGER[]', b: 'INTEGER'});
+----
+expected at least 12 bytes for an array header of type INTEGER[], got 4
