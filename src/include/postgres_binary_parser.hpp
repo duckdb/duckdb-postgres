@@ -62,10 +62,13 @@ private:
 		return val;
 	}
 
+	//! Defined out of line so the bounds checks that call it stay small enough to inline
+	[[noreturn]] static void ThrowOutOfBuffer(const char *function_name);
+
 	template <class T>
 	inline T ReadInteger() {
 		if (buffer_ptr + sizeof(T) > end) {
-			throw IOException("Postgres binary reader - out of buffer in ReadInteger");
+			ThrowOutOfBuffer("ReadInteger");
 		}
 		return ReadIntegerUnchecked<T>();
 	}
@@ -144,7 +147,7 @@ private:
 
 	const char *ReadString(idx_t string_length) {
 		if (buffer_ptr + string_length > end) {
-			throw IOException("Postgres binary reader - out of buffer in ReadString");
+			ThrowOutOfBuffer("ReadString");
 		}
 		auto result = const_char_ptr_cast(buffer_ptr);
 		buffer_ptr += string_length;
