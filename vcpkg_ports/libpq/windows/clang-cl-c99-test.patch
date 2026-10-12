@@ -1,0 +1,15 @@
+diff --git a/meson.build b/meson.build
+index 5b9ea5f..a552243 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1711,8 +1711,10 @@
+ # unnecessarily, because we optionally rely on newer features.
+ c99_test = '''
+ #include <stdbool.h>
++#ifndef _MSC_VER
+ #include <complex.h>
+ #include <tgmath.h>
++#endif
+ #include <inttypes.h>
+ 
+ struct named_init_test {
