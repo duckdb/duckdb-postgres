@@ -67,6 +67,9 @@ public:
 
 	static dbconnector::attached::AttachedTable Lookup(ClientContext &ctx, QualifiedName name);
 
+private:
+	PostgresCopyFormat GetBinaryCopyFormatIfTypesAllow();
+
 protected:
 	ColumnList columns;
 
