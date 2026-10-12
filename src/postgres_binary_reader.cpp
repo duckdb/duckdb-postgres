@@ -109,8 +109,8 @@ PostgresReadResult PostgresBinaryReader::ReadPlain(DataChunk &output) {
 		return PostgresReadResult::FINISHED;
 	}
 
-	for (; output.size() < STANDARD_VECTOR_SIZE && row_offset < result->Count(); row_offset++) {
-		idx_t output_offset = output.size();
+	idx_t output_offset = output.size();
+	for (; output_offset < STANDARD_VECTOR_SIZE && row_offset < result->Count(); row_offset++, output_offset++) {
 		for (idx_t output_idx = 0; output_idx < output.ColumnCount(); output_idx++) {
 			auto col_idx = column_ids[output_idx];
 			auto &out_vec = output.data[output_idx];
@@ -134,8 +134,8 @@ PostgresReadResult PostgresBinaryReader::ReadPlain(DataChunk &output) {
 				                  NumericCast<int32_t>(val.GetSize()), out_vec, output_offset);
 			}
 		}
-		output.SetChildCardinality(output_offset + 1);
 	}
+	output.SetChildCardinality(output_offset);
 
 	bool finished = row_offset >= result->Count();
 	if (finished) {
