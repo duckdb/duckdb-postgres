@@ -50,6 +50,36 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	return std::move(result);
 }
 
+static PostgresQueryMode ResolveQueryMode(ClientContext &context, TableFunctionBindInput &input,
+                                          const vector<Value> &params) {
+	auto it = input.named_parameters.find(Identifier("query_mode"));
+	if (it != input.named_parameters.end()) {
+		Value &str_val = it->second;
+		if (!str_val.IsNull()) {
+			if (str_val.type().id() != LogicalTypeId::VARCHAR) {
+				throw BinderException("Invalid non-VARCHAR 'query_mode' parameter specified");
+			}
+			PostgresQueryMode mode = PostgresUtils::ExtractQueryMode(str_val);
+			if (mode != PostgresQueryMode::AUTO) {
+				return mode;
+			}
+		}
+	}
+	PostgresQueryMode mode = PostgresUtils::ExtractQueryMode(context);
+	if (mode != PostgresQueryMode::AUTO) {
+		return mode;
+	}
+	Value text_proto_val;
+	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_proto_val) && !text_proto_val.IsNull() &&
+	    BooleanValue::Get(text_proto_val)) {
+		return PostgresQueryMode::PLAIN_QUERY_TEXT;
+	}
+	if (params.size() > 0) {
+		return PostgresQueryMode::PLAIN_QUERY_BINARY;
+	}
+	return PostgresQueryMode::AUTO;
+}
+
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types, vector<Identifier> &names) {
 	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
@@ -155,6 +185,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	}
 	result->read_only = false;
 	result->sql = std::move(sql);
+	result->query_mode = ResolveQueryMode(context, input, param_values);
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
 	PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result, 0, pg_catalog);
@@ -171,6 +202,7 @@ static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
 			    options.Add("suppress_dml_output", LogicalType::BOOLEAN);
 		    }
 		    options.Add("prepare", LogicalType::BOOLEAN);
+		    options.Add("query_mode", LogicalType::VARCHAR);
 	    });
 	return signature;
 }
