@@ -9,9 +9,6 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok
 ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
 
-statement ok
-SET pg_query_mode = 'PLAIN_QUERY_BINARY'
-
 query II
 FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT', params=row(42, 'foo'))
 ----
@@ -107,3 +104,39 @@ query I
 FROM postgres_query('s1', 'SELECT $1::DOUBLE PRECISION', params=row(42.123::DOUBLE))
 ----
 42.123
+
+statement error
+FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT',
+    params=row(42, 'foo'),
+    query_mode='COPY_BINARY')
+----
+Failed to prepare COPY
+
+statement ok
+SET pg_query_mode = 'COPY_BINARY'
+
+statement error
+FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT',
+    params=row(42, 'foo'))
+----
+Failed to prepare COPY
+
+query II
+FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT',
+    params=row(42, 'foo'),
+    query_mode='PLAIN_QUERY_BINARY')
+----
+42	foo
+
+query II
+FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT',
+    params=row(42, 'foo'),
+    query_mode='PLAIN_QUERY_TEXT')
+----
+42	foo
+
+statement ok
+RESET pg_query_mode
+
+statement ok
+DETACH s1
