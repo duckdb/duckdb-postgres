@@ -251,12 +251,8 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 		                           PostgresUtils::WriteIdentifier(bind_data->schema_name),
 		                           PostgresUtils::WriteIdentifier(bind_data->table_name), filter);
 	}
-	if (!bind_data->order_by_and_limit_bind_data.order_by_clause.empty()) {
-		query += bind_data->order_by_and_limit_bind_data.order_by_clause;
-		query += " NULLS LAST";
-	}
-	if (!bind_data->order_by_and_limit_bind_data.limit_clause.empty()) {
-		query += bind_data->order_by_and_limit_bind_data.limit_clause;
+	if (!bind_data->limit_clause.empty()) {
+		query += bind_data->limit_clause;
 	}
 	if (!(bind_data->use_text_protocol || bind_data->query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY)) {
 		query = StringUtil::Format(R"(COPY (%s) TO STDOUT (FORMAT "binary");)", query);
