@@ -11,8 +11,6 @@
 #include "duckdb.hpp"
 #include "duckdb/main/client_context.hpp"
 
-#include "dbconnector/bind_data.hpp"
-
 #include "postgres_utils.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_parameters.hpp"
@@ -24,7 +22,7 @@ struct PostgresLocalState;
 struct PostgresGlobalState;
 class PostgresTransaction;
 
-struct PostgresBindData : public dbconnector::BindData {
+struct PostgresBindData : public FunctionData {
 	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
 
 public:
@@ -65,7 +63,7 @@ public:
 	idx_t max_threads = 1;
 	PostgresTypeConfig type_config;
 
-	dbconnector::optimizer::OrderByAndLimitBindData order_by_and_limit_bind_data;
+	string limit_clause;
 
 public:
 	void SetTablePages(idx_t approx_num_pages);
@@ -75,14 +73,6 @@ public:
 	}
 	bool Equals(const FunctionData &other_p) const override {
 		return false;
-	}
-
-	dbconnector::optimizer::OrderByAndLimitBindData &GetOrderByAndLimitBindData() override {
-		return order_by_and_limit_bind_data;
-	}
-
-	dbconnector::optimizer::AggregateBindData &GetAggregateBindData() override {
-		throw NotImplementedException("GetAggregateBindData");
 	}
 };
 

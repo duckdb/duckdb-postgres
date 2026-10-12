@@ -9,9 +9,7 @@ add_library(
   ${POSTGRES_DBCONNECTOR_PATH}/src/query/query_writer.cpp
   ${POSTGRES_DBCONNECTOR_PATH}/src/table_scan/filter_pushdown.cpp
   ${POSTGRES_DBCONNECTOR_PATH}/src/table_scan/filter_util.cpp
-  ${POSTGRES_DBCONNECTOR_PATH}/src/optimizer/aggregate_optimizer.cpp
-  ${POSTGRES_DBCONNECTOR_PATH}/src/optimizer/optimizer_util.cpp
-  ${POSTGRES_DBCONNECTOR_PATH}/src/optimizer/order_by_and_limit_optimizer.cpp)
+  ${POSTGRES_DBCONNECTOR_PATH}/src/optimizer/optimizer_util.cpp)
 
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:postgres_ext_dbconnector>
