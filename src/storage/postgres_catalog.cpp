@@ -338,8 +338,7 @@ dbconnector::attached::AttachedCatalog PostgresCatalog::Lookup(ClientContext &ct
 }
 //! Resolve whether scans against this database must use the text protocol instead of the binary COPY
 //! protocol. This is the single place where that decision is made for an attached database, so every
-//! scan path (table scans, postgres_query/CONNECT, ...) agrees. `setting_value` is the value of the
-//! `pg_use_text_protocol` setting, which acts as the default when the mode is AUTO.
+//! scan path (table scans, postgres_query/CONNECT, ...) agrees.
 bool PostgresCatalog::UseTextProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const {
 	switch (query_mode) {
 	case PostgresQueryMode::COPY_BINARY:
