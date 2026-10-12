@@ -380,7 +380,8 @@ bool PostgresInsert::UsePlainInserts(PostgresCatalog &pg_catalog, ClientContext 
 	if (context.TryGetCurrentSetting("pg_use_text_protocol", value) && !value.IsNull()) {
 		use_text_proto_user_option = BooleanValue::Get(value);
 	}
-	return pg_catalog.UseTextProtocol(use_text_proto_user_option);
+	PostgresQueryMode query_mode = PostgresUtils::ExtractQueryMode(context);
+	return pg_catalog.UseTextProtocol(query_mode, use_text_proto_user_option);
 }
 
 //===--------------------------------------------------------------------===//

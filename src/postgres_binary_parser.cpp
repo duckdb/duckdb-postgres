@@ -169,6 +169,11 @@ static void CheckValueLength(int32_t value_len, idx_t expected_len, const Logica
 void PostgresBinaryParser::ReadValue(const LogicalType &type, const PostgresType &postgres_type, Vector &out_vec,
                                      idx_t output_offset) {
 	auto value_len = ReadInteger<int32_t>();
+	ParseValue(type, postgres_type, value_len, out_vec, output_offset);
+}
+
+void PostgresBinaryParser::ParseValue(const LogicalType &type, const PostgresType &postgres_type, int32_t value_len,
+                                      Vector &out_vec, idx_t output_offset) {
 	if (value_len == -1) { // NULL
 		FlatVector::SetNull(out_vec, output_offset, true);
 		return;

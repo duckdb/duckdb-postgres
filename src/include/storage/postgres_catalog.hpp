@@ -82,21 +82,7 @@ public:
 		return version;
 	}
 
-	//! Resolve whether scans against this database must use the text protocol instead of the binary COPY
-	//! protocol. This is the single place where that decision is made for an attached database, so every
-	//! scan path (table scans, postgres_query/CONNECT, ...) agrees. `setting_value` is the value of the
-	//! `pg_use_text_protocol` setting, which acts as the default when the mode is AUTO.
-	bool UseTextProtocol(bool setting_value) const {
-		switch (text_protocol_mode) {
-		case PostgresTextProtocolMode::TEXT:
-			return true;
-		case PostgresTextProtocolMode::BINARY:
-			return false;
-		default:
-			// Redshift does not support the binary COPY protocol
-			return setting_value || version.type_v == PostgresInstanceType::REDSHIFT;
-		}
-	}
+	bool UseTextProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
 
 	//! Label all postgres scans in the sub-tree as requiring materialization
 	//! This is used for e.g. insert queries that have both (1) a scan from a postgres table, and (2) a sink into one

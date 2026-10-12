@@ -83,6 +83,10 @@ static void SetPostgresConnectionLimit(ClientContext &context, SetScope scope, V
 	}
 }
 
+static void ValidateQueryMode(ClientContext &, SetScope, Value &parameter) {
+	PostgresUtils::ExtractQueryMode(parameter);
+}
+
 static void DisablePool(ClientContext &context, SetScope scope, Value &parameter) {
 	if (scope == SetScope::LOCAL) {
 		throw InvalidInputException("pg_connection_cache can only be set globally");
@@ -153,6 +157,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
 	StorageExtension::Register(config, "postgres_scanner", make_shared_ptr<PostgresStorageExtension>());
 
+	config.AddExtensionOption("pg_query_mode",
+	                          "Query mode, one of: 'AUTO', 'COPY_BINARY', 'PLAIN_QUERY_BINARY', 'PLAIN_QUERY_TEXT'",
+	                          LogicalType::VARCHAR, Value("AUTO"), ValidateQueryMode);
 	config.AddExtensionOption("pg_use_binary_copy", "Whether or not to use BINARY copy to read data",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 	config.AddExtensionOption("pg_use_ctid_scan", "Whether or not to parallelize scanning using table ctids",

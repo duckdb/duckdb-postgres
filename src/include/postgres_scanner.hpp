@@ -36,6 +36,8 @@ public:
 	Identifier catalog_name;
 	QualifiedName qualified_table_name;
 
+	PostgresQueryMode query_mode = PostgresQueryMode::AUTO;
+
 	// required for get_bind_info and only used there
 	weak_ptr<ClientContext> context_ptr;
 
@@ -64,7 +66,6 @@ public:
 	PostgresTypeConfig type_config;
 
 	dbconnector::optimizer::OrderByAndLimitBindData order_by_and_limit_bind_data;
-	dbconnector::optimizer::AggregateBindData aggregate_bind_data;
 
 public:
 	void SetTablePages(idx_t approx_num_pages);
@@ -81,7 +82,7 @@ public:
 	}
 
 	dbconnector::optimizer::AggregateBindData &GetAggregateBindData() override {
-		return aggregate_bind_data;
+		throw NotImplementedException("GetAggregateBindData");
 	}
 };
 

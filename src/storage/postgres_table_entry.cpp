@@ -146,19 +146,34 @@ static bool CopyRequiresText(const LogicalType &type, const PostgresType &pg_typ
 }
 
 PostgresCopyFormat PostgresTableEntry::GetCopyFormat(ClientContext &context) {
-	Value use_binary_copy;
-	if (context.TryGetCurrentSetting("pg_use_binary_copy", use_binary_copy)) {
-		if (!BooleanValue::Get(use_binary_copy)) {
-			return PostgresCopyFormat::TEXT;
+	PostgresQueryMode query_mode = PostgresUtils::ExtractQueryMode(context);
+	switch (query_mode) {
+	case PostgresQueryMode::COPY_BINARY:
+	case PostgresQueryMode::PLAIN_QUERY_BINARY:
+		return PostgresCopyFormat::BINARY;
+	case PostgresQueryMode::PLAIN_QUERY_TEXT:
+		return PostgresCopyFormat::TEXT;
+	default: {
+		Value use_binary_copy;
+		if (context.TryGetCurrentSetting("pg_use_binary_copy", use_binary_copy)) {
+			if (!BooleanValue::Get(use_binary_copy)) {
+				return PostgresCopyFormat::TEXT;
+			}
 		}
-	}
-	D_ASSERT(postgres_types.size() == columns.LogicalColumnCount());
-	for (idx_t c = 0; c < postgres_types.size(); c++) {
-		if (CopyRequiresText(columns.GetColumn(LogicalIndex(c)).GetType(), postgres_types[c])) {
-			return PostgresCopyFormat::TEXT;
+		idx_t types_count = postgres_types.size();
+		idx_t columns_count = columns.LogicalColumnCount();
+		if (types_count != columns_count) {
+			throw IOException("Schema discrepancy detected, types count: %llu, columns count: %llu", types_count,
+			                  columns_count);
 		}
+		for (idx_t c = 0; c < postgres_types.size(); c++) {
+			if (CopyRequiresText(columns.GetColumn(LogicalIndex(c)).GetType(), postgres_types[c])) {
+				return PostgresCopyFormat::TEXT;
+			}
+		}
+		return PostgresCopyFormat::BINARY;
 	}
-	return PostgresCopyFormat::BINARY;
+	}
 }
 
 dbconnector::attached::AttachedTable PostgresTableEntry::Lookup(ClientContext &ctx, QualifiedName name) {
