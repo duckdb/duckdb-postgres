@@ -32,18 +32,18 @@ PostgresBinaryFileReader::PostgresBinaryFileReader(ClientContext &context, const
 }
 
 bool PostgresBinaryFileReader::ReadChunk(DataChunk &output) {
+	bool full = true;
 	while (output.size() < STANDARD_VECTOR_SIZE) {
 		if (parser.ReadChunk(output, column_ids)) {
-			return true;
+			break;
 		}
-		if (finished) {
-			return false;
-		}
-		if (!FillBuffer()) {
-			return false;
+		if (finished || !FillBuffer()) {
+			full = false;
+			break;
 		}
 	}
-	return true;
+	output.SetChildCardinality(output.size());
+	return full;
 }
 
 bool PostgresBinaryFileReader::FillBuffer() {

@@ -23,6 +23,10 @@ public:
 	                     PostgresTypeConfig type_config);
 
 	void SetBuffer(data_ptr_t buf, idx_t len);
+	//! Decode rows from the buffer into output until it is full or the buffer runs out;
+	//! returns true if output is full. Only the chunk's count is updated, not its vectors'
+	//! sizes: the caller must call output.SetChildCardinality(output.size()) once it is
+	//! done filling the chunk.
 	bool ReadChunk(DataChunk &output, const vector<column_t> &column_ids);
 	void CheckHeader();
 

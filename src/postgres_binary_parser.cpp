@@ -49,7 +49,8 @@ bool PostgresBinaryParser::ReadChunk(DataChunk &output, const vector<column_t> &
 				ReadValue(types[col_idx], postgres_types[col_idx], out_vec, output_offset);
 			}
 		}
-		output.SetChildCardinality(output_offset + 1);
+		// only update the count; this runs every row, and SetChildCardinality would visit every vector each time
+		output.SetCardinalityUnsafe(output_offset + 1);
 	}
 	return true;
 }
