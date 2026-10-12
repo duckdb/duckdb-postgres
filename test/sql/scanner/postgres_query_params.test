@@ -6,12 +6,11 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
-# COPY does not support parameters: ERROR:  there is no parameter $1
-statement ok
-SET pg_use_text_protocol=true
-
 statement ok
 ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_BINARY'
 
 query II
 FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT', params=row(42, 'foo'))

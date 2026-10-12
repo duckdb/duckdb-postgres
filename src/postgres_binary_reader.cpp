@@ -109,7 +109,6 @@ PostgresReadResult PostgresBinaryReader::ReadPlain(DataChunk &output) {
 		return PostgresReadResult::FINISHED;
 	}
 
-	output.Reset();
 	for (; output.size() < STANDARD_VECTOR_SIZE && row_offset < result->Count(); row_offset++) {
 		idx_t output_offset = output.size();
 		for (idx_t output_idx = 0; output_idx < output.ColumnCount(); output_idx++) {

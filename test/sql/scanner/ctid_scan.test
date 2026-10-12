@@ -1,0 +1,43 @@
+# name: test/sql/scanner/ctid_scan.test
+# description: Test parallel ctid scan with different readers
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+USE s
+
+statement ok
+CREATE OR REPLACE TABLE tab1 AS FROM range(10000)
+
+statement ok
+SET pg_pages_per_task=1
+
+foreach mode COPY_BINARY PLAIN_QUERY_BINARY AUTO
+
+statement ok
+SET pg_query_mode = '{mode}'
+
+query I
+SELECT divide(COUNT(*),1) FROM tab1
+----
+10000
+
+endloop
+
+statement ok
+use memory
+
+statement ok
+DETACH s
+
+statement ok
+RESET pg_pages_per_task
+
+statement ok
+RESET pg_query_mode
