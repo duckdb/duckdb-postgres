@@ -16,7 +16,7 @@ jobs:
 
   format-check:
     name: Format Check
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-slim' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -41,7 +41,7 @@ jobs:
   linux-tests:
     name: Linux (pg-17)
     needs: format-check
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     env:
       GEN: ninja
@@ -123,7 +123,7 @@ jobs:
   linux-pgbouncer:
     name: Linux PgBouncer (${{ matrix.postgres.name }})
     needs: linux-tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     strategy:
       matrix:
@@ -257,7 +257,7 @@ jobs:
   linux-sanitized:
     name: Linux ${{ matrix.sanitizer.name }} (pg-17)
     needs: linux-tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     strategy:
       matrix:
@@ -355,7 +355,7 @@ jobs:
   windows-tests:
     name: Windows (pg-17)
     needs: linux-tests
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-windows-x64' || 'windows-latest' }}
 
     env:
       GEN: ninja

@@ -12,7 +12,7 @@ env:
 jobs:
   create_or_label_issue:
     if: github.event.label.name == 'reproduced' || github.event.label.name == 'under review'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
     steps:
       - name: Get mirror issue number
         run: |
