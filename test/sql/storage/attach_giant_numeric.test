@@ -14,13 +14,13 @@ query I
 SELECT * FROM s.pg_giant_numeric
 ----
 0.0
-1.0000000000000002e+32
--1.234567891234568e+26
+1e+32
+-1.2345678912345679e+26
 
 query I
 SELECT * FROM s.pg_giant_numeric_array
 ----
-[0.0, 1.0000000000000002e+32, -1.234567891234568e+26]
+[0.0, 1e+32, -1.2345678912345679e+26]
 []
 
 # insert into a NUMERIC field
@@ -35,8 +35,8 @@ query I
 SELECT * FROM s.pg_numeric_empty
 ----
 0.0
-1.0000000000000002e+32
--1.234567891234568e+26
+1e+32
+-1.2345678912345679e+26
 
 statement ok
 DELETE FROM s.pg_numeric_array_empty
@@ -49,5 +49,5 @@ query I
 SELECT UNNEST(n) FROM s.pg_numeric_array_empty
 ----
 0.0
-1.0000000000000002e+32
--1.234567891234568e+26
+1e+32
+-1.2345678912345679e+26

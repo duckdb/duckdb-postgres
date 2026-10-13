@@ -14,8 +14,8 @@ query I
 SELECT * FROM s.pg_giant_numeric
 ----
 0.0
-1.0000000000000002e+32
--1.234567891234568e+26
+1e+32
+-1.2345678912345679e+26
 
 statement ok
 DETACH s
@@ -28,8 +28,8 @@ query I
 SELECT * FROM s.pg_giant_numeric
 ----
 0.0
-1.0000000000000002e+32
--1.234567891234568e+26
+1e+32
+-1.2345678912345679e+26
 
 statement ok
 DETACH s
