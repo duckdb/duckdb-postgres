@@ -16,7 +16,7 @@ jobs:
 
   format-check:
     name: Format Check
-    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-slim' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-slim' || 'ubuntu-slim' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -27,7 +27,9 @@ jobs:
           pip3 install           \
             black==25.1.0        \
             clang_format==11.0.1 \
-            cmake-format==0.6.13
+            cmake-format==0.6.13 \
+            --user \
+            --break-system-packages
 
       - name: Format Check
         run: |
