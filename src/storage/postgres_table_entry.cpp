@@ -70,7 +70,7 @@ TableFunction PostgresTableEntry::GetScanFunction(ClientContext &context, unique
 	bind_data = std::move(result);
 	auto function = PostgresScanFunction();
 	Value filter_pushdown;
-	if (context.TryGetCurrentSetting("pg_experimental_filter_pushdown", filter_pushdown)) {
+	if (context.TryGetCurrentSetting("pg_enable_filter_pushdown", filter_pushdown)) {
 		function.filter_pushdown = BooleanValue::Get(filter_pushdown);
 	}
 	if (function.filter_pushdown) {
