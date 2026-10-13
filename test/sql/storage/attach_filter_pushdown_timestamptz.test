@@ -1,0 +1,36 @@
+# name: test/sql/storage/attach_filter_pushdown_timestamptz.test
+# description: Test filter pushdown of TIMESTAMPTZ constants when the session time zone of the server is not UTC
+# group: [storage]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner options=-ctimezone=America/New_York' AS s (TYPE POSTGRES)
+
+statement ok
+CREATE OR REPLACE TABLE s.filter_pushdown_timestamptz(id INTEGER, ts TIMESTAMPTZ)
+
+statement ok
+INSERT INTO s.filter_pushdown_timestamptz VALUES (1, '2024-01-01 12:00:00+00'), (2, '2024-01-01 13:00:00+00')
+
+query I
+SELECT id FROM s.filter_pushdown_timestamptz WHERE ts < TIMESTAMPTZ '2024-01-01 11:30:00+00'
+----
+
+query I
+SELECT id FROM s.filter_pushdown_timestamptz WHERE ts > TIMESTAMPTZ '2024-01-01 12:30:00+00'
+----
+2
+
+query I
+SELECT id FROM s.filter_pushdown_timestamptz WHERE ts = TIMESTAMPTZ '2024-01-01 12:00:00+00'
+----
+1
+
+query I
+SELECT id FROM s.filter_pushdown_timestamptz WHERE ts < 'infinity'::TIMESTAMPTZ ORDER BY id
+----
+1
+2
