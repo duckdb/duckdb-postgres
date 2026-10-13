@@ -208,14 +208,4 @@ struct DecimalConversionHugeint {
 	}
 };
 
-struct DecimalConversionDouble {
-	static double GetPowerOfTen(idx_t index) {
-		return pow(10, double(index));
-	}
-
-	static double Finalize(const PostgresDecimalConfig &config, double result) {
-		return result / GetPowerOfTen(config.scale);
-	}
-};
-
 } // namespace duckdb
