@@ -161,6 +161,7 @@ private:
 	}
 
 	PostgresDecimalConfig ReadDecimalConfig();
+	PostgresDecimal<double> ReadDecimalAsDouble();
 
 	static PostgresDecimalKind NonFiniteDecimalKindFromSign(uint16_t dec_sign);
 

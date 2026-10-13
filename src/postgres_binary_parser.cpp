@@ -1,4 +1,5 @@
 #include "postgres_binary_parser.hpp"
+#include "duckdb/common/operator/double_cast_operator.hpp"
 #include "duckdb/common/types/geometry.hpp"
 
 #include "duckdb/common/vector/flat_vector.hpp"
@@ -95,6 +96,43 @@ PostgresDecimalConfig PostgresBinaryParser::ReadDecimalConfig() {
 	config.scale = ReadInteger<uint16_t>();
 
 	return config;
+}
+
+PostgresDecimal<double> PostgresBinaryParser::ReadDecimalAsDouble() {
+	const auto config = ReadDecimalConfig();
+	if (config.sign == NUMERIC_NAN || config.sign == NUMERIC_PINF || config.sign == NUMERIC_NINF) {
+		return PostgresDecimal<double>(NonFiniteDecimalKindFromSign(config.sign));
+	}
+	if (config.ndigits == 0) {
+		return PostgresDecimal<double>(0);
+	}
+
+	// A scientific exponent avoids expanding implicit zero groups or applying the display scale.
+	const auto exponent = (int32_t(config.weight) + 1 - int32_t(config.ndigits)) * DEC_DIGITS;
+	const auto exponent_text = std::to_string(exponent);
+	// Preserve the base-10000 digits and round only once when converting to DOUBLE.
+	string text;
+	text.reserve(idx_t(config.ndigits) * DEC_DIGITS + exponent_text.size() + 1 + config.is_negative);
+	if (config.is_negative) {
+		text.push_back('-');
+	}
+	for (idx_t i = 0; i < config.ndigits; i++) {
+		const auto digit = ReadInteger<uint16_t>();
+		if (digit >= NBASE) {
+			throw InvalidInputException("Invalid Postgres numeric digit: %d", digit);
+		}
+		text.push_back(char('0' + digit / 1000));
+		text.push_back(char('0' + (digit / 100) % 10));
+		text.push_back(char('0' + (digit / 10) % 10));
+		text.push_back(char('0' + digit % 10));
+	}
+	text.push_back('e');
+	text += exponent_text;
+	double result = 0;
+	if (!TryDoubleCast(text.c_str(), text.size(), result, false)) {
+		throw InvalidInputException("Could not convert Postgres numeric to DOUBLE");
+	}
+	return PostgresDecimal<double>(result);
 }
 
 void PostgresBinaryParser::ReadGeometry(const LogicalType &type, const PostgresType &postgres_type, Vector &out_vec,
@@ -218,7 +256,7 @@ void PostgresBinaryParser::ParseValue(const LogicalType &type, const PostgresTyp
 		break;
 	case LogicalTypeId::DOUBLE: {
 		if (postgres_type.info == PostgresTypeAnnotation::NUMERIC_AS_DOUBLE) {
-			PostgresDecimal<double> dec = ReadDecimal<double, DecimalConversionDouble>();
+			auto dec = ReadDecimalAsDouble();
 			double double_value = 0;
 			switch (dec.kind) {
 			case PostgresDecimalKind::ORDINARY:

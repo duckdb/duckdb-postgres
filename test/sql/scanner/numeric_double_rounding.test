@@ -1,0 +1,88 @@
+# name: test/sql/scanner/numeric_double_rounding.test
+# description: Binary NUMERIC conversion rounds once and agrees with PostgreSQL float8
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+foreach query_mode COPY_BINARY PLAIN_QUERY_BINARY PLAIN_QUERY_TEXT
+
+statement ok
+SET pg_query_mode = '{query_mode}'
+
+# Materialize the decoded values so the comparison cannot be pushed into PostgreSQL.
+# Include the examples from issue #604 and exact halfway-rounding cases.
+statement ok
+CREATE OR REPLACE TEMP TABLE numeric_values AS SELECT * FROM postgres_query('s', $$
+    SELECT n, n::float8 AS expected FROM (VALUES
+        (8629433::numeric / 1000),
+        ((275.38::numeric + 232.58 + 785.33) / 3),
+        (1e32::numeric),
+        (-8629433::numeric / 1000),
+        (-1e32::numeric),
+        (0.1::numeric),
+        (0.00000000000123456789::numeric),
+        (12345678901234567890.1234567890123456789::numeric),
+        (1.00000000000000011102230246251565404236316680908203125::numeric),
+        (1.00000000000000033306690738754696212708950042724609375::numeric),
+        (-1.00000000000000011102230246251565404236316680908203125::numeric),
+        (1e308::numeric),
+        (1.7976931348623157e308::numeric),
+        (-1.7976931348623157e308::numeric),
+        (1e-300::numeric),
+        (2.2250738585072014e-308::numeric),
+        (4.9406564584124654e-324::numeric),
+        (-4.9406564584124654e-324::numeric),
+        (1e-323::numeric),
+        (0::numeric),
+        (NULL::numeric),
+        ('NaN'::numeric),
+        ('Infinity'::numeric),
+        ('-Infinity'::numeric)
+    ) AS values_to_check(n)
+$$)
+
+query I
+SELECT count(*) FROM numeric_values WHERE n IS DISTINCT FROM expected
+----
+0
+
+# The display scale must not cause a finite value to overflow during decoding.
+statement ok
+CREATE OR REPLACE TEMP TABLE high_scale_values AS SELECT * FROM postgres_query('s', $$
+    SELECT n, n::float8 AS expected FROM (VALUES
+        (1.5::numeric(1000,500)),
+        (-1.5::numeric(1000,500)),
+        (0.125::numeric(1000,500)),
+        (1e300::numeric(1000,500)),
+        (0::numeric(1000,500))
+    ) AS values_to_check(n)
+$$)
+
+query I
+SELECT count(*) FROM high_scale_values WHERE n IS DISTINCT FROM expected
+----
+0
+
+# NUMERIC array elements use the same binary conversion.
+statement ok
+CREATE OR REPLACE TEMP TABLE numeric_arrays AS SELECT * FROM postgres_query('s', $$
+    SELECT n, n::float8[] AS expected FROM (
+        SELECT ARRAY[8629.433::numeric, 1e32::numeric, -1e32::numeric,
+                     2.2250738585072014e-308::numeric, NULL::numeric] AS n
+    ) AS values_to_check
+$$)
+
+query I
+SELECT n IS NOT DISTINCT FROM expected FROM numeric_arrays
+----
+true
+
+endloop
+
+statement ok
+RESET pg_query_mode
