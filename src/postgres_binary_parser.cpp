@@ -54,6 +54,10 @@ bool PostgresBinaryParser::ReadChunk(DataChunk &output, const vector<column_t> &
 	return true;
 }
 
+void PostgresBinaryParser::ThrowOutOfBuffer(const char *function_name) {
+	throw IOException("Postgres binary reader - out of buffer in %s", function_name);
+}
+
 void PostgresBinaryParser::CheckHeader() {
 	auto magic_len = PostgresConversion::COPY_HEADER_LENGTH;
 	auto flags_len = 8;
@@ -156,13 +160,18 @@ void PostgresBinaryParser::ReadArray(const LogicalType &type, const PostgresType
 	ListVector::SetListSize(out_vec, child_offset + child_count);
 }
 
+// Defined out of line so the length checks that call it stay small enough to inline
+[[noreturn]] static void ThrowValueLengthMismatch(int32_t value_len, idx_t expected_len, const LogicalType &type) {
+	throw InvalidInputException("Postgres binary reader - expected %llu bytes for a value of type %s, got %d",
+	                            expected_len, type.ToString(), value_len);
+}
+
 // Check that the length of the value Postgres sent matches the length we expect. COPY format only
 // tells us the length of the value, so this is the only check we have that the data matches the
 // type we expect.
 static void CheckValueLength(int32_t value_len, idx_t expected_len, const LogicalType &type) {
 	if (value_len != expected_len) {
-		throw InvalidInputException("Postgres binary reader - expected %llu bytes for a value of type %s, got %d",
-		                            expected_len, type.ToString(), value_len);
+		ThrowValueLengthMismatch(value_len, expected_len, type);
 	}
 }
 
