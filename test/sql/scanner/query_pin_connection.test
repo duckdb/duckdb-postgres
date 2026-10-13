@@ -1,0 +1,96 @@
+# name: test/sql/scanner/query_pin_connection.test
+# description: Test connection pinning with postgres_query
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement error
+SELECT postgres_pin_connection()
+----
+No function matches the given name and argument types
+
+statement error
+SELECT postgres_pin_connection(NULL)
+----
+Specified attached database name must be not null
+
+statement error
+SELECT postgres_pin_connection('fail')
+----
+Failed to find attached database
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+statement error
+SELECT postgres_close_pinned_connection('fail', 0)
+----
+Failed to find attached database
+
+statement error
+SELECT postgres_close_pinned_connection('s', 0)
+----
+not found in the specified attached database
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement error
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+----
+not found in the specified attached database
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TEMPORARY TABLE temp1(col1 INT)', connection=getvariable('conn'))
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO temp1 values(42)', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('s', 'SELECT * FROM temp1', connection=getvariable('conn'))
+----
+42
+
+statement error
+FROM postgres_query('s', 'SELECT 42', connection=getvariable('conn'))
+UNION ALL
+FROM postgres_query('s', 'SELECT 43', connection=getvariable('conn'))
+----
+not found in the specified attached database
+
+statement ok
+SET VARIABLE conn2 = postgres_pin_connection('s')
+
+query I
+FROM postgres_query('s', 'SELECT 42', connection=getvariable('conn'))
+UNION ALL
+FROM postgres_query('s', 'SELECT 43', connection=getvariable('conn2'))
+----
+42
+43
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn2'))
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn1
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s

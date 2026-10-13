@@ -1,6 +1,8 @@
 #include "duckdb.hpp"
-#include "duckdb/main/client_context.hpp"
 
+#include "dbconnector/defer.hpp"
+
+#include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "postgres_parameters.hpp"
 #include "postgres_scanner.hpp"
@@ -24,14 +26,15 @@ static bool ExtractFlag(TableFunctionBindInput &input, const string &name, bool 
 
 static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<Identifier> &names,
-                                        PostgresCatalog &pg_catalog, PostgresConnection &con, std::string sql,
-                                        bool use_transaction) {
+                                        PostgresCatalog &catalog, PostgresConnection &con, std::string sql,
+                                        bool use_transaction, uint64_t pinned_connection_id) {
 	// The statement returns no result columns: it's a command (DDL, or DML without RETURNING).
 	// Instead of failing, run it as a command and return a single-row Success result. We reuse
 	// the prepare/describe just done — no extra round-trip — and defer execution to
 	// InitGlobalState (execution time, not bind, so EXPLAIN does not run it).
-	auto result = make_uniq<PostgresBindData>(context, pg_catalog.GetName());
+	auto result = make_uniq<PostgresBindData>(context, catalog.GetName());
 	result->command_only = true;
+	result->pinned_connection_id = pinned_connection_id;
 	if (ExtractFlag(input, "suppress_dml_output", false)) {
 		// This invocation wraps a command with no result set (DDL, or DML without RETURNING). Tell the
 		// binder via the return-type modifier so that when this is routed through CONNECT the outer
@@ -46,7 +49,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	result->read_only = false;
 	result->sql = std::move(sql);
 	result->use_transaction = use_transaction;
-	PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result, 0, pg_catalog);
+	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
 	return std::move(result);
 }
 
@@ -80,36 +83,16 @@ static PostgresQueryMode ResolveQueryMode(ClientContext &context, TableFunctionB
 	return PostgresQueryMode::AUTO;
 }
 
-static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<Identifier> &names) {
-	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
-		throw BinderException("Parameters to postgres_query cannot be NULL");
-	}
-
-	// look up the database to query
-	auto db_name = input.inputs[0].GetValue<string>();
-	auto &db_manager = DatabaseManager::Get(context);
-	auto db = db_manager.GetDatabase(context, Identifier(db_name));
-	if (!db) {
-		throw BinderException("Failed to find attached database \"%s\" referenced in postgres_query", db_name);
-	}
-	auto &catalog = db->GetCatalog();
-	if (catalog.GetCatalogType() != "postgres") {
-		throw BinderException("Attached database \"%s\" does not refer to a Postgres database", db_name);
-	}
-	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
-	auto &transaction = Transaction::Get(context, catalog).Cast<PostgresTransaction>();
-	auto sql = input.inputs[1].GetValue<string>();
-	// strip any trailing semicolons
+static string StripTrailingSemicolon(string sql) {
 	StringUtil::RTrim(sql);
 	while (!sql.empty() && sql.back() == ';') {
 		sql = sql.substr(0, sql.size() - 1);
 		StringUtil::RTrim(sql);
 	}
+	return sql;
+}
 
-	bool use_transaction = ExtractFlag(input, "use_transaction", true);
-
-	vector<Value> param_values;
+static vector<Value> ExtractParams(TableFunctionBindInput &input) {
 	auto params_it = input.named_parameters.find("params");
 	if (params_it != input.named_parameters.end()) {
 		Value &struct_val = params_it->second;
@@ -119,16 +102,73 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		if (struct_val.type().id() != LogicalTypeId::STRUCT && struct_val.type().id() != LogicalTypeId::TUPLE) {
 			throw BinderException("Query parameters must be specified in a STRUCT");
 		}
-		param_values = StructValue::GetChildren(struct_val);
+		return StructValue::GetChildren(struct_val);
+	}
+	return vector<Value>();
+}
+
+static uint64_t ExtractPinnedConnId(TableFunctionBindInput &input) {
+	uint64_t pinned_connection_id = 0;
+	auto conn_it = input.named_parameters.find("connection");
+	if (conn_it != input.named_parameters.end()) {
+		Value &conn_val = conn_it->second;
+		if (conn_val.IsNull()) {
+			throw BinderException("Specified connection must be not null");
+		}
+		pinned_connection_id = UBigIntValue::Get(conn_val);
+	}
+	return pinned_connection_id;
+}
+
+static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
+                                            vector<LogicalType> &return_types, vector<Identifier> &names) {
+	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
+		throw BinderException("Parameters to postgres_query cannot be NULL");
 	}
 
-	auto &con = use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
+	auto db_name = input.inputs[0].GetValue<string>();
+	auto &catalog = PostgresUtils::GetCatalogByName(context, db_name);
+	auto input_sql = input.inputs[1].GetValue<string>();
+	auto sql = StripTrailingSemicolon(std::move(input_sql));
+	bool use_transaction = ExtractFlag(input, "use_transaction", true);
+	vector<Value> param_values = ExtractParams(input);
+	uint64_t pinned_connection_id = ExtractPinnedConnId(input);
+
+	optional_ptr<PostgresConnection> con_ptr = nullptr;
+	PostgresPoolConnection pinned_connection;
+
+	if (pinned_connection_id > 0) {
+		pinned_connection = catalog.GetConnectionPool().UnpinConnection(pinned_connection_id);
+		PostgresConnection &conn = pinned_connection.GetConnection();
+		con_ptr = &conn;
+	} else {
+		auto &transaction = Transaction::Get(context, catalog).Cast<PostgresTransaction>();
+		if (use_transaction) {
+			con_ptr = &transaction.GetConnection();
+		} else {
+			con_ptr = &transaction.GetConnectionWithoutTransaction();
+		}
+	}
+
+	auto deferred_pin = dbconnector::Defer([&pinned_connection, &catalog] {
+		if (!pinned_connection) {
+			return;
+		}
+		try {
+			catalog.GetConnectionPool().PinConnection(std::move(pinned_connection));
+		} catch (...) {
+			// suppress
+		}
+	});
+
+	PostgresConnection &con = *con_ptr;
 
 	if (!ExtractFlag(input, "prepare", true)) {
 		if (param_values.size() > 0) {
 			throw BinderException("query parameters cannot be used with 'prepare=FALSE'");
 		}
-		return BindDML(context, input, return_types, names, pg_catalog, con, std::move(sql), use_transaction);
+		return BindDML(context, input, return_types, names, catalog, con, std::move(sql), use_transaction,
+		               pinned_connection_id);
 	}
 
 	auto conn = con.GetConn();
@@ -150,9 +190,11 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	}
 	int nfields = PQnfields(describe_prepared);
 	if (nfields <= 0) {
-		return BindDML(context, input, return_types, names, pg_catalog, con, std::move(sql), use_transaction);
+		return BindDML(context, input, return_types, names, catalog, con, std::move(sql), use_transaction,
+		               pinned_connection_id);
 	}
-	auto result = make_uniq<PostgresBindData>(context, pg_catalog.GetName());
+	auto result = make_uniq<PostgresBindData>(context, catalog.GetName());
+	result->pinned_connection_id = pinned_connection_id;
 	auto type_config = PostgresTypeConfig::FromContext(context);
 	for (idx_t c = 0; c < nfields; c++) {
 		PostgresType postgres_type;
@@ -188,7 +230,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->query_mode = ResolveQueryMode(context, input, param_values);
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
-	PostgresScanFunction::PrepareBind(pg_catalog.GetPostgresVersion(), context, *result, 0, pg_catalog);
+	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
 	return std::move(result);
 }
 
@@ -203,6 +245,7 @@ static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
 		    }
 		    options.Add("prepare", LogicalType::BOOLEAN);
 		    options.Add("query_mode", LogicalType::VARCHAR);
+		    options.Add("connection", LogicalType::UBIGINT);
 	    });
 	return signature;
 }

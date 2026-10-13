@@ -3,6 +3,8 @@
 
 #include <libpq-fe.h>
 
+#include "dbconnector/attached.hpp"
+
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
@@ -45,6 +47,8 @@ struct PostgresGlobalState : public GlobalTableFunctionState {
 	explicit PostgresGlobalState(idx_t max_threads) : page_idx(0), batch_idx(0), max_threads(max_threads) {
 	}
 
+	~PostgresGlobalState();
+
 	mutable mutex lock;
 	idx_t page_idx;
 	idx_t batch_idx;
@@ -57,6 +61,8 @@ struct PostgresGlobalState : public GlobalTableFunctionState {
 	PostgresConnection &GetConnection();
 	void SetConnection(PostgresConnection connection);
 	void SetConnection(shared_ptr<OwnedPostgresConnection> connection);
+	void SetPinnedConnection(PostgresPoolConnection pinned_connection,
+	                         dbconnector::attached::AttachedCatalog attached_catalog);
 
 	bool TryOpenNewConnection(ClientContext &context, PostgresLocalState &lstate, const PostgresBindData &bind_data);
 	idx_t MaxThreads() const override {
@@ -65,6 +71,8 @@ struct PostgresGlobalState : public GlobalTableFunctionState {
 
 private:
 	PostgresConnection connection;
+	PostgresPoolConnection pinned_connection;
+	dbconnector::attached::AttachedCatalog attached_catalog;
 };
 
 static void PostgresGetSnapshot(ClientContext &context, const PostgresBindData &bind_data,
@@ -302,18 +310,34 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 	attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
 	pg_catalog = &attached_catalog.Get<PostgresCatalog>();
 
+	optional_ptr<PostgresConnection> con_ptr = nullptr;
+	PostgresPoolConnection pinned_connection;
+
+	if (bind_data.pinned_connection_id > 0) {
+		pinned_connection = pg_catalog->GetConnectionPool().UnpinConnection(bind_data.pinned_connection_id);
+		PostgresConnection &conn = pinned_connection.GetConnection();
+		con_ptr = &conn;
+	} else {
+		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
+		if (bind_data.use_transaction) {
+			con_ptr = &transaction.GetConnection();
+		} else {
+			con_ptr = &transaction.GetConnectionWithoutTransaction();
+		}
+	}
+	PostgresConnection &con = *con_ptr;
+
+	result->SetConnection(con.GetConnection());
+	if (pinned_connection) {
+		result->SetPinnedConnection(std::move(pinned_connection), std::move(attached_catalog));
+	}
+
 	if (bind_data.command_only) {
 		// A command (no result columns). Execute it here — at execution time, so EXPLAIN does not
 		// fire it — and hand back a rowcount result through the materialized-collection
 		// fast path (PostgresScan returns gstate.collection directly, and GetLocalState short-circuits
 		// when a collection is present, so no postgres scan connection is opened).
-		auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
-		unique_ptr<PostgresResult> pg_res;
-		if (bind_data.use_transaction) {
-			pg_res = transaction.Query(bind_data.sql);
-		} else {
-			pg_res = transaction.QueryWithoutTransaction(bind_data.sql);
-		}
+		unique_ptr<PostgresResult> pg_res = con.Query(context, bind_data.sql);
 		vector<LogicalType> rowcount_types {LogicalType::BIGINT};
 		auto materialized = make_uniq<ColumnDataCollection>(Allocator::Get(context), rowcount_types);
 		DataChunk rowcount_chunk;
@@ -329,9 +353,6 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		return std::move(result);
 	}
 
-	auto &transaction = Transaction::Get(context, *pg_catalog).Cast<PostgresTransaction>();
-	auto &con = bind_data.use_transaction ? transaction.GetConnection() : transaction.GetConnectionWithoutTransaction();
-	result->SetConnection(con.GetConnection());
 	if (bind_data.requires_materialization) {
 		// if requires_materialization is enabled we scan and materialize the table in its entirety up-front
 		vector<LogicalType> types;
@@ -450,6 +471,27 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		local_state->done = true;
 	}
 	return std::move(local_state);
+}
+
+void PostgresGlobalState::SetPinnedConnection(PostgresPoolConnection pinned_connection,
+                                              dbconnector::attached::AttachedCatalog attached_catalog) {
+	if (this->pinned_connection) {
+		throw InternalException("Invalid global state: pinned connection alread initialized");
+	}
+	this->pinned_connection = std::move(pinned_connection);
+	this->attached_catalog = std::move(attached_catalog);
+}
+
+PostgresGlobalState::~PostgresGlobalState() {
+	connection.Close();
+	if (pinned_connection) {
+		try {
+			PostgresCatalog &catalog = attached_catalog.Get<PostgresCatalog>();
+			catalog.GetConnectionPool().PinConnection(std::move(pinned_connection));
+		} catch (...) {
+			// suppress
+		}
+	}
 }
 
 static unique_ptr<LocalTableFunctionState> PostgresInitLocalState(ExecutionContext &context,

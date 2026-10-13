@@ -17,6 +17,7 @@ add_library(
   postgres_filter_pushdown.cpp
   postgres_hstore.cpp
   postgres_parameters.cpp
+  postgres_pin_connection.cpp
   postgres_query.cpp
   postgres_scanner.cpp
   postgres_secrets.cpp

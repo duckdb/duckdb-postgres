@@ -17,6 +17,7 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 
 namespace duckdb {
+class PostgresCatalog;
 class PostgresSchemaEntry;
 class PostgresTransaction;
 
@@ -105,6 +106,7 @@ public:
 
 	static PostgresQueryMode ExtractQueryMode(ClientContext &ctx);
 	static PostgresQueryMode ExtractQueryMode(Value &value);
+	static PostgresCatalog &GetCatalogByName(ClientContext &context, const std::string &name);
 
 private:
 	static mutex libpq_init_lock;
