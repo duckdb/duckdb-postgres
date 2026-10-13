@@ -45,16 +45,19 @@ PostgresReadResult PostgresBinaryReader::Read(DataChunk &result) {
 }
 
 PostgresReadResult PostgresBinaryReader::ReadCopy(DataChunk &output) {
+	auto result = PostgresReadResult::HAVE_MORE_TUPLES;
 	while (output.size() < STANDARD_VECTOR_SIZE) {
 		if (parser.ReadChunk(output, column_ids)) {
-			return PostgresReadResult::HAVE_MORE_TUPLES;
+			break;
 		}
 		FreeBuffer();
 		if (!FetchNextBuffer()) {
-			return PostgresReadResult::FINISHED;
+			result = PostgresReadResult::FINISHED;
+			break;
 		}
 	}
-	return PostgresReadResult::HAVE_MORE_TUPLES;
+	output.SetChildCardinality(output.size());
+	return result;
 }
 
 bool PostgresBinaryReader::FetchNextBuffer() {

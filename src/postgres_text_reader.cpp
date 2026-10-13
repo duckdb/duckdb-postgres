@@ -393,8 +393,8 @@ PostgresReadResult PostgresTextReader::Read(DataChunk &output) {
 		scan_chunk.Initialize(context, types);
 	}
 	scan_chunk.Reset();
-	for (; scan_chunk.size() < STANDARD_VECTOR_SIZE && row_offset < result->Count(); row_offset++) {
-		idx_t output_offset = scan_chunk.size();
+	idx_t output_offset = 0;
+	for (; output_offset < STANDARD_VECTOR_SIZE && row_offset < result->Count(); row_offset++, output_offset++) {
 		for (idx_t output_idx = 0; output_idx < output.ColumnCount(); output_idx++) {
 			auto col_idx = column_ids[output_idx];
 			auto &out_vec = scan_chunk.data[output_idx];
@@ -406,8 +406,8 @@ PostgresReadResult PostgresTextReader::Read(DataChunk &output) {
 			col_data[output_offset] =
 			    StringVector::AddStringOrBlob(out_vec, result->GetStringRef(row_offset, output_idx));
 		}
-		scan_chunk.SetChildCardinality(scan_chunk.size() + 1);
 	}
+	scan_chunk.SetChildCardinality(output_offset);
 	for (idx_t c = 0; c < output.ColumnCount(); c++) {
 		auto col_idx = column_ids[c];
 		if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
