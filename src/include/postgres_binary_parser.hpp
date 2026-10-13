@@ -25,6 +25,8 @@ public:
 	void SetBuffer(data_ptr_t buf, idx_t len);
 	bool ReadChunk(DataChunk &output, const vector<column_t> &column_ids);
 	void CheckHeader();
+	void ParseValue(const LogicalType &type, const PostgresType &postgres_type, int32_t value_len, Vector &out_vec,
+	                idx_t output_offset);
 
 private:
 	bool Ready() {

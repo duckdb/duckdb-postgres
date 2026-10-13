@@ -20,6 +20,8 @@ namespace duckdb {
 class PostgresSchemaEntry;
 class PostgresTransaction;
 
+enum class PostgresQueryMode { AUTO, COPY_BINARY, PLAIN_QUERY_BINARY, PLAIN_QUERY_TEXT };
+
 struct PostgresTypeData {
 	int64_t type_modifier = 0;
 	string type_name;
@@ -100,6 +102,9 @@ public:
 	static string WriteLiteral(const string &identifier);
 	static string WriteLiteralsCommaSeparated(const vector<string> &literals);
 	static string WriteIdentifier(const string &identifier);
+
+	static PostgresQueryMode ExtractQueryMode(ClientContext &ctx);
+	static PostgresQueryMode ExtractQueryMode(Value &value);
 
 private:
 	static mutex libpq_init_lock;

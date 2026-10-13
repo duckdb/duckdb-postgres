@@ -5,7 +5,9 @@
 
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
+#include "postgres_scanner.hpp"
 #include "postgres_type_oids.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/geometry_crs.hpp"
 
 namespace duckdb {
@@ -752,6 +754,37 @@ string PostgresUtils::WriteIdentifier(const string &identifier) {
 	using namespace dbconnector::query;
 	auto config = QueryWriter::CreateConfig('"', QuoteEscapeStyle::DOUBLE_QUOTE);
 	return QueryWriter::WriteQuotedAndEscaped(config, identifier);
+}
+
+PostgresQueryMode PostgresUtils::ExtractQueryMode(ClientContext &ctx) {
+	Value val;
+	if (ctx.TryGetCurrentSetting("pg_query_mode", val)) {
+		return ExtractQueryMode(val);
+	}
+	return PostgresQueryMode::AUTO;
+}
+
+PostgresQueryMode PostgresUtils::ExtractQueryMode(Value &value) {
+	if (value.IsNull()) {
+		throw InvalidInputException("Invalid NULL query mode specified");
+	}
+	string str_raw = value.ToString();
+	string str = StringUtil::Upper(str_raw);
+	if (str == "AUTO") {
+		return PostgresQueryMode::AUTO;
+	} else if (str == "COPY_BINARY") {
+		return PostgresQueryMode::COPY_BINARY;
+
+	} else if (str == "PLAIN_QUERY_BINARY") {
+		return PostgresQueryMode::PLAIN_QUERY_BINARY;
+
+	} else if (str == "PLAIN_QUERY_TEXT") {
+		return PostgresQueryMode::PLAIN_QUERY_TEXT;
+
+	} else {
+		throw InvalidInputException("Invalid query mode specified, must be on of: 'AUTO', 'COPY_BINARY', "
+		                            "'PLAIN_QUERY_BINARY', 'PLAIN_QUERY_TEXT'");
+	}
 }
 
 } // namespace duckdb

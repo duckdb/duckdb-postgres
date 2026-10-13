@@ -9,6 +9,11 @@ require-env POSTGRES_TEST_DATABASE_AVAILABLE
 statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
+foreach mode COPY_BINARY PLAIN_QUERY_BINARY AUTO
+
+statement ok
+SET pg_query_mode = '{mode}'
+
 statement ok
 DROP TABLE IF EXISTS s.types
 
@@ -32,7 +37,7 @@ NULL	NULL	NULL	NULL
 
 # test all types
 statement ok
-CREATE TABLE all_types_tbl AS SELECT *
+CREATE OR REPLACE TABLE all_types_tbl AS SELECT *
 EXCLUDE (float, double, ubigint, hugeint, uhugeint, nested_int_array, struct, struct_of_arrays, array_of_structs, map, "union", fixed_int_array, fixed_varchar_array, fixed_nested_int_array, fixed_nested_varchar_array, fixed_struct_array, struct_of_fixed_array, fixed_array_of_int_list, list_of_fixed_int_array, bignum, geometry, timestamp_tz_ns, empty_struct, tuple)
 REPLACE(
 	CASE WHEN int IS NOT NULL THEN '2000-01-01' ELSE NULL END AS date,
@@ -80,6 +85,8 @@ query I
 SELECT ANY_VALUE({column_name})=getvariable('minimum_value') FROM s.all_types WHERE {column_name}=getvariable('minimum_value')
 ----
 true
+
+endloop
 
 endloop
 
