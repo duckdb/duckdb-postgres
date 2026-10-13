@@ -198,7 +198,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "postgres_configure_pool(catalog_name='my_attached_postgres_db', "
 	    "max_connections=0)\" for already attached Postgres databases.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(true), DisablePool);
-	config.AddExtensionOption("pg_experimental_filter_pushdown", "Whether or not to use filter pushdown",
+	config.AddExtensionOption("pg_enable_filter_pushdown", "Whether or not to use filter pushdown",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 	config.AddExtensionOption("pg_null_byte_replacement",
 	                          "When writing NULL bytes to Postgres, replace them with the given character",

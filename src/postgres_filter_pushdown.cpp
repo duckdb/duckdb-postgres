@@ -60,7 +60,7 @@ string PostgresFilterPushdown::TransformFilters(const vector<column_t> &column_i
 				continue;
 			}
 			throw NotImplementedException(
-			    "Unsupported filter pushdown, use 'pg_experimental_filter_pushdown=FALSE' to disable pushdowns."
+			    "Unsupported filter pushdown, use 'pg_enable_filter_pushdown=FALSE' to disable pushdowns."
 			    " Problematic filter: \"%s\"",
 			    table_scan::FilterUtil::ToString(filter));
 		}

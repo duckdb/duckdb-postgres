@@ -10,7 +10,7 @@ statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
 
 statement ok
-SET pg_experimental_filter_pushdown=true
+SET pg_enable_filter_pushdown=true
 
 statement ok
 CREATE OR REPLACE TABLE s.blob_in(id INTEGER, b BLOB);
