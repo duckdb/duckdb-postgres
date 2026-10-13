@@ -143,6 +143,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	PostgresConfigurePoolFunction configure_pool_function;
 	loader.RegisterFunction(configure_pool_function);
 
+	PostgresPinConnectionFunction pin_connection_function;
+	loader.RegisterFunction(pin_connection_function);
+
+	PostgresClosePinnedConnectionFunction postgres_close_pinned_connection_function;
+	loader.RegisterFunction(postgres_close_pinned_connection_function);
+
 	RegisterHstoreFunctions(loader);
 
 	// Register the new type

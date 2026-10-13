@@ -3,6 +3,7 @@
 
 #include "dbconnector/query/query_writer.hpp"
 
+#include "storage/postgres_catalog.hpp"
 #include "storage/postgres_schema_entry.hpp"
 #include "storage/postgres_transaction.hpp"
 #include "postgres_scanner.hpp"
@@ -785,6 +786,19 @@ PostgresQueryMode PostgresUtils::ExtractQueryMode(Value &value) {
 		throw InvalidInputException("Invalid query mode specified, must be on of: 'AUTO', 'COPY_BINARY', "
 		                            "'PLAIN_QUERY_BINARY', 'PLAIN_QUERY_TEXT'");
 	}
+}
+
+PostgresCatalog &PostgresUtils::GetCatalogByName(ClientContext &context, const std::string &name) {
+	auto &db_manager = DatabaseManager::Get(context);
+	auto db = db_manager.GetDatabase(context, Identifier(name));
+	if (!db) {
+		throw BinderException("Failed to find attached database \"%s\"", name);
+	}
+	auto &catalog = db->GetCatalog();
+	if (catalog.GetCatalogType() != "postgres") {
+		throw BinderException("Attached database \"%s\" does not refer to a Postgres database", name);
+	}
+	return catalog.Cast<PostgresCatalog>();
 }
 
 } // namespace duckdb

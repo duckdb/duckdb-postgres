@@ -65,6 +65,8 @@ public:
 
 	string limit_clause;
 
+	uint64_t pinned_connection_id = 0;
+
 public:
 	void SetTablePages(idx_t approx_num_pages);
 
@@ -100,6 +102,16 @@ public:
 class PostgresExecuteFunction : public TableFunction {
 public:
 	PostgresExecuteFunction();
+};
+
+class PostgresPinConnectionFunction : public ScalarFunction {
+public:
+	PostgresPinConnectionFunction();
+};
+
+class PostgresClosePinnedConnectionFunction : public ScalarFunction {
+public:
+	PostgresClosePinnedConnectionFunction();
 };
 
 } // namespace duckdb
