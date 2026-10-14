@@ -1,14 +1,8 @@
 #include "storage/postgres_catalog.hpp"
+
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
-#include "storage/postgres_schema_entry.hpp"
-#include "storage/postgres_transaction.hpp"
-#include "postgres_oauth.hpp"
-#include "postgres_connection.hpp"
-#include "postgres_secrets.hpp"
-#include "storage/postgres_secret_storage.hpp"
-#include "postgres_utils.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -19,6 +13,15 @@
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
+
+#include "postgres_connection_string.hpp"
+#include "postgres_connection.hpp"
+#include "postgres_oauth.hpp"
+#include "postgres_secrets.hpp"
+#include "postgres_utils.hpp"
+#include "storage/postgres_schema_entry.hpp"
+#include "storage/postgres_transaction.hpp"
+#include "storage/postgres_secret_storage.hpp"
 
 namespace duckdb {
 
@@ -127,6 +130,9 @@ unique_ptr<SecretEntry> PostgresCatalog::GetSecretEntry(ClientContext &ctx, cons
 
 string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_entry, const string &attach_path) {
 	string connection_string = attach_path;
+	bool user_specified_app_name = PostgresConnectionString::ContainsApplicationName(connection_string);
+	bool secret_has_app_name = false;
+	string secret_connection_info;
 	if (secret_entry) {
 		// secret found - read data
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
@@ -146,15 +152,28 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 				throw BinderException("ATTACH path must be empty when 'URI' option is specified, was: \"%s\"",
 				                      attach_path);
 			}
-			return uri_val.ToString();
+			string uri = uri_val.ToString();
+			bool uri_has_app_name = PostgresConnectionString::ContainsApplicationName(uri);
+			if (!uri_has_app_name) {
+				PostgresConnectionString::AppendDefaultApplicationName(uri, PostgresConnectionStringFormat::URI);
+			}
+			return uri;
 		}
 
-		string new_connection_info;
+		secret_has_app_name = !kv_secret.TryGetValue("application_name").IsNull();
+
 		for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
-			new_connection_info += PostgresUtils::ExtractConnectionOption(kv_secret, opt_name);
+			secret_connection_info += PostgresConnectionString::ExtractOption(kv_secret, opt_name);
 		}
-		connection_string = new_connection_info + connection_string;
 	}
+
+	if (!(user_specified_app_name || secret_has_app_name)) {
+		PostgresConnectionString::AppendDefaultApplicationName(secret_connection_info,
+		                                                       PostgresConnectionStringFormat::KEY_VALUE);
+		secret_connection_info.push_back(' ');
+	}
+	connection_string = secret_connection_info + connection_string;
+
 	return connection_string;
 }
 
@@ -179,7 +198,7 @@ string PostgresCatalog::GetConnectionString() {
 		this->rds_token = PostgresAws::GenerateRdsAuthToken(GetAttached(), rds_token_config);
 		this->rds_token_last_refreshed = now;
 		this->connection_string = rds_token_config.base_connection_string +
-		                          "password=" + PostgresUtils::EscapeConnectionString(rds_token) + " " + attach_path;
+		                          "password=" + PostgresConnectionString::Escape(rds_token) + " " + attach_path;
 	}
 	return std::string(connection_string.data(), connection_string.length());
 }

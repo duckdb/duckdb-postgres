@@ -713,26 +713,6 @@ string PostgresUtils::QuotePostgresIdentifier(const string &text) {
 	return PostgresUtils::WriteIdentifier(text);
 }
 
-string PostgresUtils::EscapeConnectionString(const string &input) {
-	using namespace dbconnector::query;
-	auto config = QueryWriter::CreateConfig('\'', QuoteEscapeStyle::BACKSLASH);
-	return QueryWriter::WriteQuotedAndEscaped(config, input);
-}
-
-string PostgresUtils::ExtractConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
-	Value input_val = kv_secret.TryGetValue(Identifier(name));
-	if (input_val.IsNull()) {
-		// not provided
-		return string();
-	}
-	string result;
-	result += name;
-	result += "=";
-	result += EscapeConnectionString(input_val.ToString());
-	result += " ";
-	return result;
-}
-
 string PostgresUtils::WriteLiteral(const string &literal) {
 	using namespace dbconnector::query;
 	auto config = QueryWriter::CreateConfig('\'', QuoteEscapeStyle::DOUBLE_QUOTE);

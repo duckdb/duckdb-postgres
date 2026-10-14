@@ -10,6 +10,7 @@ add_library(
   postgres_binary_file_reader.cpp
   postgres_binary_parser.cpp
   postgres_binary_reader.cpp
+  postgres_connection_string.cpp
   postgres_connection.cpp
   postgres_copy_from.cpp
   postgres_copy_to.cpp
