@@ -43,6 +43,55 @@ FROM postgres_query('rds_attached', 'SELECT current_user')
 ----
 postgres
 
+query II
+FROM postgres_query('rds_attached',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+')
+----
+DuckDB	active
+
+statement ok
+DROP SECRET rds_secret
+
+statement ok
+DETACH rds_attached
+
+# custom app name
+
+statement ok
+CREATE SECRET rds_secret (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  PORT '5432',
+  USER 'postgres',
+  DATABASE 'postgres',
+  SSLMODE require,
+  AWS_RDS_SECRET rds_template_secret,
+  APPLICATION_NAME custom1
+);
+
+statement ok
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret)
+
+query II
+FROM postgres_query('rds_attached',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+')
+----
+
+query II
+FROM postgres_query('rds_attached',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom1''
+')
+----
+custom1	active
+
 statement ok
 DROP SECRET rds_secret
 

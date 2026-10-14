@@ -9,6 +9,7 @@
 
 #include "dbconnector/defer.hpp"
 
+#include "postgres_connection_string.hpp"
 #include "postgres_secrets.hpp"
 #include "postgres_utils.hpp"
 
@@ -119,12 +120,20 @@ PostgresAwsRdsTokenConfig PostgresAws::ExtractTokenConfigFromSecret(optional_ptr
 		                      "specified - generated IAM token will be used instead of the password");
 	}
 
+	bool has_app_name = !kv.TryGetValue("application_name").IsNull();
+
 	// Build the base connection string (without password)
 	for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
 		if (opt_name == "password" || opt_name == "passfile") {
 			continue;
 		}
-		config.base_connection_string += PostgresUtils::ExtractConnectionOption(kv, opt_name);
+		config.base_connection_string += PostgresConnectionString::ExtractOption(kv, opt_name);
+	}
+
+	if (!has_app_name) {
+		PostgresConnectionString::AppendDefaultApplicationName(config.base_connection_string,
+		                                                       PostgresConnectionStringFormat::KEY_VALUE);
+		config.base_connection_string.push_back(' ');
 	}
 
 	return config;

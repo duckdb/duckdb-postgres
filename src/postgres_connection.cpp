@@ -1,13 +1,15 @@
+#include "postgres_connection.hpp"
+
 #include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/parser.hpp"
-#include "postgres_connection.hpp"
-#include "postgres_logging.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/helper.hpp"
+
+#include "postgres_logging.hpp"
 
 namespace duckdb {
 

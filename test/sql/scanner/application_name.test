@@ -1,0 +1,232 @@
+# name: test/sql/scanner/application_name.test
+# description: Check default and custom application_name
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# default key-value
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+DuckDB	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+# name in conn_string
+
+statement ok
+ATTACH 'dbname=postgresscanner application_name=custom1' AS s (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom1''
+',
+connection=getvariable('conn'))
+----
+custom1	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+# name in secret 
+
+statement ok
+CREATE TEMPORARY SECRET pgsec1 (
+    TYPE postgres,
+    APPLICATION_NAME custom2
+)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SECRET pgsec1)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom2''
+',
+connection=getvariable('conn'))
+----
+custom2	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+statement ok
+DROP SECRET pgsec1
+
+# default URI
+
+statement ok
+CREATE TEMPORARY SECRET pgsec1 (
+    TYPE postgres,
+    URI 'postgresql://127.0.0.1:/postgresscanner'
+)
+
+statement ok
+ATTACH '' AS s (TYPE POSTGRES, SECRET pgsec1)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+DuckDB	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+statement ok
+DROP SECRET pgsec1
+
+# default URI 2
+
+statement ok
+CREATE TEMPORARY SECRET pgsec1 (
+    TYPE postgres,
+    URI 'postgresql://127.0.0.1:/postgresscanner?sslmode=allow'
+)
+
+statement ok
+ATTACH '' AS s (TYPE POSTGRES, SECRET pgsec1)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+DuckDB	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+statement ok
+DROP SECRET pgsec1
+
+# custom URI
+
+statement ok
+CREATE TEMPORARY SECRET pgsec1 (
+    TYPE postgres,
+    URI 'postgresql://127.0.0.1:/postgresscanner?sslmode=allow&application_name=custom2'
+)
+
+statement ok
+ATTACH '' AS s (TYPE POSTGRES, SECRET pgsec1)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''DuckDB''
+',
+connection=getvariable('conn'))
+----
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom2''
+',
+connection=getvariable('conn'))
+----
+custom2	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+statement ok
+DROP SECRET pgsec1
