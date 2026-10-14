@@ -114,6 +114,7 @@ jobs:
         PGUSER: postgres
         PGPASSWORD: postgres
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_CONNECTION_IS_DIRECT: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       run: |
         source ./create-postgres-tables.sh
@@ -345,6 +346,7 @@ jobs:
         PGPASSWORD: postgres
         PGSSLMODE: require
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_CONNECTION_IS_DIRECT: 1
         SANITIZER_BUILD: 1
         LOCAL_EXTENSION_REPO: 'build/relassert/repository'
       run: |
@@ -471,6 +473,7 @@ jobs:
         PGPASSWORD: postgres
         PGSSLMODE: require
         POSTGRES_TEST_DATABASE_AVAILABLE: 1
+        POSTGRES_CONNECTION_IS_DIRECT: 1
         LOCAL_EXTENSION_REPO: 'build/release/repository'
       shell: bash
       run: |

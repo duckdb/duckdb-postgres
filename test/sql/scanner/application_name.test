@@ -6,6 +6,8 @@ require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 
+require-env POSTGRES_CONNECTION_IS_DIRECT
+
 # default key-value
 
 statement ok
