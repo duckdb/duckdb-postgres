@@ -10,7 +10,7 @@ statement ok
 ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
 
 query III
-select * from postgres_query('s1', 'SELECT * FROM cars');
+FROM postgres_query('s1', 'SELECT * FROM cars');
 ----
 ferari	testarosa	red
 aston martin	db2	blue
@@ -19,12 +19,12 @@ ford	T	black
 
 # filters
 query III
-select * from postgres_query('s1', 'SELECT * FROM cars WHERE color=''red''');
+FROM postgres_query('s1', 'SELECT * FROM cars WHERE color=''red''');
 ----
 ferari	testarosa	red
 
 query III
-select * from postgres_query('s1', 'SELECT * FROM cars') WHERE color='red';
+FROM postgres_query('s1', 'SELECT * FROM cars') WHERE color='red';
 ----
 ferari	testarosa	red
 
@@ -77,24 +77,24 @@ DATE[]	TIME[]	TIME WITH TIME ZONE[]	TIMESTAMP[]	TIMESTAMP WITH TIME ZONE[]
 
 # semicolons
 query III
-select * from postgres_query('s1', 'SELECT * FROM cars;') WHERE color='red';
+FROM postgres_query('s1', 'SELECT * FROM cars;') WHERE color='red';
 ----
 ferari	testarosa	red
 
 query III
-select * from postgres_query('s1', 'SELECT * FROM cars; ;   ') WHERE color='red';
+FROM postgres_query('s1', 'SELECT * FROM cars; ;   ') WHERE color='red';
 ----
 ferari	testarosa	red
 
 # incorrect usage
 statement error
-select * from postgres_query('s1', 'CREATE TABLE my_table(i INT)');
+FROM postgres_query('s1', 'CREATE TABLE my_table(i INT)');
 ----
 Invalid Error: Failed to execute query
 
 # database not found
 statement error
-select * from postgres_query('xx', 'SELECT * FROM cars');
+FROM postgres_query('xx', 'SELECT * FROM cars');
 ----
 Binder Error: Failed to find attached database
 
@@ -102,12 +102,12 @@ mode skip
 
 # empty statements
 statement error
-select * from postgres_query('s1', '') WHERE color='red';
+FROM postgres_query('s1', '') WHERE color='red';
 ----
 Invalid Error: Failed to execute query
 
 statement error
-select * from postgres_query('s1', ';;') WHERE color='red';
+FROM postgres_query('s1', ';;') WHERE color='red';
 ----
 Invalid Error: Failed to execute query
 
@@ -115,12 +115,12 @@ mode unskip
 
 # NULL parameters
 statement error
-select * from postgres_query(NULL, 'SELECT 42');
+FROM postgres_query(NULL, 'SELECT 42');
 ----
 cannot be NULL
 
 statement error
-select * from postgres_query('s1', NULL);
+FROM postgres_query('s1', NULL);
 ----
 cannot be NULL
 
@@ -129,7 +129,7 @@ statement ok
 ATTACH ':memory:' AS ddb
 
 statement error
-select * from postgres_query('ddb', 'SELECT * FROM cars');
+FROM postgres_query('ddb', 'SELECT * FROM cars');
 ----
 does not refer to a Postgres database
 
@@ -251,6 +251,96 @@ does not exist
 
 statement ok
 ROLLBACK
+
+# wrapping rules
+
+statement ok
+CALL enable_logging('PostgresQueryLog')
+
+# no wrap copy
+
+query II
+FROM postgres_query('s1', 'SELECT brand, model FROM cars', query_mode='COPY_BINARY');
+----
+ferari	testarosa
+aston martin	db2
+bentley	mulsanne
+ford	T
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'COPY (SELECT brand, model FROM cars) TO STDOUT (FORMAT "binary");'
+----
+1
+
+# no wrap binary
+
+query II
+FROM postgres_query('s1', 'SELECT brand, model FROM cars', query_mode='PLAIN_QUERY_BINARY');
+----
+ferari	testarosa
+aston martin	db2
+bentley	mulsanne
+ford	T
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SELECT brand, model FROM cars'
+----
+1
+
+# no wrap text
+
+query II
+FROM postgres_query('s1', 'SELECT model, brand FROM cars', query_mode='PLAIN_QUERY_TEXT');
+----
+testarosa	ferari
+db2	aston martin
+mulsanne	bentley
+T	ford
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SELECT model, brand FROM cars'
+----
+1
+
+# wrap color_t
+
+query II
+FROM postgres_query('s1', 'SELECT brand, color FROM cars', query_mode='PLAIN_QUERY_BINARY');
+----
+ferari	red
+aston martin	blue
+bentley	gray
+ford	black
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SELECT "brand", "color"::VARCHAR FROM (SELECT brand, color FROM cars) AS __unnamed_subquery '
+----
+1
+
+# wrap projection
+
+query I
+select count(*) from postgres_query('s1', 'SELECT * FROM cars WHERE color=''red''', query_mode='PLAIN_QUERY_BINARY');
+----
+1
+
+query I
+SELECT COUNT(*)
+FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query = 'SELECT "brand" FROM (SELECT * FROM cars WHERE color=''red'') AS __unnamed_subquery '
+----
+1
+
+statement ok
+CALL disable_logging()
 
 statement ok
 DETACH s1

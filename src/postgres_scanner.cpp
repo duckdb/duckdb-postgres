@@ -189,55 +189,64 @@ static bool ContainsCastToVarchar(const PostgresType &type) {
 	return false;
 }
 
-static void PostgresInitInternal(ClientContext &context, const PostgresBindData *bind_data_p,
-                                 PostgresLocalState &lstate, idx_t task_min, idx_t task_max) {
-	D_ASSERT(bind_data_p);
-	D_ASSERT(task_min <= task_max);
-
-	auto bind_data = (const PostgresBindData *)bind_data_p;
-
+static string WriteColumnNames(const PostgresBindData &bind_data, const PostgresLocalState &lstate,
+                               bool &col_names_required) {
 	string col_names;
+	col_names_required = bind_data.names.size() != lstate.column_ids.size();
 	for (auto &column_id : lstate.column_ids) {
 		if (!col_names.empty()) {
 			col_names += ", ";
 		}
 		if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
-			if (bind_data->table_name.empty() || !bind_data->emit_ctid) {
+			if (bind_data.table_name.empty() || !bind_data.emit_ctid) {
 				// count(*) over postgres_query
 				col_names += "NULL";
 			} else {
 				col_names += "ctid";
 			}
+			col_names_required = true;
 		} else {
-			col_names += PostgresUtils::WriteIdentifier(bind_data->names[column_id]);
-			if (bind_data->postgres_types[column_id].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
+			col_names += PostgresUtils::WriteIdentifier(bind_data.names[column_id]);
+			if (bind_data.postgres_types[column_id].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
 				col_names += "::VARCHAR";
-			} else if (bind_data->types[column_id].id() == LogicalTypeId::LIST) {
-				if (bind_data->postgres_types[column_id].info != PostgresTypeAnnotation::STANDARD) {
+				col_names_required = true;
+			} else if (bind_data.types[column_id].id() == LogicalTypeId::LIST) {
+				if (bind_data.postgres_types[column_id].info != PostgresTypeAnnotation::STANDARD) {
 					continue;
 				}
-				if (bind_data->postgres_types[column_id].children[0].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
+				if (bind_data.postgres_types[column_id].children[0].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
 					col_names += "::VARCHAR[]";
+					col_names_required = true;
 				}
 			} else {
-				if (ContainsCastToVarchar(bind_data->postgres_types[column_id])) {
+				if (ContainsCastToVarchar(bind_data.postgres_types[column_id])) {
 					throw NotImplementedException("Error reading table \"%s\" - cast to varchar not implemented for "
 					                              "composite column \"%s\" (type %s)",
-					                              bind_data->table_name, bind_data->names[column_id],
-					                              bind_data->types[column_id].ToString());
+					                              bind_data.table_name, bind_data.names[column_id],
+					                              bind_data.types[column_id].ToString());
 				}
 			}
 		}
 	}
+	return col_names;
+}
 
-	string filter_string =
-	    PostgresFilterPushdown::TransformFilters(lstate.column_ids, lstate.filters, bind_data->names);
+static void PostgresInitInternal(ClientContext &context, const PostgresBindData *bind_data_p,
+                                 PostgresLocalState &lstate, idx_t task_min, idx_t task_max) {
+	D_ASSERT(bind_data_p);
+	D_ASSERT(task_min <= task_max);
+
+	auto bind_data = bind_data_p->Cast<PostgresBindData>();
+
+	bool col_names_required = false;
+	string col_names = WriteColumnNames(bind_data, lstate, col_names_required);
+	string filter_string = PostgresFilterPushdown::TransformFilters(lstate.column_ids, lstate.filters, bind_data.names);
 
 	string filter;
 
 	lstate.exec = false;
 	lstate.done = false;
-	if (bind_data->pages_approx > 0) {
+	if (bind_data.pages_approx > 0) {
 		filter = StringUtil::Format("WHERE ctid BETWEEN '(%d,0)'::tid AND '(%d,0)'::tid", task_min, task_max);
 	}
 	if (!filter_string.empty()) {
@@ -248,24 +257,28 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 		}
 		filter += filter_string;
 	}
-	string query;
-	if (bind_data->table_name.empty()) {
-		D_ASSERT(!bind_data->sql.empty());
-		query =
-		    StringUtil::Format(R"(SELECT %s FROM (%s) AS __unnamed_subquery %s)", col_names, bind_data->sql, filter);
 
+	string query;
+	if (bind_data.table_name.empty()) {
+		D_ASSERT(!bind_data.sql.empty());
+		if (col_names_required) {
+			query =
+			    StringUtil::Format("SELECT %s FROM (%s) AS __unnamed_subquery %s", col_names, bind_data.sql, filter);
+		} else if (!filter.empty()) {
+			query = StringUtil::Format("%s %s", bind_data.sql, filter);
+		} else {
+			query = bind_data.sql;
+		}
 	} else {
-		query = StringUtil::Format(R"(SELECT %s FROM %s.%s %s)", col_names,
-		                           PostgresUtils::WriteIdentifier(bind_data->schema_name),
-		                           PostgresUtils::WriteIdentifier(bind_data->table_name), filter);
+		query = StringUtil::Format("SELECT %s FROM %s.%s %s", col_names,
+		                           PostgresUtils::WriteIdentifier(bind_data.schema_name),
+		                           PostgresUtils::WriteIdentifier(bind_data.table_name), filter);
 	}
-	if (!bind_data->limit_clause.empty()) {
-		query += bind_data->limit_clause;
+	if (!bind_data.limit_clause.empty()) {
+		query += bind_data.limit_clause;
 	}
-	if (!(bind_data->use_text_protocol || bind_data->query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY)) {
-		query = StringUtil::Format(R"(COPY (%s) TO STDOUT (FORMAT "binary");)", query);
-	} else {
-		query += ";";
+	if (!(bind_data.use_text_protocol || bind_data.query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY)) {
+		query = StringUtil::Format("COPY (%s) TO STDOUT (FORMAT \"binary\");", query);
 	}
 	lstate.sql = std::move(query);
 }
