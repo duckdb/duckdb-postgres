@@ -106,6 +106,8 @@ public:
 	static PostgresQueryMode ExtractQueryMode(Value &value);
 	static PostgresCatalog &GetCatalogByName(ClientContext &context, const std::string &name);
 
+	static void DeduplicateColumns(vector<Identifier> &names);
+
 private:
 	static mutex libpq_init_lock;
 	static bool libpq_connect_succeeded_at_least_once;
