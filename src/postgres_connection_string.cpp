@@ -67,6 +67,21 @@ bool PostgresConnectionString::ContainsApplicationName(const std::string &connin
 	return found;
 }
 
+// libpq allows '?' in the user info, so the query starts at the first '?' after it
+static std::string::size_type FindURIQueryStart(const string &uri) {
+	auto scheme_end = uri.find("://");
+	auto start = scheme_end == std::string::npos ? 0 : scheme_end + 3;
+	auto user_info_end = uri.find_first_of("@/", start);
+	if (user_info_end != std::string::npos && uri[user_info_end] == '@') {
+		start = user_info_end + 1;
+	}
+	return uri.find('?', start);
+}
+
+bool PostgresConnectionString::IsURI(const string &conn_string) {
+	return StringUtil::StartsWith(conn_string, "postgresql://") || StringUtil::StartsWith(conn_string, "postgres://");
+}
+
 void PostgresConnectionString::AppendDefaultApplicationName(string &conn_string,
                                                             PostgresConnectionStringFormat format) {
 	string app_name = "application_name=DuckDB";
@@ -75,9 +90,12 @@ void PostgresConnectionString::AppendDefaultApplicationName(string &conn_string,
 			conn_string.push_back(' ');
 		}
 	} else {
-		bool first = conn_string.find('?') == std::string::npos;
-		char separator = first ? '?' : '&';
-		conn_string.push_back(separator);
+		auto query_start = FindURIQueryStart(conn_string);
+		if (query_start == std::string::npos) {
+			conn_string.push_back('?');
+		} else if (query_start + 1 < conn_string.length() && conn_string.back() != '&') {
+			conn_string.push_back('&');
+		}
 	}
 	conn_string += app_name;
 }

@@ -23,6 +23,9 @@ struct PostgresConnectionString {
 
 	static bool ContainsApplicationName(const std::string &conn_str);
 
+	//! Whether libpq reads the connection string as a URI rather than key/value pairs
+	static bool IsURI(const string &conn_string);
+
 	static void AppendDefaultApplicationName(string &conn_string, PostgresConnectionStringFormat format);
 };
 

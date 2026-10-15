@@ -168,9 +168,15 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 	}
 
 	if (!(user_specified_app_name || secret_has_app_name)) {
-		PostgresConnectionString::AppendDefaultApplicationName(secret_connection_info,
-		                                                       PostgresConnectionStringFormat::KEY_VALUE);
-		secret_connection_info.push_back(' ');
+		if (PostgresConnectionString::IsURI(connection_string)) {
+			// libpq cannot read key/value pairs in front of a URI, so the name goes into the URI
+			PostgresConnectionString::AppendDefaultApplicationName(connection_string,
+			                                                       PostgresConnectionStringFormat::URI);
+		} else {
+			PostgresConnectionString::AppendDefaultApplicationName(secret_connection_info,
+			                                                       PostgresConnectionStringFormat::KEY_VALUE);
+			secret_connection_info.push_back(' ');
+		}
 	}
 	connection_string = secret_connection_info + connection_string;
 
