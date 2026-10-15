@@ -342,5 +342,19 @@ WHERE query = 'SELECT "brand" FROM (SELECT * FROM cars WHERE color=''red'') AS _
 statement ok
 CALL disable_logging()
 
+# duplicate column names
+
+query III
+FROM postgres_query('s1', 'SELECT 41, 42, 43')
+----
+41	42	43
+
+query I
+SELECT column_name FROM (DESCRIBE FROM postgres_query('s1', 'SELECT 41, 42, 43'))
+----
+?column?
+?column?_1
+?column?_2
+
 statement ok
 DETACH s1

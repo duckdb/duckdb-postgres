@@ -1,4 +1,4 @@
-# name: test/sql/storage/limit_parallel_bug.test
+# name: test/sql/storage/limit_parallel_bug.test_slow
 # description: Test LIMIT bug with parallelism (issues #380, #395)
 # group: [storage]
 

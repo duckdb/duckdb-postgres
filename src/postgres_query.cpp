@@ -206,9 +206,10 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		result->postgres_types.push_back(postgres_type);
 		return_types.emplace_back(converted_type);
 		char *name_ptr = PQfname(describe_prepared, c);
-		string name = name_ptr ? name_ptr : StringUtil::Format("unnamed_%llu", c);
+		string name = name_ptr ? name_ptr : "unnamed";
 		names.emplace_back(name);
 	}
+	PostgresUtils::DeduplicateColumns(names);
 	int nparams = PQnparams(describe_prepared);
 	if (nparams != param_values.size()) {
 		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu, query: \"%s\"",
