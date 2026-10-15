@@ -205,7 +205,9 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		auto converted_type = PostgresUtils::TypeToLogicalType(nullptr, nullptr, type_config, type_data, postgres_type);
 		result->postgres_types.push_back(postgres_type);
 		return_types.emplace_back(converted_type);
-		names.emplace_back(PQfname(describe_prepared, c));
+		char *name_ptr = PQfname(describe_prepared, c);
+		string name = name_ptr ? name_ptr : StringUtil::Format("unnamed_%llu", c);
+		names.emplace_back(name);
 	}
 	int nparams = PQnparams(describe_prepared);
 	if (nparams != param_values.size()) {
