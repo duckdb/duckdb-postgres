@@ -131,7 +131,7 @@ void PostgresSchemaSet::LoadEntries(ClientContext &context, PostgresTransaction 
 	auto &pg_catalog = catalog.Cast<PostgresCatalog>();
 	auto pg_version = pg_catalog.GetPostgresVersion();
 	string schema_query = PostgresSchemaSet::GetInitializeQuery(schemas_to_load);
-	string tables_query = PostgresTableSet::GetInitializeQuery(schemas_to_load);
+	string tables_query = PostgresTableSet::GetInitializeQuery(pg_version, schemas_to_load);
 	string enum_types_query = PostgresTypeSet::GetInitializeEnumsQuery(pg_version, schemas_to_load);
 	string composite_types_query = PostgresTypeSet::GetInitializeCompositesQuery(schemas_to_load);
 	string index_query = PostgresIndexSet::GetInitializeQuery(schemas_to_load);

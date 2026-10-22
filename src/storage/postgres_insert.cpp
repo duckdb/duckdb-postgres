@@ -20,10 +20,9 @@
 namespace duckdb {
 
 PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, PostgresCatalog &pg_catalog, ClientContext &context,
-                               LogicalOperator &op, TableCatalogEntry &table,
-                               physical_index_vector_t<idx_t> column_index_map_p)
+                               LogicalOperator &op, TableCatalogEntry &table)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
-      column_index_map(std::move(column_index_map_p)), use_plain_inserts(UsePlainInserts(pg_catalog, context)) {
+      use_plain_inserts(UsePlainInserts(pg_catalog, context)) {
 }
 
 PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, PostgresCatalog &pg_catalog, ClientContext &context,
@@ -33,21 +32,83 @@ PostgresInsert::PostgresInsert(PhysicalPlan &physical_plan, PostgresCatalog &pg_
 }
 
 //===--------------------------------------------------------------------===//
+// Insert Columns
+//===--------------------------------------------------------------------===//
+//! The input of the insert contains every physical column of the table. Columns with a Postgres-side default receive
+//! NULL when they were not specified by the user, so such NULL values are replaced with the Postgres-side default
+struct PostgresInsertColumns {
+	explicit PostgresInsertColumns(const PostgresTableEntry &table) {
+		for (auto &col : table.GetColumns().Physical()) {
+			auto logical_index = col.Logical().index;
+			names.push_back(table.postgres_names[logical_index]);
+			defaults.push_back(table.column_defaults[logical_index]);
+		}
+	}
+
+	//! Postgres names of the input columns
+	vector<string> names;
+	//! How Postgres fills in each input column
+	vector<PostgresColumnDefault> defaults;
+
+	void CheckGeneratedColumns(DataChunk &chunk) const {
+		if (chunk.ColumnCount() != defaults.size()) {
+			throw InternalException("PostgresInsert: expected %llu input columns, got %llu", defaults.size(),
+			                        chunk.ColumnCount());
+		}
+		for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
+			if (defaults[c] != PostgresColumnDefault::GENERATED) {
+				continue;
+			}
+			for (idx_t r = 0; r < chunk.size(); r++) {
+				if (!FlatVector::IsNull(chunk.data[c], r)) {
+					throw InvalidInputException("Cannot insert into a generated column \"%s\"", names[c]);
+				}
+			}
+		}
+	}
+
+	//! Whether the value of column "c" in row "r" of the (flattened) input is filled in by Postgres
+	bool UsePostgresDefault(DataChunk &chunk, idx_t c, idx_t r) const {
+		switch (defaults[c]) {
+		case PostgresColumnDefault::GENERATED:
+			return true;
+		case PostgresColumnDefault::DEFAULT_VALUE:
+			return FlatVector::IsNull(chunk.data[c], r);
+		default:
+			return false;
+		}
+	}
+};
+
+//! Insert "count" rows that consist only of Postgres-side defaults
+static void InsertDefaultRows(ClientContext &context, PostgresConnection &connection, PostgresTableEntry &table,
+                              idx_t count) {
+	string query = "INSERT INTO ";
+	query += PostgresUtils::WriteIdentifier(table.schema.name.GetIdentifierName());
+	query += ".";
+	query += PostgresUtils::WriteIdentifier(table.name.GetIdentifierName());
+	query += " SELECT FROM generate_series(1, " + to_string(count) + ")";
+	connection.Execute(context, query);
+}
+
+//===--------------------------------------------------------------------===//
 // States
 //===--------------------------------------------------------------------===//
 class PostgresInsertCopyGlobalState : public GlobalSinkState {
 public:
 	explicit PostgresInsertCopyGlobalState(ClientContext &context, PostgresTableEntry &table, PostgresCopyFormat format)
-	    : table(table), insert_count(0), format(format) {
+	    : table(table), columns(table), insert_count(0), format(format) {
 	}
 
 	PostgresTableEntry &table;
+	PostgresInsertColumns columns;
 	PostgresCopyState copy_state;
 	DataChunk varchar_chunk;
 	idx_t insert_count;
 	PostgresCopyFormat format;
-	vector<string> insert_column_names;
 	bool copy_is_active = false;
+	//! For each input column, whether it is filled in by Postgres in the active COPY
+	vector<bool> copy_uses_default;
 
 	void FinishCopyTo(PostgresConnection &connection) {
 		if (!copy_is_active) {
@@ -60,44 +121,19 @@ public:
 
 class PostgresInsertPlainGlobalState : public GlobalSinkState {
 public:
-	explicit PostgresInsertPlainGlobalState(ClientContext &context, PostgresTableEntry &table,
-	                                        const vector<LogicalType> &varchar_types)
-	    : table(table), insert_count(0) {
+	explicit PostgresInsertPlainGlobalState(ClientContext &context, PostgresTableEntry &table)
+	    : table(table), columns(table), insert_count(0) {
+		vector<LogicalType> varchar_types(columns.names.size(), LogicalType::VARCHAR);
 		varchar_chunk.Initialize(context, varchar_types);
 	}
 
 	PostgresTableEntry &table;
+	PostgresInsertColumns columns;
 	DataChunk varchar_chunk;
 	idx_t insert_count;
 	string base_insert_query;
 	string insert_values;
 };
-
-static vector<string> GetInsertColumns(const PostgresInsert &insert, PostgresTableEntry &entry) {
-	vector<string> column_names;
-	auto &columns = entry.GetColumns();
-	idx_t column_count;
-	if (!insert.column_index_map.empty()) {
-		column_count = 0;
-		vector<PhysicalIndex> column_indexes;
-		column_indexes.resize(columns.LogicalColumnCount(), PhysicalIndex(DConstants::INVALID_INDEX));
-		for (idx_t c = 0; c < insert.column_index_map.size(); c++) {
-			auto column_index = PhysicalIndex(c);
-			auto mapped_index = insert.column_index_map[column_index];
-			if (mapped_index == DConstants::INVALID_INDEX) {
-				// column not specified
-				continue;
-			}
-			column_indexes[mapped_index] = column_index;
-			column_count++;
-		}
-		for (idx_t c = 0; c < column_count; c++) {
-			auto &col = columns.GetColumn(column_indexes[c]);
-			column_names.push_back(col.GetName().GetIdentifierName());
-		}
-	}
-	return column_names;
-}
 
 unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkStateCopy(ClientContext &context) const {
 	optional_ptr<PostgresTableEntry> insert_table;
@@ -108,27 +144,17 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkStateCopy(ClientContext
 	} else {
 		insert_table = &table.get_mutable()->Cast<PostgresTableEntry>();
 	}
-	auto &transaction = PostgresTransaction::Get(context, insert_table->catalog);
-	auto &connection = transaction.GetConnection();
-	auto insert_columns = GetInsertColumns(*this, *insert_table);
 	auto format = insert_table->GetCopyFormat(context);
-	auto result = make_uniq<PostgresInsertCopyGlobalState>(context, *insert_table, format);
-	auto &insert_column_names = result->insert_column_names;
-	if (!insert_columns.empty()) {
-		for (auto &str : insert_columns) {
-			Identifier col_identifier(str);
-			auto index = insert_table->GetColumnIndex(col_identifier, true);
-			if (!index.IsValid()) {
-				insert_column_names.push_back(str);
-			} else {
-				insert_column_names.push_back(insert_table->postgres_names[index.index]);
-			}
-		}
-	}
-	return std::move(result);
+	return make_uniq<PostgresInsertCopyGlobalState>(context, *insert_table, format);
 }
 
-static string GetBaseInsertQuery(const PostgresTableEntry &table, const vector<string> &column_names) {
+static string GetBaseInsertQuery(const PostgresTableEntry &table, const PostgresInsertColumns &columns) {
+	vector<string> column_names;
+	for (idx_t c = 0; c < columns.names.size(); c++) {
+		if (columns.defaults[c] != PostgresColumnDefault::GENERATED) {
+			column_names.push_back(columns.names[c]);
+		}
+	}
 	string query;
 	query += "INSERT INTO ";
 	query += PostgresUtils::WriteIdentifier(table.schema.name.GetIdentifierName());
@@ -158,15 +184,8 @@ unique_ptr<GlobalSinkState> PostgresInsert::GetGlobalSinkStatePlain(ClientContex
 	} else {
 		insert_table = &table.get_mutable()->Cast<PostgresTableEntry>();
 	}
-	auto insert_columns = GetInsertColumns(*this, *insert_table);
-	vector<LogicalType> insert_types;
-	idx_t insert_column_count =
-	    insert_columns.empty() ? insert_table->GetColumns().LogicalColumnCount() : insert_columns.size();
-	for (idx_t c = 0; c < insert_column_count; c++) {
-		insert_types.push_back(LogicalType::VARCHAR);
-	}
-	auto result = make_uniq<PostgresInsertPlainGlobalState>(context, *insert_table, insert_types);
-	result->base_insert_query = GetBaseInsertQuery(*insert_table, insert_columns);
+	auto result = make_uniq<PostgresInsertPlainGlobalState>(context, *insert_table);
+	result->base_insert_query = GetBaseInsertQuery(*insert_table, result->columns);
 	return std::move(result);
 }
 
@@ -177,14 +196,68 @@ SinkResultType PostgresInsert::SinkCopy(ExecutionContext &context, DataChunk &ch
 	auto &gstate = input.global_state.Cast<PostgresInsertCopyGlobalState>();
 	auto &transaction = PostgresTransaction::Get(context.client, gstate.table.catalog);
 	auto &connection = transaction.GetConnection();
-	if (!gstate.copy_is_active) {
-		// copy hasn't started yet
-		connection.BeginCopyTo(context.client, gstate.copy_state, gstate.format,
-		                       gstate.table.schema.name.GetIdentifierName(), gstate.table.name.GetIdentifierName(),
-		                       gstate.insert_column_names);
-		gstate.copy_is_active = true;
+	auto &columns = gstate.columns;
+	chunk.Flatten();
+	columns.CheckGeneratedColumns(chunk);
+
+	// COPY cannot use the Postgres-side default for individual rows - the columns that are filled in by Postgres have
+	// to be left out of the COPY column list instead
+	// split the chunk into runs of rows that leave out the same columns, and start a new COPY when this changes
+	vector<bool> uses_default(chunk.ColumnCount());
+	idx_t start = 0;
+	while (start < chunk.size()) {
+		for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
+			uses_default[c] = columns.UsePostgresDefault(chunk, c, start);
+		}
+		idx_t end = start + 1;
+		for (; end < chunk.size(); end++) {
+			bool same_defaults = true;
+			for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
+				if (columns.UsePostgresDefault(chunk, c, end) != uses_default[c]) {
+					same_defaults = false;
+					break;
+				}
+			}
+			if (!same_defaults) {
+				break;
+			}
+		}
+		if (gstate.copy_is_active && gstate.copy_uses_default != uses_default) {
+			gstate.FinishCopyTo(connection);
+		}
+
+		vector<column_t> column_ids;
+		vector<string> column_names;
+		vector<LogicalType> column_types;
+		for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
+			if (!uses_default[c]) {
+				column_ids.push_back(c);
+				column_names.push_back(columns.names[c]);
+				column_types.push_back(chunk.data[c].GetType());
+			}
+		}
+		if (column_ids.empty()) {
+			// every column is filled in by Postgres - COPY needs at least one column
+			InsertDefaultRows(context.client, connection, gstate.table, end - start);
+			start = end;
+			continue;
+		}
+		if (!gstate.copy_is_active) {
+			connection.BeginCopyTo(context.client, gstate.copy_state, gstate.format,
+			                       gstate.table.schema.name.GetIdentifierName(), gstate.table.name.GetIdentifierName(),
+			                       column_names);
+			gstate.copy_is_active = true;
+			gstate.copy_uses_default = uses_default;
+			// the varchar chunk is initialized for the columns of the COPY
+			gstate.varchar_chunk.Destroy();
+		}
+		DataChunk copy_chunk;
+		copy_chunk.InitializeEmpty(column_types);
+		copy_chunk.ReferenceColumns(chunk, column_ids);
+		copy_chunk.Slice(start, end - start);
+		connection.CopyChunk(context.client, gstate.copy_state, copy_chunk, gstate.varchar_chunk);
+		start = end;
 	}
-	connection.CopyChunk(context.client, gstate.copy_state, chunk, gstate.varchar_chunk);
 	gstate.insert_count += chunk.size();
 	if (!keep_copy_alive) {
 		// if we are can't keep the copy alive we need to restart the copy during every sink
@@ -227,9 +300,26 @@ SinkResultType PostgresInsert::SinkPlain(ExecutionContext &context, DataChunk &c
 	auto &gstate = input.global_state.Cast<PostgresInsertPlainGlobalState>();
 	auto &transaction = PostgresTransaction::Get(context.client, gstate.table.catalog);
 	auto &con = transaction.GetConnection();
+	auto &columns = gstate.columns;
 	// cast to varchar
-	D_ASSERT(chunk.ColumnCount() == gstate.varchar_chunk.ColumnCount());
+	if (chunk.ColumnCount() != gstate.varchar_chunk.ColumnCount()) {
+		throw InternalException("PostgresInsert: expected %llu input columns, got %llu",
+		                        gstate.varchar_chunk.ColumnCount(), chunk.ColumnCount());
+	}
 	chunk.Flatten();
+	columns.CheckGeneratedColumns(chunk);
+	bool has_insert_columns = false;
+	for (auto column_default : columns.defaults) {
+		if (column_default != PostgresColumnDefault::GENERATED) {
+			has_insert_columns = true;
+		}
+	}
+	if (!has_insert_columns) {
+		// every column is generated - VALUES needs at least one column
+		InsertDefaultRows(context.client, con, gstate.table, chunk.size());
+		gstate.insert_count += chunk.size();
+		return SinkResultType::NEED_MORE_INPUT;
+	}
 	gstate.varchar_chunk.Reset();
 	for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
 		switch (chunk.data[c].GetType().id()) {
@@ -286,11 +376,18 @@ SinkResultType PostgresInsert::SinkPlain(ExecutionContext &context, DataChunk &c
 			gstate.insert_values += ", ";
 		}
 		gstate.insert_values += "(";
+		bool first_value = true;
 		for (idx_t c = 0; c < gstate.varchar_chunk.ColumnCount(); c++) {
-			if (c > 0) {
+			if (columns.defaults[c] == PostgresColumnDefault::GENERATED) {
+				continue;
+			}
+			if (!first_value) {
 				gstate.insert_values += ", ";
 			}
-			if (FlatVector::IsNull(gstate.varchar_chunk.data[c], r)) {
+			first_value = false;
+			if (columns.UsePostgresDefault(chunk, c, r)) {
+				gstate.insert_values += "DEFAULT";
+			} else if (FlatVector::IsNull(gstate.varchar_chunk.data[c], r)) {
 				gstate.insert_values += "NULL";
 			} else {
 				auto data = FlatVector::GetDataMutable<string_t>(gstate.varchar_chunk.data[c]);
@@ -455,11 +552,13 @@ PhysicalOperator &PostgresCatalog::PlanInsert(ClientContext &context, PhysicalPl
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into Postgres table");
 	}
 
-	D_ASSERT(plan);
+	if (!plan) {
+		throw InternalException("PostgresCatalog::PlanInsert: insert without a child plan");
+	}
 	MaterializePostgresScans(*plan);
 	auto &inner_plan = AddCastToPostgresTypes(context, planner, *plan);
 
-	auto &insert = planner.Make<PostgresInsert>(*this, context, op, op.table, op.column_index_map);
+	auto &insert = planner.Make<PostgresInsert>(*this, context, op, op.table);
 	insert.children.push_back(inner_plan);
 	return insert;
 }

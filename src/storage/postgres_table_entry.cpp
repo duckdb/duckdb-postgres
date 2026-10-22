@@ -22,14 +22,26 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 		}
 		postgres_types.push_back(PostgresUtils::CreateEmptyPostgresType(col.GetType()));
 		postgres_names.push_back(col.GetName().GetIdentifierName());
+		if (col.Generated()) {
+			column_defaults.push_back(PostgresColumnDefault::GENERATED);
+		} else if (col.HasDefaultValue()) {
+			column_defaults.push_back(PostgresColumnDefault::DEFAULT_VALUE);
+		} else {
+			column_defaults.push_back(PostgresColumnDefault::NONE);
+		}
 	}
 	approx_num_pages.store(0, std::memory_order_release);
 }
 
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info), columns(std::move(info.create_info->columns)),
-      postgres_types(std::move(info.postgres_types)), postgres_names(std::move(info.postgres_names)) {
-	D_ASSERT(postgres_types.size() == columns.LogicalColumnCount());
+      postgres_types(std::move(info.postgres_types)), postgres_names(std::move(info.postgres_names)),
+      column_defaults(std::move(info.column_defaults)) {
+	if (postgres_types.size() != columns.LogicalColumnCount() ||
+	    column_defaults.size() != columns.LogicalColumnCount()) {
+		throw InternalException("PostgresTableEntry: column count mismatch - %llu columns, %llu types, %llu defaults",
+		                        columns.LogicalColumnCount(), postgres_types.size(), column_defaults.size());
+	}
 	approx_num_pages.store(info.approx_num_pages, std::memory_order_release);
 }
 
