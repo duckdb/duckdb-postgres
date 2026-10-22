@@ -34,8 +34,9 @@ public:
 
 	void AlterTable(ClientContext &context, PostgresTransaction &transaction, AlterTableInfo &info);
 
-	static string GetInitializeQuery(const string &schema = string(), const string &table = string());
-	static string GetInitializeQuery(const vector<string> &schemas, const string &table = string());
+	static string GetInitializeQuery(PostgresVersion version, const string &schema, const string &table = string());
+	static string GetInitializeQuery(PostgresVersion version, const vector<string> &schemas,
+	                                 const string &table = string());
 	static string GetInitializeQueryInformationSchema(const string &schema = string(), const string &table = string());
 	static string GetInitializeQueryInformationSchema(const vector<string> &schemas, const string &table = string());
 

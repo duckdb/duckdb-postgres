@@ -20,6 +20,16 @@
 
 namespace duckdb {
 
+//! How Postgres fills in a column that is not specified in an INSERT
+enum class PostgresColumnDefault : uint8_t {
+	//! No default - the column is set to NULL
+	NONE,
+	//! DEFAULT expression, SERIAL or identity column - NULL values are replaced with the Postgres-side default
+	DEFAULT_VALUE,
+	//! Generated column - values cannot be inserted
+	GENERATED
+};
+
 struct PostgresTableInfo {
 	PostgresTableInfo() {
 		create_info = make_uniq<CreateTableInfo>();
@@ -41,6 +51,7 @@ struct PostgresTableInfo {
 	unique_ptr<CreateTableInfo> create_info;
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
+	vector<PostgresColumnDefault> column_defaults;
 	int64_t approx_num_pages = 0;
 	unordered_map<int64_t, idx_t> attnum_to_logical;
 };
@@ -80,6 +91,8 @@ public:
 	//! We track these separately because of case sensitivity - Postgres allows e.g. the columns "ID" and "id" together
 	//! We would in this case remap them to "ID" and "id:1", while postgres_names store the original names
 	vector<string> postgres_names;
+	//! How Postgres fills in each column when it is not specified in an INSERT
+	vector<PostgresColumnDefault> column_defaults;
 	//! The approximate number of pages a table consumes in Postgres
 	std::atomic<int64_t> approx_num_pages;
 };
