@@ -1,9 +1,10 @@
 build
 cmake-build-debug
-.idea
+/.idea
 .DS_Store
-.vscode
-.cache
+/.vscode
+/.cache
+/.local
 duckdb_unittest_tempdir
 .envrc
 docker-compose.yml
