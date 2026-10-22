@@ -30,7 +30,7 @@ dropdb --if-exists postgresscanner
 createdb postgresscanner
 
 psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
-sed -E "s/,\s*allow_quoted_nulls\s+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
+sed -E "s/,[[:space:]]*allow_quoted_nulls[[:space:]]+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
 psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
 rm -rf ${ABS_DIR_PREFIX}/postgresscannertmp
 
