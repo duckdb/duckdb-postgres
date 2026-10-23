@@ -193,7 +193,12 @@ static string WriteColumnNames(const PostgresBindData &bind_data, const Postgres
                                bool &col_names_required) {
 	string col_names;
 	col_names_required = bind_data.names.size() != lstate.column_ids.size();
-	for (auto &column_id : lstate.column_ids) {
+	for (idx_t i = 0; i < lstate.column_ids.size(); i++) {
+		auto column_id = lstate.column_ids[i];
+		if (column_id != i) {
+			// the projection reorders the columns, the readers decode them in the projected order
+			col_names_required = true;
+		}
 		if (!col_names.empty()) {
 			col_names += ", ";
 		}

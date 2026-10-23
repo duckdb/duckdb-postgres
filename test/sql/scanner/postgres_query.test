@@ -356,5 +356,60 @@ SELECT column_name FROM (DESCRIBE FROM postgres_query('s1', 'SELECT 41, 42, 43')
 ?column?_1
 ?column?_2
 
+# outer query reorders all the columns of the remote query
+
+statement ok
+CALL postgres_execute('s1', 'DROP TABLE IF EXISTS query_reorder_tbl')
+
+statement ok
+CALL postgres_execute('s1', 'CREATE TABLE query_reorder_tbl (a varchar, b char(11), c integer, n numeric(18,2))')
+
+statement ok
+CALL postgres_execute('s1', 'INSERT INTO query_reorder_tbl VALUES (''a'', ''b'', 3, 1.5)')
+
+query III
+SELECT a, c, b FROM postgres_query('s1', 'SELECT a, b, c FROM query_reorder_tbl')
+----
+a	3	b
+
+query III
+SELECT n, a, trim(b) FROM postgres_query('s1', 'SELECT a, b, n FROM query_reorder_tbl')
+----
+1.50	a	b
+
+query IIII
+SELECT n, c, trim(b), a FROM postgres_query('s1', 'SELECT * FROM query_reorder_tbl')
+----
+1.50	3	b	a
+
+query II
+SELECT c, a FROM postgres_query('s1', 'SELECT a, c FROM query_reorder_tbl') WHERE c = 3
+----
+3	a
+
+statement ok
+SET pg_use_text_protocol=true
+
+query III
+SELECT a, c, trim(b) FROM postgres_query('s1', 'SELECT a, b, c FROM query_reorder_tbl')
+----
+a	3	b
+
+query IIII
+SELECT n, c, trim(b), a FROM postgres_query('s1', 'SELECT * FROM query_reorder_tbl')
+----
+1.50	3	b	a
+
+statement ok
+RESET pg_use_text_protocol
+
+query IIII
+SELECT n, c, trim(b), a FROM postgres_query('s1', 'SELECT * FROM query_reorder_tbl', query_mode='plain_query_binary')
+----
+1.50	3	b	a
+
+statement ok
+CALL postgres_execute('s1', 'DROP TABLE query_reorder_tbl')
+
 statement ok
 DETACH s1
