@@ -415,7 +415,7 @@ PostgresReadResult PostgresTextReader::Read(DataChunk &output) {
 			ctid_type.info = PostgresTypeAnnotation::CTID;
 			ConvertVector(scan_chunk.data[c], output.data[c], ctid_type, scan_chunk.size());
 		} else {
-			ConvertVector(scan_chunk.data[c], output.data[c], bind_data.postgres_types[c], scan_chunk.size());
+			ConvertVector(scan_chunk.data[c], output.data[c], bind_data.postgres_types[col_idx], scan_chunk.size());
 		}
 	}
 	output.SetChildCardinality(scan_chunk.size());
