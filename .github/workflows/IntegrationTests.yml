@@ -16,32 +16,28 @@ jobs:
 
   format-check:
     name: Format Check
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-slim' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: 'true'
-
-      - name: Install
-        run: |
-          pip3 install           \
+      - run: |
+          python -m pip install --user --break-system-packages \
             black==25.1.0        \
             clang_format==11.0.1 \
             cmake-format==0.6.13
-
-      - name: Format Check
-        run: |
+          export PATH=~/.local/bin:$PATH
           python -m pip show black
           python -m pip show cmake_format
           python -m pip show clang_format
+          which clang-format
           clang-format --version
-          clang-format --dump-config
           make format-check
 
   linux-tests:
     name: Linux (pg-17)
     needs: format-check
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     env:
       GEN: ninja
@@ -61,6 +57,8 @@ jobs:
 
     - name: Install Dependencies
       run: |
+        echo "set man-db/auto-update false" | sudo debconf-communicate || true
+        sudo dpkg-reconfigure man-db || true
         sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
         sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
           build-essential \
@@ -98,14 +96,9 @@ jobs:
         key: ${{ steps.cache_key.outputs.value }}
 
     - name: Setup Postgres
-      uses: ikalnytskyi/action-setup-postgres@v8
+      uses: ./.github/actions/setup-postgres
       with:
         postgres-version: 17
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
 
     - name: Run tests
       env:
@@ -124,7 +117,7 @@ jobs:
   linux-pgbouncer:
     name: Linux PgBouncer (${{ matrix.postgres.name }})
     needs: linux-tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     strategy:
       matrix:
@@ -152,13 +145,14 @@ jobs:
 
     - name: Install Dependencies
       run: |
+        echo "set man-db/auto-update false" | sudo debconf-communicate || true
+        sudo dpkg-reconfigure man-db || true
         sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
         sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
           build-essential \
           ccache \
           cmake \
-          ninja-build \
-          pgbouncer
+          ninja-build 
 
     - name: Cache Key
       id: cache_key
@@ -184,14 +178,9 @@ jobs:
         make release
 
     - name: Setup Postgres
-      uses: ikalnytskyi/action-setup-postgres@v8
+      uses: ./.github/actions/setup-postgres
       with:
         postgres-version: ${{ matrix.postgres.version }}
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
 
     - name: Setup PgBouncer
       run: |
@@ -199,18 +188,43 @@ jobs:
         openssl req -new -x509 -days 365 -nodes -text -subj "/CN=localhost" \
           -out ./pgbouncer/pgbouncer.crt \
           -keyout ./pgbouncer/pgbouncer.key
-        sudo chown -R postgres:postgres ./pgbouncer
-        sudo cp -p ./pgbouncer/* /etc/pgbouncer/
-        sudo ls -la /etc/pgbouncer
-        sudo sed -i 's|^;bardb = host=localhost dbname=bazdb|postgresscanner = host=localhost dbname=postgresscanner|' /etc/pgbouncer/pgbouncer.ini
-        sudo sed -i 's|^;pool_mode = session|pool_mode = transaction|' /etc/pgbouncer/pgbouncer.ini
-        sudo sed -i 's|^;max_prepared_statements = 0|max_prepared_statements = 1024|' /etc/pgbouncer/pgbouncer.ini
-        sudo sed -i 's|^;client_tls_sslmode = disable|client_tls_sslmode = require|' /etc/pgbouncer/pgbouncer.ini
-        sudo sed -i 's|^;client_tls_key_file =|client_tls_key_file = /etc/pgbouncer/pgbouncer.key|' /etc/pgbouncer/pgbouncer.ini
-        sudo sed -i 's|^;client_tls_cert_file =|client_tls_cert_file = /etc/pgbouncer/pgbouncer.crt|' /etc/pgbouncer/pgbouncer.ini
-        echo '"postgres" "postgres"' | sudo tee /etc/pgbouncer/userlist.txt
-        sudo cat /etc/pgbouncer/pgbouncer.ini
-        sudo systemctl restart pgbouncer
+        cat > ./pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        postgresscanner = host=localhost port=5432 dbname=postgresscanner
+
+        [pgbouncer]
+        logfile = /var/log/postgresql/pgbouncer.log
+        listen_addr = localhost
+        listen_port = 6432
+        unix_socket_dir =
+        auth_type = md5
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_prepared_statements = 1024
+        client_tls_sslmode = require
+        client_tls_key_file = /etc/pgbouncer/pgbouncer.key
+        client_tls_cert_file = /etc/pgbouncer/pgbouncer.crt
+        EOF
+        echo '"postgres" "postgres"' > ./pgbouncer/userlist.txt
+        chmod 755 ./pgbouncer
+        chmod 644 ./pgbouncer/*
+        ls -la ./pgbouncer
+        cat ./pgbouncer/pgbouncer.ini
+        sudo mkdir -p /var/log/postgresql
+        sudo chmod 777 /var/log/postgresql
+        docker run -d --name pgbouncer --network host \
+          -v ${{ github.workspace }}/pgbouncer:/etc/pgbouncer:ro \
+          -v /var/log/postgresql:/var/log/postgresql \
+          edoburu/pgbouncer:latest \
+          /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+        for i in $(seq 1 30); do
+          if pg_isready -h localhost -p 6432; then
+            break
+          fi
+          sleep 1
+        done
+        docker logs pgbouncer
+        pg_isready -h localhost -p 6432
 
     - name: Setup test data
       env:
@@ -258,7 +272,7 @@ jobs:
   linux-sanitized:
     name: Linux ${{ matrix.sanitizer.name }} (pg-17)
     needs: linux-tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     strategy:
       matrix:
@@ -269,7 +283,7 @@ jobs:
           threadsan_enabled: 1
 
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      GEN: ninja
       CC: '/usr/lib/ccache/gcc'
       CXX: '/usr/lib/ccache/g++'
       CCACHE_DIR: ${{ github.workspace }}/ccache
@@ -286,6 +300,8 @@ jobs:
 
     - name: Install Dependencies
       run: |
+        echo "set man-db/auto-update false" | sudo debconf-communicate || true
+        sudo dpkg-reconfigure man-db || true
         sudo apt-get update -y -q -o=Dpkg::Use-Pty=0
         sudo apt-get install -y -q -o=Dpkg::Use-Pty=0 \
           build-essential \
@@ -318,7 +334,6 @@ jobs:
         THREADSAN: ${{ matrix.sanitizer.threadsan_enabled }}
       run: |
         make relassert
-        cat ./build/relassert/src/CMakeFiles/duckdb.dir/flags.make
         cd build
         ln -s relassert release
 
@@ -329,14 +344,9 @@ jobs:
         key: ${{ steps.cache_key.outputs.value }}
 
     - name: Setup Postgres
-      uses: ikalnytskyi/action-setup-postgres@v8
+      uses: ./.github/actions/setup-postgres
       with:
         postgres-version: 17
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
 
     - name: Run tests
       env:

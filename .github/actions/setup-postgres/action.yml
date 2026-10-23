@@ -1,0 +1,30 @@
+name: Setup Postgres
+description: Start Postgres with SSL enabled in a Docker container on localhost:5432
+inputs:
+  postgres-version:
+    description: Postgres major version (Docker image tag)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Start Postgres container
+      shell: bash
+      run: |
+        docker run -d --name postgres --network host \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=postgres \
+          -v /tmp:/tmp \
+          postgres:${{ inputs.postgres-version }} \
+          -c port=5432 \
+          -c ssl=on \
+          -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem \
+          -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+        for i in $(seq 1 60); do
+          if docker exec postgres pg_isready -h localhost -p 5432 -U postgres; then
+            break
+          fi
+          sleep 1
+        done
+        docker exec postgres pg_isready -h localhost -p 5432 -U postgres
+        PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d postgres -c "SELECT version()"
