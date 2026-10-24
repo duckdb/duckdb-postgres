@@ -1,0 +1,158 @@
+# name: test/sql/storage/attach_rds_iam_token_refresh.test
+# description: Test re-generating AWS RDS IAM token when the attached DB is also a secret storage
+# group: [storage]
+
+require postgres_scanner
+
+require-env AWS_RDS_DATABASE_AVAILABLE
+
+statement ok
+LOAD postgres
+
+statement ok
+LOAD aws
+
+statement ok
+CREATE SECRET rds_template_secret (
+  TYPE rds,
+  PROVIDER credential_chain,
+  CHAIN 'env;sso;process;',
+  PROFILE 'admin_service',
+  REGION 'eu-west-1',
+  RDS_USER 'postgres',
+  RDS_HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  RDS_PORT '5432'
+);
+
+statement ok
+CREATE SECRET rds_secret (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  PORT '5432',
+  USER 'postgres',
+  DATABASE 'postgres',
+  SSLMODE require,
+  AWS_RDS_SECRET rds_template_secret
+);
+
+# clean up leftovers from previous runs
+statement ok
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret)
+
+statement ok
+CALL postgres_execute('rds_attached', 'DROP TABLE IF EXISTS duckdb_rds_iam_secrets')
+
+statement ok
+DETACH rds_attached
+
+# invalid max token age
+
+statement error
+CREATE SECRET rds_secret_invalid (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  AWS_RDS_SECRET rds_template_secret,
+  AWS_RDS_TOKEN_MAX_AGE_SECONDS -1
+);
+----
+Failed to cast option "aws_rds_token_max_age_seconds" to type 'UBIGINT'
+
+statement ok
+CREATE OR REPLACE SECRET rds_secret_invalid (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  AWS_RDS_SECRET rds_template_secret,
+  AWS_RDS_TOKEN_MAX_AGE_SECONDS 841
+);
+
+statement error
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret_invalid)
+----
+'AWS_RDS_TOKEN_MAX_AGE_SECONDS' must be between 0 and 840, specified: 841
+
+statement ok
+CREATE OR REPLACE SECRET rds_secret_invalid (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  AWS_RDS_TOKEN_MAX_AGE_SECONDS 1
+);
+
+statement error
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret_invalid)
+----
+'AWS_RDS_TOKEN_MAX_AGE_SECONDS' parameter can only be specified along with 'AWS_RDS_SECRET' parameter
+
+statement ok
+DROP SECRET rds_secret_invalid
+
+# make the token expire after 1 second
+statement ok
+CREATE OR REPLACE SECRET rds_secret (
+  TYPE postgres,
+  HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
+  PORT '5432',
+  USER 'postgres',
+  DATABASE 'postgres',
+  SSLMODE require,
+  AWS_RDS_SECRET rds_template_secret,
+  AWS_RDS_TOKEN_MAX_AGE_SECONDS 1
+);
+
+statement ok
+ATTACH '' AS rds_attached (TYPE POSTGRES, SECRET rds_secret, SECRET_STORAGE_TABLE duckdb_rds_iam_secrets)
+
+statement ok
+CREATE SECRET rds_stored_secret IN postgres_rds_attached (
+  TYPE postgres,
+  HOST 'localhost'
+)
+
+query I
+FROM postgres_query('rds_attached', 'SELECT current_user')
+----
+postgres
+
+# do not keep connections in pool, so every query opens a new one
+query I
+SELECT catalog_name FROM postgres_configure_pool(catalog_name='rds_attached', max_connections=0)
+----
+rds_attached
+
+sleep 3 seconds
+
+# token is expired, it is re-generated when opening a new connection,
+# that requires a secret lookup that reaches the secret storage in this DB
+query I
+FROM postgres_query('rds_attached', 'SELECT current_user')
+----
+postgres
+
+sleep 3 seconds
+
+query I
+FROM postgres_query('rds_attached', 'SELECT current_user')
+----
+postgres
+
+query II
+SELECT name, storage FROM duckdb_secrets() WHERE name = 'rds_stored_secret'
+----
+rds_stored_secret	postgres_rds_attached
+
+# temporary secret used for token generation is cleaned up
+query I
+SELECT count(*) FROM duckdb_secrets() WHERE name LIKE '%_postgres_temp'
+----
+0
+
+statement ok
+DROP SECRET rds_stored_secret
+
+statement ok
+CALL postgres_execute('rds_attached', 'DROP TABLE duckdb_rds_iam_secrets')
+
+statement ok
+DETACH rds_attached
+
+statement ok
+DROP SECRET rds_secret

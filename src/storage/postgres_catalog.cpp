@@ -95,7 +95,7 @@ PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, str
       default_schema(schemas_to_load.size() > 0 ? Identifier(schemas_to_load[0]) : Identifier()),
       secret_storage_table(std::move(secret_storage_table_p)), connect_display(std::move(connect_display_p)) {
 	auto secret_entry = GetSecretEntry(ctx, secret_name);
-	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(secret_entry);
+	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(ctx, secret_entry);
 	if (!rds_token_config.Enabled()) {
 		this->connection_string = CreateConnectionString(secret_entry, attach_path);
 	}

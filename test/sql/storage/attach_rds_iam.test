@@ -16,8 +16,8 @@ statement ok
 CREATE SECRET rds_template_secret (
   TYPE rds,
   PROVIDER credential_chain,
-  CHAIN 'env;sso;',
-  PROFILE 'DatabaseAdministrator-xxx',
+  CHAIN 'env;sso;process;',
+  PROFILE 'admin_service',
   REGION 'eu-west-1',
   RDS_USER 'postgres',
   RDS_HOST 'database-1-instance-1.xxx.eu-west-1.rds.amazonaws.com',
