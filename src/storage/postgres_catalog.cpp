@@ -160,7 +160,8 @@ string PostgresCatalog::CreateConnectionString(optional_ptr<SecretEntry> secret_
 			return uri;
 		}
 
-		secret_has_app_name = !kv_secret.TryGetValue("application_name").IsNull();
+		secret_has_app_name = !kv_secret.TryGetValue("application_name").IsNull() ||
+		                      !kv_secret.TryGetValue("fallback_application_name").IsNull();
 
 		for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {
 			secret_connection_info += PostgresConnectionString::ExtractOption(kv_secret, opt_name);

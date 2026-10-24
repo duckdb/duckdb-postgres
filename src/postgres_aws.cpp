@@ -151,7 +151,8 @@ PostgresAwsRdsTokenConfig PostgresAws::ExtractTokenConfigFromSecret(ClientContex
 	const auto &kv_template_secret = dynamic_cast<const KeyValueSecret &>(*template_secret->secret);
 	config.template_options = kv_template_secret.secret_map;
 
-	bool has_app_name = !kv.TryGetValue("application_name").IsNull();
+	bool has_app_name =
+	    !kv.TryGetValue("application_name").IsNull() || !kv.TryGetValue("fallback_application_name").IsNull();
 
 	// Build the base connection string (without password)
 	for (const string &opt_name : PostgresSecrets::ConnectionOptionNames()) {

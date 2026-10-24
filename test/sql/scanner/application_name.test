@@ -239,7 +239,7 @@ set ignore_error_messages
 
 # default in URI ATTACH path
 
-foreach uri postgresql://127.0.0.1:/postgresscanner postgres://postgres@127.0.0.1:/postgresscanner postgresql://127.0.0.1:/postgresscanner? postgresql://127.0.0.1:/postgresscanner?sslmode=allow postgresql://127.0.0.1:/postgresscanner?sslmode=allow& postgresql://127.0.0.1:/postgresscanner?fallback_application_name=x?
+foreach uri postgresql://127.0.0.1:/postgresscanner postgres://postgres@127.0.0.1:/postgresscanner postgresql://127.0.0.1:/postgresscanner? postgresql://127.0.0.1:/postgresscanner?sslmode=allow postgresql://127.0.0.1:/postgresscanner?sslmode=allow& postgresql://127.0.0.1:/postgresscanner?passfile=x?
 
 statement ok
 ATTACH '{uri}' AS s (TYPE POSTGRES)
@@ -294,3 +294,93 @@ RESET VARIABLE conn
 
 statement ok
 DETACH s
+
+# fallback name in conn_string
+
+statement ok
+ATTACH 'dbname=postgresscanner fallback_application_name=custom4' AS s (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom4''
+',
+connection=getvariable('conn'))
+----
+custom4	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+# fallback name in URI ATTACH path
+
+statement ok
+ATTACH 'postgresql://127.0.0.1:/postgresscanner?fallback_application_name=custom5' AS s (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom5''
+',
+connection=getvariable('conn'))
+----
+custom5	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+# fallback name in secret
+
+statement ok
+CREATE TEMPORARY SECRET pgsec1 (
+    TYPE postgres,
+    FALLBACK_APPLICATION_NAME custom6
+)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SECRET pgsec1)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s',
+'
+SELECT application_name, state FROM pg_stat_activity
+WHERE application_name = ''custom6''
+',
+connection=getvariable('conn'))
+----
+custom6	active
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s
+
+statement ok
+DROP SECRET pgsec1
