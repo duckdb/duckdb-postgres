@@ -22,6 +22,12 @@ struct PostgresAwsRdsTokenConfig {
 
 	std::string rds_secret_name;
 	std::string base_connection_string;
+	//! Options of the RDS template secret, resolved once at ATTACH time. The template is not looked up
+	//! by name when the token is re-generated, because such lookup searches all secret storages,
+	//! including the Postgres secret storage of the attached DB, that requires a new connection.
+	identifier_tree_t<Value> template_options;
+	//! Overrides the max token age, set from 'aws_rds_token_max_age_seconds' secret option
+	int64_t max_age_seconds_override = -1;
 
 	bool Enabled();
 	int64_t MaxAgeSeconds();
@@ -31,7 +37,8 @@ struct PostgresAws {
 	static std::string GenerateRdsAuthToken(AttachedDatabase &attached_db,
 	                                        const PostgresAwsRdsTokenConfig &token_config);
 
-	static PostgresAwsRdsTokenConfig ExtractTokenConfigFromSecret(optional_ptr<SecretEntry> secret_entry);
+	static PostgresAwsRdsTokenConfig ExtractTokenConfigFromSecret(ClientContext &context,
+	                                                              optional_ptr<SecretEntry> secret_entry);
 };
 
 } // namespace duckdb

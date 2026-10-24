@@ -70,7 +70,8 @@ static const std::unordered_map<std::string, std::string> connection_option_alia
 
 static const std::vector<std::string> other_option_names = {
   "uri",
-  "aws_rds_secret"
+  "aws_rds_secret",
+  "aws_rds_token_max_age_seconds"
 };
 // clang-format on
 
@@ -129,6 +130,7 @@ void PostgresSecrets::SetSecretParameters(CreateSecretFunction &function) {
 	// other options
 	function.named_parameters["uri"] = LogicalType::VARCHAR;
 	function.named_parameters["aws_rds_secret"] = LogicalType::VARCHAR;
+	function.named_parameters["aws_rds_token_max_age_seconds"] = LogicalType::UBIGINT;
 }
 
 } // namespace duckdb
