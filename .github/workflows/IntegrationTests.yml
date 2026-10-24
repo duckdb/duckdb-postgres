@@ -99,6 +99,7 @@ jobs:
       uses: ./.github/actions/setup-postgres
       with:
         postgres-version: 17
+        ssl: false
 
     - name: Run tests
       env:
@@ -181,6 +182,7 @@ jobs:
       uses: ./.github/actions/setup-postgres
       with:
         postgres-version: ${{ matrix.postgres.version }}
+        ssl: true
 
     - name: Setup PgBouncer
       run: |
@@ -347,6 +349,7 @@ jobs:
       uses: ./.github/actions/setup-postgres
       with:
         postgres-version: 17
+        ssl: true
 
     - name: Run tests
       env:
