@@ -49,12 +49,13 @@ bool PostgresConnectionString::ContainsApplicationName(const std::string &connin
 	bool found = false;
 
 	for (PQconninfoOption *opt = options; opt->keyword != nullptr; ++opt) {
-		if (std::strcmp(opt->keyword, "application_name") == 0) {
+		if (std::strcmp(opt->keyword, "application_name") == 0 ||
+		    std::strcmp(opt->keyword, "fallback_application_name") == 0) {
 			// opt->val will be non-null if it was explicitly defined in the string
 			if (opt->val != nullptr && std::strlen(opt->val) > 0) {
 				found = true;
+				break;
 			}
-			break;
 		}
 	}
 
@@ -84,7 +85,8 @@ bool PostgresConnectionString::IsURI(const string &conn_string) {
 
 void PostgresConnectionString::AppendDefaultApplicationName(string &conn_string,
                                                             PostgresConnectionStringFormat format) {
-	string app_name = "application_name=DuckDB";
+	// a fallback name lets PGAPPNAME and user-specified names take precedence
+	string app_name = "fallback_application_name=DuckDB";
 	if (format == PostgresConnectionStringFormat::KEY_VALUE) {
 		if (conn_string.length() == 0 || conn_string[conn_string.length() - 1] != ' ') {
 			conn_string.push_back(' ');
