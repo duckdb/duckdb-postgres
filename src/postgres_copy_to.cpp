@@ -61,11 +61,14 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
 	}
 	query += ")";
 
-	PostgresResult pg_res(PQExecute(context, query.c_str()));
-	auto result = pg_res.res;
-	if (!result || PQresultStatus(result) != PGRES_COPY_IN) {
-		auto error = result ? PQresultErrorMessage(result) : PQerrorMessage(GetConn());
-		throw std::runtime_error("Failed to prepare COPY \"" + query + "\": " + string(error));
+	{
+		lock_guard<mutex> guard(connection_lock);
+		PostgresResult pg_res(PQExecute(context, query.c_str()));
+		auto result = pg_res.res;
+		if (!result || PQresultStatus(result) != PGRES_COPY_IN) {
+			auto error = result ? PQresultErrorMessage(result) : PQerrorMessage(GetConn());
+			throw std::runtime_error("Failed to prepare COPY \"" + query + "\": " + string(error));
+		}
 	}
 	if (state.format == PostgresCopyFormat::BINARY) {
 		// binary copy requires a header
@@ -76,6 +79,7 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
 }
 
 void PostgresConnection::CopyData(data_ptr_t buffer, idx_t size) {
+	lock_guard<mutex> guard(connection_lock);
 	int result;
 	do {
 		result = PQputCopyData(GetConn(), (const char *)buffer, int(size));
@@ -106,6 +110,7 @@ void PostgresConnection::FinishCopyTo(PostgresCopyState &state) {
 		CopyData(writer);
 	}
 
+	lock_guard<mutex> guard(connection_lock);
 	auto result_code = PQputCopyEnd(GetConn(), nullptr);
 	if (result_code != 1) {
 		throw InternalException("Error during PQputCopyEnd: %s", PQerrorMessage(GetConn()));

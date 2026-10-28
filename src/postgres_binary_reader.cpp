@@ -9,8 +9,9 @@
 namespace duckdb {
 
 PostgresBinaryReader::PostgresBinaryReader(PostgresConnection &con_p, const vector<column_t> &column_ids,
-                                           const PostgresBindData &bind_data)
-    : PostgresResultReader(con_p, column_ids, bind_data),
+                                           const PostgresBindData &bind_data,
+                                           optional_ptr<PostgresPreparedStatement> prepared_statement)
+    : PostgresResultReader(con_p, column_ids, bind_data, prepared_statement),
       parser(bind_data.types, bind_data.postgres_types, bind_data.type_config) {
 	if (bind_data.query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY) {
 		this->mode = PostgresBinaryReaderMode::PLAIN_QUERY;
@@ -25,9 +26,11 @@ PostgresBinaryReader::~PostgresBinaryReader() {
 
 void PostgresBinaryReader::BeginCopy(ClientContext &context, const string &sql) {
 	if (mode == PostgresBinaryReaderMode::PLAIN_QUERY) {
-		this->result = con.Query(context, sql, bind_data.params, 1);
+		this->result = Query(context, sql, 1);
 		this->row_offset = 0;
 	} else {
+		// COPY does not use the statement, it must be closed before the connection enters the COPY state
+		DestroyPreparedStatement();
 		con.BeginCopyFrom(context, sql, PGRES_COPY_OUT);
 		if (!FetchNextBuffer()) {
 			throw IOException("Failed to fetch header for COPY \"%s\"", sql);
@@ -61,6 +64,7 @@ PostgresReadResult PostgresBinaryReader::ReadCopy(DataChunk &output) {
 }
 
 bool PostgresBinaryReader::FetchNextBuffer() {
+	auto conn_lock = con.Lock();
 	char *out_buffer;
 	int len = PQgetCopyData(con.GetConn(), &out_buffer, 0);
 	auto new_buffer = data_ptr_cast(out_buffer);

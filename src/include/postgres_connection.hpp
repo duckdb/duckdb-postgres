@@ -22,21 +22,12 @@ class PostgresSchemaEntry;
 class PostgresTableEntry;
 class PostgresStatement;
 class PostgresResult;
+class PostgresPreparedStatement;
 struct IndexInfo;
-
-struct OwnedPostgresConnection {
-	explicit OwnedPostgresConnection(PGconn *conn = nullptr);
-	OwnedPostgresConnection(const OwnedPostgresConnection &) = delete;
-	OwnedPostgresConnection &operator=(const OwnedPostgresConnection &) = delete;
-	~OwnedPostgresConnection();
-
-	PGconn *connection;
-	mutex connection_lock;
-};
 
 class PostgresConnection {
 public:
-	explicit PostgresConnection(shared_ptr<OwnedPostgresConnection> connection = nullptr);
+	explicit PostgresConnection(PGconn *connection = nullptr);
 	~PostgresConnection();
 	// disable copy constructors
 	PostgresConnection(const PostgresConnection &other) = delete;
@@ -54,6 +45,9 @@ public:
 	                                    const PostgresParameters &params = PostgresParameters(), int format = 0);
 	unique_ptr<PostgresResult> Query(optional_ptr<ClientContext> context, const string &query,
 	                                 const PostgresParameters &params = PostgresParameters(), int format = 0);
+	//! Executes a statement that was prepared on this connection
+	unique_ptr<PostgresResult> QueryStmt(optional_ptr<ClientContext> context, const PostgresPreparedStatement &stmt,
+	                                     const PostgresParameters &params = PostgresParameters(), int format = 0);
 
 	//! Submits a set of queries to be executed in the connection.
 	vector<unique_ptr<PostgresResult>> ExecuteQueries(ClientContext &context, const string &queries);
@@ -77,28 +71,33 @@ public:
 	bool PingServer(const std::string &health_check_query);
 	void Reset(const std::string &health_check_query);
 
-	shared_ptr<OwnedPostgresConnection> GetConnection() {
-		return connection;
-	}
 	string GetDSN() {
 		return dsn;
 	}
 
+	//! Locks the connection, must be held when calling libpq functions on the result of GetConn()
+	unique_lock<mutex> Lock() {
+		return unique_lock<mutex>(connection_lock);
+	}
 	PGconn *GetConn() {
-		if (!connection || !connection->connection) {
+		if (!connection) {
 			throw InternalException("PostgresConnection::GetConn - no connection available");
 		}
-		return connection->connection;
+		return connection;
 	}
 
 	static void DebugSetPrintQueries(bool print);
 	static bool DebugPrintQueries();
 
 private:
+	//! Requires connection_lock to be held
 	PGresult *PQExecute(optional_ptr<ClientContext> context, const string &query,
 	                    const PostgresParameters &params = PostgresParameters(), int format = 0);
+	//! Requires connection_lock to be held
+	bool PingServerInternal(const std::string &health_check_query);
 
-	shared_ptr<OwnedPostgresConnection> connection;
+	PGconn *connection = nullptr;
+	mutex connection_lock;
 	string dsn;
 };
 

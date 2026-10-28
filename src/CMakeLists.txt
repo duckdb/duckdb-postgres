@@ -19,7 +19,9 @@ add_library(
   postgres_hstore.cpp
   postgres_parameters.cpp
   postgres_pin_connection.cpp
+  postgres_prepared_statement.cpp
   postgres_query.cpp
+  postgres_result_reader.cpp
   postgres_scanner.cpp
   postgres_secrets.cpp
   postgres_storage.cpp

@@ -96,6 +96,10 @@ PostgresConnection &PostgresTransaction::GetConnection() {
 	return con;
 }
 
+uint64_t PostgresTransaction::GetPoolConnectionId() {
+	return connection.Id();
+}
+
 PostgresConnection &PostgresTransaction::GetConnectionRaw() {
 	return connection.GetConnection();
 }

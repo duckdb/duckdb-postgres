@@ -8,3 +8,5 @@ cmake-build-debug
 duckdb_unittest_tempdir
 .envrc
 docker-compose.yml
+/AGENTS.md
+/CLAUDE.md

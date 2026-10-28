@@ -19,7 +19,8 @@ enum class PostgresBinaryReaderMode { UNINITIALIZED, COPY, PLAIN_QUERY };
 
 struct PostgresBinaryReader : public PostgresResultReader {
 	explicit PostgresBinaryReader(PostgresConnection &con, const vector<column_t> &column_ids,
-	                              const PostgresBindData &bind_data);
+	                              const PostgresBindData &bind_data,
+	                              optional_ptr<PostgresPreparedStatement> prepared_statement = nullptr);
 	~PostgresBinaryReader() override;
 
 public:

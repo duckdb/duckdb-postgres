@@ -14,6 +14,7 @@
 #include "postgres_utils.hpp"
 #include "postgres_connection.hpp"
 #include "postgres_parameters.hpp"
+#include "postgres_prepared_statement.hpp"
 #include "storage/postgres_connection_pool.hpp"
 
 namespace duckdb {
@@ -66,6 +67,9 @@ public:
 	string limit_clause;
 
 	uint64_t pinned_connection_id = 0;
+
+	//! Statement prepared by postgres_query's bind to describe the query result
+	unique_ptr<PostgresPreparedStatement> prepared_statement;
 
 public:
 	void SetTablePages(idx_t approx_num_pages);
