@@ -10,8 +10,9 @@
 namespace duckdb {
 
 PostgresTextReader::PostgresTextReader(ClientContext &context, PostgresConnection &con_p,
-                                       const vector<column_t> &column_ids, const PostgresBindData &bind_data)
-    : PostgresResultReader(con_p, column_ids, bind_data), context(context) {
+                                       const vector<column_t> &column_ids, const PostgresBindData &bind_data,
+                                       optional_ptr<PostgresPreparedStatement> prepared_statement)
+    : PostgresResultReader(con_p, column_ids, bind_data, prepared_statement), context(context) {
 }
 
 PostgresTextReader::~PostgresTextReader() {
@@ -19,7 +20,7 @@ PostgresTextReader::~PostgresTextReader() {
 }
 
 void PostgresTextReader::BeginCopy(ClientContext &context, const string &sql) {
-	result = con.Query(context, sql, bind_data.params);
+	result = Query(context, sql, 0);
 	row_offset = 0;
 }
 

@@ -33,6 +33,8 @@ public:
 
 	PostgresConnection &GetConnectionWithoutTransaction();
 	PostgresConnection &GetConnection();
+	//! ID of the pooled connection used by this transaction
+	uint64_t GetPoolConnectionId();
 	optional_ptr<ClientContext> GetContext();
 
 	string GetDSN();

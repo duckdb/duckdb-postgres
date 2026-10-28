@@ -5,6 +5,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "postgres_parameters.hpp"
+#include "postgres_prepared_statement.hpp"
 #include "postgres_scanner.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
@@ -27,7 +28,8 @@ static bool ExtractFlag(TableFunctionBindInput &input, const string &name, bool 
 static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<Identifier> &names,
                                         PostgresCatalog &catalog, PostgresConnection &con, std::string sql,
-                                        bool use_transaction, uint64_t pinned_connection_id) {
+                                        bool use_transaction, uint64_t pinned_connection_id,
+                                        unique_ptr<PostgresPreparedStatement> prepared_statement) {
 	// The statement returns no result columns: it's a command (DDL, or DML without RETURNING).
 	// Instead of failing, run it as a command and return a single-row Success result. We reuse
 	// the prepare/describe just done — no extra round-trip — and defer execution to
@@ -49,6 +51,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	result->read_only = false;
 	result->sql = std::move(sql);
 	result->use_transaction = use_transaction;
+	result->prepared_statement = std::move(prepared_statement);
 	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
 	return std::move(result);
 }
@@ -136,11 +139,13 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 
 	optional_ptr<PostgresConnection> con_ptr = nullptr;
 	PostgresPoolConnection pinned_connection;
+	uint64_t pool_connection_id = 0;
 
 	if (pinned_connection_id > 0) {
 		pinned_connection = catalog.GetConnectionPool().UnpinConnection(pinned_connection_id);
 		PostgresConnection &conn = pinned_connection.GetConnection();
 		con_ptr = &conn;
+		pool_connection_id = pinned_connection.Id();
 	} else {
 		auto &transaction = Transaction::Get(context, catalog).Cast<PostgresTransaction>();
 		if (use_transaction) {
@@ -148,6 +153,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		} else {
 			con_ptr = &transaction.GetConnectionWithoutTransaction();
 		}
+		pool_connection_id = transaction.GetPoolConnectionId();
 	}
 
 	auto deferred_pin = dbconnector::Defer([&pinned_connection, &catalog] {
@@ -168,30 +174,27 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 			throw BinderException("query parameters cannot be used with 'prepare=FALSE'");
 		}
 		return BindDML(context, input, return_types, names, catalog, con, std::move(sql), use_transaction,
-		               pinned_connection_id);
+		               pinned_connection_id, nullptr);
 	}
 
+	auto conn_lock = con.Lock();
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
-	auto prepared = PQprepare(conn, "", sql.c_str(), 0, nullptr);
-	PostgresResult prepared_wrapper(prepared);
-	if (!prepared) {
-		throw BinderException("Failed to prepare query \"%s\" (no result returned): %s", sql, PQerrorMessage(conn));
-	}
-	if (PQresultStatus(prepared) != PGRES_COMMAND_OK) {
-		throw BinderException("Failed to prepare query \"%s\": %s", sql, PQresultErrorMessage(prepared));
-	}
+	string stmt_name = PostgresPreparedStatement::GenerateName();
+	PGresult *prepared_res_ptr = PQprepare(conn, stmt_name.c_str(), sql.c_str(), 0, nullptr);
+	auto prepared = make_uniq<PostgresPreparedStatement>(conn, pool_connection_id, stmt_name, sql, prepared_res_ptr);
 	// use describe_prepared
-	auto describe_prepared = PQdescribePrepared(conn, "");
+	auto describe_prepared = PQdescribePrepared(conn, prepared->GetName().c_str());
 	PostgresResult describe_wrapper(describe_prepared);
 	if (!describe_prepared || PQresultStatus(describe_prepared) != PGRES_COMMAND_OK) {
 		auto extended_err = describe_prepared ? PQresultErrorMessage(describe_prepared) : PQerrorMessage(conn);
 		throw BinderException("Failed to describe prepared statement: %s", extended_err);
 	}
+	conn_lock.unlock();
 	int nfields = PQnfields(describe_prepared);
 	if (nfields <= 0) {
 		return BindDML(context, input, return_types, names, catalog, con, std::move(sql), use_transaction,
-		               pinned_connection_id);
+		               pinned_connection_id, std::move(prepared));
 	}
 	auto result = make_uniq<PostgresBindData>(context, catalog.GetName());
 	result->pinned_connection_id = pinned_connection_id;
@@ -233,6 +236,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->query_mode = ResolveQueryMode(context, input, param_values);
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
+	result->prepared_statement = std::move(prepared);
 	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
 	return std::move(result);
 }

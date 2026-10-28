@@ -1,0 +1,310 @@
+# name: test/sql/scanner/postgres_query_prepared.test
+# description: Test that postgres_query in plain query modes executes the statement prepared in bind
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env POSTGRES_CONNECTION_IS_DIRECT
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CALL enable_logging('PostgresQueryLog')
+
+foreach mode PLAIN_QUERY_TEXT PLAIN_QUERY_BINARY
+
+# The queries below look up the prepared statements of the current session that contain a marker from their own
+# text. Executions are counted before the query runs, so "executions" is 1 when the query was run through the
+# statement prepared in bind, and 0 when it was run as a plain query. The statement is closed after it is executed,
+# the checks that count the remaining statements build the marker with || so they do not match themselves.
+
+# transaction connection: prepared statements are only visible within the same session, so use an explicit
+# transaction to have bind, execution and the checks on the same connection
+
+statement ok
+BEGIN
+
+query I
+FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_plain_{mode}%''', query_mode='{mode}')
+----
+1
+
+# the query sent to Postgres is the one specified by the user
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_plain_{mode}%'''
+----
+1
+
+# the statement was closed after it was executed
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_tx'' || ''_plain_{mode}%''',
+    query_mode='{mode}')
+----
+0
+
+# with parameters
+
+query II
+FROM postgres_query('s', 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_params_{mode}%''', params=row(43), query_mode='{mode}')
+----
+44	1
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_params_{mode}%'''
+----
+1
+
+# a projection modifies the query, the prepared statement is not used, but it is closed
+
+query I
+SELECT executions FROM postgres_query('s', 'SELECT 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_projection_{mode}%''', query_mode='{mode}')
+----
+0
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query LIKE 'SELECT "executions" FROM (%m_tx_projection_{mode}%'
+----
+1
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_tx'' || ''_projection_{mode}%''',
+    query_mode='{mode}')
+----
+0
+
+# COPY mode does not use the prepared statement, but closes it
+
+query I
+FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_tx_binary_{mode}%''', query_mode='COPY_BINARY')
+----
+0
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_tx'' || ''_binary_{mode}%''',
+    query_mode='{mode}')
+----
+0
+
+# a command is not executed through the prepared statement, the statement is closed
+
+statement ok
+CALL postgres_execute('s', 'CREATE TEMPORARY TABLE m_tx_command_{mode} (i INTEGER)')
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_tx'' || ''_command_{mode}%''',
+    query_mode='{mode}')
+----
+0
+
+statement ok
+COMMIT
+
+# PREPARE and EXECUTE in different (auto-commit) transactions: the statement prepared in bind belongs to the
+# connection of the PREPARE transaction, so EXECUTE must not use it
+
+statement ok
+PREPARE p1 AS FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_autocommit_{mode}%''', query_mode='{mode}')
+
+query I
+EXECUTE p1
+----
+0
+
+query I
+EXECUTE p1
+----
+0
+
+# the query sent to Postgres is the one specified by the user
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_autocommit_{mode}%'''
+----
+2
+
+statement ok
+DEALLOCATE p1
+
+# PREPARE and EXECUTE in the same transaction: the first EXECUTE uses the statement prepared in bind and closes it,
+# the second one runs the query as a plain query
+
+statement ok
+BEGIN
+
+statement ok
+PREPARE p2 AS FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_same_tx_{mode}%''', query_mode='{mode}')
+
+query I
+EXECUTE p2
+----
+1
+
+query I
+EXECUTE p2
+----
+0
+
+statement ok
+COMMIT
+
+statement ok
+DEALLOCATE p2
+
+# pinned connection
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query I
+FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned_plain_{mode}%''', query_mode='{mode}',
+    connection=getvariable('conn'))
+----
+1
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned_plain_{mode}%'''
+----
+1
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned'' || ''_plain_{mode}%''',
+    query_mode='{mode}', connection=getvariable('conn'))
+----
+0
+
+query II
+FROM postgres_query('s', 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned_params_{mode}%''', params=row(48), query_mode='{mode}',
+    connection=getvariable('conn'))
+----
+49	1
+
+query I
+SELECT executions FROM postgres_query('s', 'SELECT 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned_projection_{mode}%''', query_mode='{mode}',
+    connection=getvariable('conn'))
+----
+0
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned'' || ''_projection_{mode}%''',
+    query_mode='{mode}', connection=getvariable('conn'))
+----
+0
+
+query I
+FROM postgres_query('s', 'SELECT 1 AS m_pinned_copy_{mode}', query_mode='COPY_BINARY', connection=getvariable('conn'))
+----
+1
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned'' || ''_copy_{mode}%''',
+    query_mode='{mode}', connection=getvariable('conn'))
+----
+0
+
+statement ok
+CALL postgres_execute('s', 'CREATE TEMPORARY TABLE m_pinned_command_{mode} (i INTEGER)', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned'' || ''_command_{mode}%''',
+    query_mode='{mode}', connection=getvariable('conn'))
+----
+0
+
+# reordering all the columns modifies the query, the prepared statement is not used even on the connection
+# the statement was prepared on
+
+query III
+SELECT executions, b, a FROM postgres_query('s', 'SELECT 51 AS a, 52 AS b, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_pinned_reorder_{mode}%''', query_mode='{mode}',
+    connection=getvariable('conn'))
+----
+0	52	51
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog')
+WHERE query LIKE 'SELECT "executions", "b", "a" FROM (SELECT 51 AS a, 52 AS b, %m_pinned_reorder_{mode}%'
+----
+1
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+endloop
+
+# AUTO query mode (the default): with parameters it resolves to PLAIN_QUERY_BINARY and uses the prepared statement,
+# without parameters it resolves to COPY and does not
+
+statement ok
+BEGIN
+
+query II
+FROM postgres_query('s', 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_tx_params%''', params=row(43))
+----
+44	1
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_tx_params%'''
+----
+1
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_tx'' || ''_params%''')
+----
+0
+
+query I
+FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_tx_no_params%''')
+----
+0
+
+statement ok
+COMMIT
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query II
+FROM postgres_query('s', 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_pinned_params%''', params=row(48),
+    connection=getvariable('conn'))
+----
+49	1
+
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('PostgresQueryLog') WHERE query = 'SELECT $1::INTEGER + 1 AS a, coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_pinned_params%'''
+----
+1
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_pinned'' || ''_params%''',
+    connection=getvariable('conn'))
+----
+0
+
+query I
+FROM postgres_query('s', 'SELECT coalesce(max(generic_plans + custom_plans), 0) AS executions
+    FROM pg_prepared_statements WHERE statement LIKE ''%m_auto_pinned_no_params%''', connection=getvariable('conn'))
+----
+0
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
