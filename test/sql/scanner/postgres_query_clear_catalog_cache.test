@@ -1,0 +1,126 @@
+# name: test/sql/scanner/postgres_query_clear_catalog_cache.test
+# description: Test clear_catalog_cache option of postgres_query
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS clear_catalog_cache_test')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE clear_catalog_cache_test(col1 INT)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO clear_catalog_cache_test VALUES (1)')
+
+query I
+SELECT * FROM s.clear_catalog_cache_test
+----
+1
+
+# cache is not cleared by default
+statement ok
+CALL postgres_execute('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col2 INT DEFAULT 2')
+
+query I
+SELECT * FROM s.clear_catalog_cache_test
+----
+1
+
+statement ok
+CALL postgres_execute('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col3 INT DEFAULT 3', clear_catalog_cache=FALSE)
+
+query I
+SELECT * FROM s.clear_catalog_cache_test
+----
+1
+
+# command
+statement ok
+CALL postgres_execute('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col4 INT DEFAULT 4', clear_catalog_cache=TRUE)
+
+query IIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4
+
+# command with prepare=FALSE
+statement ok
+CALL postgres_query('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col5 INT DEFAULT 5', prepare=FALSE, clear_catalog_cache=TRUE)
+
+query IIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5
+
+# streaming query returning rows, DDL is run as a preliminary query
+query I
+FROM postgres_query('s', 'SELECT 42', clear_catalog_cache=TRUE, preliminary_queries=[
+  'ALTER TABLE clear_catalog_cache_test ADD COLUMN col6 INT DEFAULT 6'
+])
+----
+42
+
+query IIIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5	6
+
+# materialized query, multiple scans in the plan
+query II
+SELECT * FROM postgres_query('s', 'SELECT 42 AS a', clear_catalog_cache=TRUE, preliminary_queries=[
+  'ALTER TABLE clear_catalog_cache_test ADD COLUMN col7 INT DEFAULT 7'
+]), postgres_query('s', 'SELECT 43 AS b')
+----
+42	43
+
+query IIIIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5	6	7
+
+# EXPLAIN does not execute the query and does not clear the cache
+statement ok
+CALL postgres_execute('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col8 INT DEFAULT 8')
+
+statement ok
+EXPLAIN FROM postgres_query('s', 'SELECT 42', clear_catalog_cache=TRUE)
+
+query IIIIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5	6	7
+
+# cache is not cleared when a pinned connection is used
+statement ok
+SET VARIABLE conn_id = postgres_pin_connection('s')
+
+statement ok
+CALL postgres_execute('s', 'ALTER TABLE clear_catalog_cache_test ADD COLUMN col9 INT DEFAULT 9', connection=getvariable('conn_id'), clear_catalog_cache=TRUE)
+
+query IIIIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5	6	7
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn_id'))
+
+statement ok
+CALL postgres_execute('s', 'SELECT 1', clear_catalog_cache=TRUE)
+
+query IIIIIIIII
+SELECT * FROM s.clear_catalog_cache_test
+----
+1	2	3	4	5	6	7	8	9
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE clear_catalog_cache_test')
+
+statement ok
+DETACH s

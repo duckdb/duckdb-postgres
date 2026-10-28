@@ -40,6 +40,8 @@ public:
 	// required for get_bind_info and only used there
 	weak_ptr<ClientContext> context_ptr;
 
+	//! Set by postgres_query, executed (without parameters) on the scan connection before the main query
+	vector<string> preliminary_queries;
 	string sql;
 	PostgresParameters params;
 	idx_t pages_approx = 0;
@@ -61,6 +63,8 @@ public:
 	//! Set by postgres_query's bind when the statement returns no columns (a command like DDL, or
 	//! DML without RETURNING). InitGlobalState executes it and returns a single-row Success result.
 	bool command_only = false;
+	//! Set by postgres_query, clears the attached catalog cache after the query is executed
+	bool clear_catalog_cache = false;
 	idx_t max_threads = 1;
 	PostgresTypeConfig type_config;
 

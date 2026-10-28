@@ -339,6 +339,15 @@ static void PostgresScanConnect(ClientContext &context, PostgresConnection &conn
 	}
 }
 
+static void HandleCatalogCache(ClientContext &context, const PostgresBindData &bind_data) {
+	if (!bind_data.clear_catalog_cache || bind_data.pinned_connection_id > 0) {
+		return;
+	}
+	auto attached_catalog = PostgresCatalog::Lookup(context, bind_data.catalog_name);
+	PostgresCatalog &catalog = attached_catalog.Get<PostgresCatalog>();
+	catalog.ClearCache();
+}
+
 static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContext &context,
                                                                     TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<PostgresBindData>();
@@ -365,12 +374,17 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		prepared_statement->Destroy(con);
 	}
 
+	for (const string &query : bind_data.preliminary_queries) {
+		con.Execute(context, query);
+	}
+
 	if (bind_data.command_only) {
 		// A command (no result columns). Execute it here — at execution time, so EXPLAIN does not
 		// fire it — and hand back a rowcount result through the materialized-collection
 		// fast path (PostgresScan returns gstate.collection directly, and GetLocalState short-circuits
 		// when a collection is present, so no postgres scan connection is opened).
 		unique_ptr<PostgresResult> pg_res = con.Query(context, bind_data.sql);
+		HandleCatalogCache(context, bind_data);
 		vector<LogicalType> rowcount_types {LogicalType::BIGINT};
 		auto materialized = make_uniq<ColumnDataCollection>(Allocator::Get(context), rowcount_types);
 		DataChunk rowcount_chunk;
@@ -558,6 +572,7 @@ void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindDat
 		if (!exec) {
 			reader->BeginCopy(context, sql);
 			exec = true;
+			HandleCatalogCache(context, bind_data);
 		}
 		auto read_result = reader->Read(output);
 		if (read_result == PostgresReadResult::FINISHED) {

@@ -1,0 +1,101 @@
+# name: test/sql/scanner/postgres_query_preliminary.test
+# description: Test preliminary_queries option of postgres_query
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# command, the table is created by the preliminary queries
+statement ok
+CALL postgres_query('s', 'DROP TABLE preliminary_queries_test', preliminary_queries=[
+  'DROP TABLE IF EXISTS preliminary_queries_test',
+  'CREATE TABLE preliminary_queries_test(col1 INT)'
+])
+
+query I
+SELECT count(*) FROM postgres_query('s', 'SELECT * FROM pg_tables WHERE tablename = ''preliminary_queries_test''')
+----
+0
+
+# command with prepare=FALSE
+statement ok
+CALL postgres_execute('s', 'DROP TABLE preliminary_queries_test', prepare=FALSE, preliminary_queries=[
+  'CREATE TABLE preliminary_queries_test(col1 INT)'
+])
+
+query I
+SELECT count(*) FROM postgres_query('s', 'SELECT * FROM pg_tables WHERE tablename = ''preliminary_queries_test''')
+----
+0
+
+# query, preliminary queries are run on the same connection as the main query
+query I
+FROM postgres_query('s', 'SELECT current_setting(''duckdb.prelim_test'', true)', preliminary_queries=[
+  'SET LOCAL duckdb.prelim_test = ''foo'''
+])
+----
+foo
+
+query I
+FROM postgres_query('s', 'SELECT current_setting(''duckdb.prelim_test'', true) || current_setting(''duckdb.prelim_test2'', true)', preliminary_queries=[
+  'SET LOCAL duckdb.prelim_test = ''foo''',
+  'SET LOCAL duckdb.prelim_test2 = ''bar'''
+])
+----
+foobar
+
+# text protocol
+query I
+FROM postgres_query('s', 'SELECT current_setting(''duckdb.prelim_test'', true)', query_mode='plain_query_text', preliminary_queries=[
+  'SET LOCAL duckdb.prelim_test = ''foo'''
+])
+----
+foo
+
+# query with parameters
+query I
+FROM postgres_query('s', 'SELECT current_setting(''duckdb.prelim_test'', true) || $1', params=row('bar'), preliminary_queries=[
+  'SET LOCAL duckdb.prelim_test = ''foo'''
+])
+----
+foobar
+
+# empty list
+query I
+FROM postgres_query('s', 'SELECT 42', preliminary_queries=[])
+----
+42
+
+# preliminary queries are not run on EXPLAIN
+statement ok
+EXPLAIN FROM postgres_query('s', 'SELECT 42', preliminary_queries=[
+  'CREATE TABLE preliminary_queries_test(col1 INT)'
+])
+
+query I
+SELECT count(*) FROM postgres_query('s', 'SELECT * FROM pg_tables WHERE tablename = ''preliminary_queries_test''')
+----
+0
+
+# errors
+statement error
+FROM postgres_query('s', 'SELECT 42', preliminary_queries=NULL)
+----
+Specified preliminary queries LIST must be not NULL
+
+statement error
+FROM postgres_query('s', 'SELECT 42', preliminary_queries=['SELECT 1', NULL])
+----
+All preliminary queries must be not NULL
+
+statement error
+FROM postgres_query('s', 'SELECT 42', preliminary_queries=['SELECT * FROM preliminary_queries_nonexistent'])
+----
+preliminary_queries_nonexistent
+
+statement ok
+DETACH s
