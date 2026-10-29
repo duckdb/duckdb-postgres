@@ -1,0 +1,268 @@
+# name: test/sql/remote_pushdown/basic_remote_pushdown.test
+# description: Test basic remote pushdown of queries into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_basic AS SELECT i, i % 3 AS g, 'str' || i AS v FROM range(10) t(i)
+
+# aggregates are pushed down
+query I
+SELECT SUM(i) FROM s.rp_basic
+----
+45
+
+query II
+EXPLAIN SELECT SUM(i) FROM s.rp_basic
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*SELECT CAST\(sum\("i"\) AS NUMERIC\(38,0\)\) AS "sum\(i\)" FROM "public"."rp_basic".*
+
+# the result types match the types DuckDB itself would produce
+query IIII
+SELECT typeof(SUM(i)), typeof(COUNT(*)), typeof(AVG(i)), typeof(MIN(v)) FROM s.rp_basic
+----
+HUGEINT	BIGINT	DOUBLE	VARCHAR
+
+# as do the result names
+query IIII
+SELECT * FROM (SELECT SUM(i), COUNT(*), max(V), i // 1 IS NULL FROM s.rp_basic GROUP BY i // 1 IS NULL) t(a, b, c, d) WHERE false
+----
+
+statement ok
+CREATE OR REPLACE TABLE rp_names AS SELECT SUM(i), COUNT(*), max(V), I FROM s.rp_basic GROUP BY I LIMIT 0
+
+query I
+SELECT column_name FROM (DESCRIBE rp_names)
+----
+sum(i)
+count_star()
+max(V)
+i
+
+# unsupported aggregates are executed DuckDB side
+query I
+SELECT mode(i < 7) FROM s.rp_basic
+----
+true
+
+query II
+EXPLAIN SELECT mode(i < 7) FROM s.rp_basic
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# group by + order by
+query II
+SELECT g, SUM(i) FROM s.rp_basic GROUP BY g ORDER BY g
+----
+0	18
+1	12
+2	15
+
+query II
+EXPLAIN SELECT g, SUM(i) FROM s.rp_basic GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*GROUP BY "g" ORDER BY "g" ASC NULLS LAST.*
+
+# filters, LIKE and LIMIT
+query I
+SELECT v FROM s.rp_basic WHERE v LIKE 'str_' AND i > 5 ORDER BY i DESC LIMIT 2 OFFSET 1
+----
+str8
+str7
+
+query II
+EXPLAIN SELECT v FROM s.rp_basic WHERE v LIKE 'str_' AND i > 5 ORDER BY i DESC LIMIT 2 OFFSET 1
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*LIKE 'str_' ESCAPE ''.*ORDER BY "i" DESC NULLS LAST LIMIT 2 OFFSET 1.*
+
+# DISTINCT
+query I
+SELECT DISTINCT g FROM s.rp_basic ORDER BY g
+----
+0
+1
+2
+
+query II
+EXPLAIN SELECT DISTINCT g FROM s.rp_basic ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*SELECT DISTINCT "g".*
+
+# identifiers are case insensitive in DuckDB, but case sensitive (when quoted) in Postgres
+query II
+SELECT G, Sum(I) FROM S.RP_BASIC GROUP BY G ORDER BY G
+----
+0	18
+1	12
+2	15
+
+query II
+EXPLAIN SELECT G, Sum(I) FROM S.RP_BASIC GROUP BY G ORDER BY G
+----
+physical_plan	<REGEX>:(?s).*SELECT "g", CAST\(sum\("i"\) AS NUMERIC\(38,0\)\) AS "sum\(I\)" FROM "public"."rp_basic" GROUP BY "g".*
+
+# subqueries and joins
+query I
+SELECT COUNT(*) FROM s.rp_basic t1 JOIN s.rp_basic t2 ON t1.i = t2.g
+----
+10
+
+query II
+EXPLAIN SELECT COUNT(*) FROM s.rp_basic t1 JOIN s.rp_basic t2 ON t1.i = t2.g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*INNER JOIN.*
+
+query I
+SELECT SUM(x) FROM (SELECT i + 1 AS x FROM s.rp_basic WHERE i IN (SELECT g FROM s.rp_basic))
+----
+6
+
+query II
+EXPLAIN SELECT SUM(x) FROM (SELECT i + 1 AS x FROM s.rp_basic WHERE i IN (SELECT g FROM s.rp_basic))
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# mixing local and remote tables is not pushed down
+statement ok
+CREATE TABLE local_tbl AS SELECT 1 AS i
+
+query I
+SELECT COUNT(*) FROM s.rp_basic JOIN local_tbl USING (i)
+----
+1
+
+query II
+EXPLAIN SELECT COUNT(*) FROM s.rp_basic JOIN local_tbl USING (i)
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# remote pushdown can be disabled for newly attached databases
+statement ok
+SET pg_enable_remote_pushdown = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES, SCHEMA 'public')
+
+query I
+SELECT SUM(i) FROM s2.rp_basic
+----
+45
+
+query II
+EXPLAIN SELECT SUM(i) FROM s2.rp_basic
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# the already attached database still pushes down
+query II
+EXPLAIN SELECT SUM(i) FROM s.rp_basic
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+RESET pg_enable_remote_pushdown
+
+# plain table scans are executed through the regular table scan, which can be parallelized with ctid ranges
+query II
+EXPLAIN SELECT i, v FROM s.rp_basic WHERE i > 7
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# when the settings at attach time do not allow parallel table scans, plain table scans are pushed down as well
+statement ok
+SET pg_use_ctid_scan = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_no_ctid (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+RESET pg_use_ctid_scan
+
+query II
+EXPLAIN SELECT i, v FROM s_no_ctid.rp_basic WHERE i > 7
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*SELECT "i", "v" FROM "public"."rp_basic" WHERE \("i" > 7\).*
+
+query II
+SELECT i, v FROM s_no_ctid.rp_basic WHERE i > 7 ORDER BY i
+----
+8	str8
+9	str9
+
+statement ok
+SET pg_use_text_protocol = true
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_text (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+RESET pg_use_text_protocol
+
+query II
+EXPLAIN SELECT i, v FROM s_text.rp_basic WHERE i > 7
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_TEXT'
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_plain_text (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+RESET pg_query_mode
+
+query II
+EXPLAIN SELECT i, v FROM s_plain_text.rp_basic WHERE i > 7
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_text_option (TYPE POSTGRES, SCHEMA 'public', USE_TEXT_PROTOCOL TRUE)
+
+query II
+EXPLAIN SELECT i, v FROM s_text_option.rp_basic WHERE i > 7
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, v FROM s_text_option.rp_basic WHERE i > 7 ORDER BY i
+----
+8	str8
+9	str9
+
+# the binary protocol without COPY still allows parallel table scans
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_BINARY'
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_plain_binary (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+RESET pg_query_mode
+
+query II
+EXPLAIN SELECT i, v FROM s_plain_binary.rp_basic WHERE i > 7
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# pg_use_binary_copy only affects writes
+statement ok
+SET pg_use_binary_copy = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_no_binary_copy (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+RESET pg_use_binary_copy
+
+query II
+EXPLAIN SELECT i, v FROM s_no_binary_copy.rp_basic WHERE i > 7
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

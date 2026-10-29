@@ -63,11 +63,23 @@ DELETE FROM s1.test
 ----
 0
 
-# RETURNING statement
+# RETURNING statement - only supported when the DELETE is pushed down into Postgres
+statement ok
+SET pg_enable_remote_pushdown = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1_local (TYPE POSTGRES)
+
 statement error
-DELETE FROM s1.test RETURNING *;
+DELETE FROM s1_local.test RETURNING *;
 ----
 not yet supported
+
+statement ok
+DETACH s1_local
+
+statement ok
+RESET pg_enable_remote_pushdown
 
 statement ok
 INSERT INTO s1.test VALUES (1), (2), (3), (NULL);

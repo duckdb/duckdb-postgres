@@ -19,6 +19,9 @@ class PostgresConnection;
 class PostgresResult;
 class PostgresSchemaEntry;
 
+//! The CREATE TABLE statement for a (bound) table definition
+string GetPostgresCreateTable(CreateTableInfo &info);
+
 class PostgresTableSet : public PostgresInSchemaSet {
 public:
 	explicit PostgresTableSet(PostgresSchemaEntry &schema, unique_ptr<PostgresResultSlice> tables = nullptr);

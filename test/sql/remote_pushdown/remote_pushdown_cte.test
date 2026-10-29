@@ -1,0 +1,180 @@
+# name: test/sql/remote_pushdown/remote_pushdown_cte.test
+# description: Test remote pushdown of common table expressions into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_cte AS SELECT i, i % 3 AS g FROM range(10) t(i)
+
+# a CTE over a remote table is pushed down
+query II
+WITH c AS (SELECT g, SUM(i) AS s FROM s.rp_cte GROUP BY g) SELECT * FROM c ORDER BY g
+----
+0	18
+1	12
+2	15
+
+query II
+EXPLAIN WITH c AS (SELECT g, SUM(i) AS s FROM s.rp_cte GROUP BY g) SELECT * FROM c ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*WITH "c" AS \(SELECT "g", CAST\(sum\("i"\) AS NUMERIC\(38,0\)\) AS "s" FROM "public"\."rp_cte" GROUP BY "g"\) SELECT \* FROM "c" ORDER BY "g" ASC NULLS LAST.*
+
+# chained CTEs
+query II rowsort
+WITH c AS (SELECT g, SUM(i) AS s FROM s.rp_cte GROUP BY g), d AS (SELECT * FROM c WHERE s > 12) SELECT COUNT(*), SUM(s) FROM d
+----
+2	33
+
+query II
+EXPLAIN WITH c AS (SELECT g, SUM(i) AS s FROM s.rp_cte GROUP BY g), d AS (SELECT * FROM c WHERE s > 12) SELECT COUNT(*), SUM(s) FROM d
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# CTE names are case insensitive
+query I rowsort
+WITH MyCte AS (SELECT i FROM s.rp_cte) SELECT SUM(I) FROM mycte
+----
+45
+
+query II
+EXPLAIN WITH MyCte AS (SELECT i FROM s.rp_cte) SELECT SUM(I) FROM mycte
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# a CTE with the same name as a (qualified) remote table is not pushed down
+query II rowsort
+WITH rp_cte AS (SELECT 42 AS i) SELECT rp_cte.i, t.g FROM rp_cte, s.rp_cte AS t WHERE t.i = 1
+----
+42	1
+
+query II
+EXPLAIN WITH rp_cte AS (SELECT 42 AS i) SELECT rp_cte.i, t.g FROM rp_cte, s.rp_cte AS t WHERE t.i = 1
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# materialization hints
+query I rowsort
+WITH c AS MATERIALIZED (SELECT i FROM s.rp_cte) SELECT SUM(i) FROM c
+----
+45
+
+query II
+EXPLAIN WITH c AS MATERIALIZED (SELECT i FROM s.rp_cte) SELECT SUM(i) FROM c
+----
+physical_plan	<REGEX>:(?s).*AS MATERIALIZED \(.*
+
+query I rowsort
+WITH c AS NOT MATERIALIZED (SELECT i FROM s.rp_cte) SELECT SUM(i) FROM c
+----
+45
+
+query II
+EXPLAIN WITH c AS NOT MATERIALIZED (SELECT i FROM s.rp_cte) SELECT SUM(i) FROM c
+----
+physical_plan	<REGEX>:(?s).*AS NOT MATERIALIZED \(.*
+
+# CTE column aliases
+query II rowsort
+WITH c(x, y) AS (SELECT i, g FROM s.rp_cte) SELECT SUM(x), MAX(y) FROM c
+----
+45	2
+
+query II
+EXPLAIN WITH c(x, y) AS (SELECT i, g FROM s.rp_cte) SELECT SUM(x), MAX(y) FROM c
+----
+physical_plan	<REGEX>:(?s).*WITH "c" \("x", "y"\) AS.*
+
+# recursive CTEs
+query I
+WITH RECURSIVE r(n) AS (SELECT MIN(i) FROM s.rp_cte UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r ORDER BY n
+----
+0
+1
+2
+3
+4
+5
+
+query II
+EXPLAIN WITH RECURSIVE r(n) AS (SELECT MIN(i) FROM s.rp_cte UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r ORDER BY n
+----
+physical_plan	<REGEX>:(?s).*WITH RECURSIVE "r" \("n"\) AS.*
+
+query I
+WITH RECURSIVE r(n) AS (SELECT MIN(i) FROM s.rp_cte UNION SELECT (n + 1) % 4 FROM r) SELECT * FROM r ORDER BY n
+----
+0
+1
+2
+3
+
+query II
+EXPLAIN WITH RECURSIVE r(n) AS (SELECT MIN(i) FROM s.rp_cte UNION SELECT (n + 1) % 4 FROM r) SELECT * FROM r ORDER BY n
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+WITH RECURSIVE r(i, depth) AS (SELECT i, 0 FROM s.rp_cte WHERE i = 0 UNION ALL SELECT t.i, depth + 1 FROM r JOIN s.rp_cte t ON t.i = r.i + 3) SELECT * FROM r ORDER BY i
+----
+0	0
+3	1
+6	2
+9	3
+
+query II
+EXPLAIN WITH RECURSIVE r(i, depth) AS (SELECT i, 0 FROM s.rp_cte WHERE i = 0 UNION ALL SELECT t.i, depth + 1 FROM r JOIN s.rp_cte t ON t.i = r.i + 3) SELECT * FROM r ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# a CTE in a subquery
+query I rowsort
+SELECT * FROM (WITH c AS (SELECT i FROM s.rp_cte WHERE i > 7) SELECT SUM(i) FROM c)
+----
+17
+
+query II
+EXPLAIN SELECT * FROM (WITH c AS (SELECT i FROM s.rp_cte WHERE i > 7) SELECT SUM(i) FROM c)
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# a recursive CTE without remote tables is not pushed down
+query I rowsort
+WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT SUM(n) FROM r
+----
+55
+
+query II
+EXPLAIN WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT SUM(n) FROM r
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# a local CTE prevents pushdown
+statement ok
+CREATE TABLE local_cte_tbl AS SELECT 1 AS i
+
+query I rowsort
+WITH c AS (SELECT i FROM local_cte_tbl) SELECT COUNT(*) FROM s.rp_cte JOIN c USING (i)
+----
+1
+
+query II
+EXPLAIN WITH c AS (SELECT i FROM local_cte_tbl) SELECT COUNT(*) FROM s.rp_cte JOIN c USING (i)
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# USING KEY is DuckDB-specific
+query II rowsort
+WITH RECURSIVE r(n, v) USING KEY (n) AS (SELECT 1, 1 UNION SELECT n, v + 1 FROM r WHERE v < 3) SELECT r.* FROM r JOIN s.rp_cte t ON t.i = r.n
+----
+1	3
+
+query II
+EXPLAIN WITH RECURSIVE r(n, v) USING KEY (n) AS (SELECT 1, 1 UNION SELECT n, v + 1 FROM r WHERE v < 3) SELECT r.* FROM r JOIN s.rp_cte t ON t.i = r.n
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

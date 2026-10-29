@@ -2,7 +2,7 @@
 # description: Test ATTACH called concurrently from multiple threads
 # group: [concurrent]
 
-require mysql_scanner
+require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 

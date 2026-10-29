@@ -23,6 +23,7 @@
 #include "duckdb/common/enums/access_mode.hpp"
 #include "postgres_aws.hpp"
 #include "postgres_connection.hpp"
+#include "storage/postgres_capabilities.hpp"
 #include "storage/postgres_schema_set.hpp"
 #include "storage/postgres_connection_pool.hpp"
 #include "storage/postgres_secret_storage.hpp"
@@ -30,6 +31,7 @@
 namespace duckdb {
 class PostgresCatalog;
 class PostgresSchemaEntry;
+struct PostgresCacheInvalidation;
 
 class PostgresCatalog : public Catalog {
 public:
@@ -78,6 +80,10 @@ public:
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 
+	//! Whether the database default collation orders strings byte-wise, like DuckDB
+	bool HasBinaryCollation() const {
+		return capabilities.GetInfo().binary_collation;
+	}
 	PostgresVersion GetPostgresVersion() const {
 		return version;
 	}
@@ -94,8 +100,17 @@ public:
 	string GetDBPath() override;
 
 	bool Supports(RemoteCapability capability) const override {
-		return capability == RemoteCapability::IS_REMOTE || capability == RemoteCapability::CONNECT;
+		if (!remote_pushdown_enabled) {
+			return capability == RemoteCapability::IS_REMOTE || capability == RemoteCapability::CONNECT;
+		}
+		return capabilities.Supports(capability);
 	}
+	bool SupportsPushdown(const ParsedExpression &expression) override;
+	bool SupportsPushdown(const TableRef &ref) override;
+	bool SupportsPushdown(const QueryNode &node) override;
+	bool SupportsPushdown(const SQLStatement &statement) override;
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) override;
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, unique_ptr<SQLStatement> statement) override;
 	unique_ptr<TableRef> RemoteExecute(ClientContext &context, const string &sql) override;
 	string GetConnectDisplay() override;
 
@@ -110,6 +125,7 @@ public:
 	static dbconnector::attached::AttachedCatalog Lookup(ClientContext &ctx, const Identifier &name);
 
 	void ClearCache();
+	void InvalidateCacheEntry(ClientContext &context, const PostgresCacheInvalidation &invalidation);
 
 	//! Whether or not this catalog should search a specific type with the standard priority
 	CatalogLookupBehavior CatalogTypeLookupRule(CatalogType type) const override {
@@ -129,12 +145,22 @@ private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
 	void RegisterSecretStorage();
+	void InitializeRemotePushdown(ClientContext &context, PostgresConnection &connection);
+	//! Statements to run before a pushed down query (e.g. aligning the session time zone with DuckDB's)
+	vector<string> GetRemotePushdownPreliminaryQueries(ClientContext &context, bool requires_time_zone);
 
 	static unique_ptr<SecretEntry> GetSecretEntry(ClientContext &ctx, const std::string &secret_name);
 	static string CreateConnectionString(optional_ptr<SecretEntry> secret_entry, const string &attach_path);
 
 private:
 	PostgresVersion version;
+	PostgresCapabilities capabilities;
+	bool remote_pushdown_enabled = false;
+	//! Whether table scans can be parallelized with ctid ranges (pg_use_ctid_scan, the protocol and the version at
+	//! attach time) - otherwise plain table scans are pushed down as well
+	bool parallel_scans_supported = false;
+	//! The Postgres session time zone at attach time
+	string remote_time_zone;
 	PostgresSchemaSet schemas;
 	shared_ptr<PostgresConnectionPool> connection_pool;
 	Identifier default_schema;

@@ -204,6 +204,22 @@ optional_ptr<CatalogEntry> PostgresCatalogSet::CreateEntry(PostgresTransaction &
 	return result;
 }
 
+void PostgresCatalogSet::InvalidateEntry(const string &name) {
+	lock_guard<mutex> l(entry_lock);
+	auto entry = entries.find(name);
+	if (entry == entries.end()) {
+		auto name_entry = entry_map.find(name);
+		if (name_entry == entry_map.end()) {
+			return;
+		}
+		entry = entries.find(name_entry->second);
+		if (entry == entries.end()) {
+			return;
+		}
+	}
+	entries.erase(entry);
+}
+
 void PostgresCatalogSet::ClearEntries() {
 	lock_guard<mutex> load_guard(load_lock);
 	ClearEntriesLocked();

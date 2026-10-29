@@ -1,0 +1,322 @@
+# name: test/sql/remote_pushdown/remote_pushdown_aggregates.test
+# description: Test remote pushdown of aggregates into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_agg AS SELECT i, i % 3 AS g, CASE WHEN i % 4 = 0 THEN NULL ELSE 'v' || (i % 5) END AS v, i * 0.5::DOUBLE AS d, (i * 1.25)::DECIMAL(10,2) AS dec, DATE '2024-01-01' + (i * 10)::INT AS dt FROM range(12) t(i)
+
+# basic aggregates and their result types
+query IIIIIIIII rowsort
+SELECT COUNT(*), COUNT(v), SUM(i), SUM(d), SUM(dec), AVG(i), AVG(dec), MIN(v), MAX(dt) FROM s.rp_agg
+----
+12	9	66	33.0	82.50	5.5	6.875	v0	2024-04-20
+
+query II
+EXPLAIN SELECT COUNT(*), COUNT(v), SUM(i), SUM(d), SUM(dec), AVG(i), AVG(dec), MIN(v), MAX(dt) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIIII rowsort
+SELECT typeof(COUNT(*)), typeof(SUM(i)), typeof(SUM(d)), typeof(SUM(dec)), typeof(AVG(i)), typeof(AVG(dec)), typeof(MIN(v)), typeof(MAX(dt)) FROM s.rp_agg
+----
+BIGINT	HUGEINT	DOUBLE	DECIMAL(38,2)	DOUBLE	DOUBLE	VARCHAR	DATE
+
+query IIIIII rowsort
+SELECT stddev(i), variance(i), stddev_pop(i), var_pop(i), stddev_samp(g), var_samp(g) FROM s.rp_agg
+----
+3.605551275463989	13.0	3.452052529534663	11.916666666666666	0.8528028654224418	0.7272727272727273
+
+query II
+EXPLAIN SELECT stddev(i), variance(i), stddev_pop(i), var_pop(i), stddev_samp(g), var_samp(g) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III rowsort
+SELECT bool_and(i >= 0), bool_or(i > 10), bool_and(v IS NOT NULL) FROM s.rp_agg
+----
+true	true	false
+
+query II
+EXPLAIN SELECT bool_and(i >= 0), bool_or(i > 10), bool_and(v IS NOT NULL) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# DISTINCT aggregates
+query IIII rowsort
+SELECT COUNT(DISTINCT g), SUM(DISTINCT g), AVG(DISTINCT g), COUNT(DISTINCT v) FROM s.rp_agg
+----
+3	3	1.0	5
+
+query II
+EXPLAIN SELECT COUNT(DISTINCT g), SUM(DISTINCT g), AVG(DISTINCT g), COUNT(DISTINCT v) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*count\(DISTINCT "g"\).*
+
+# FILTER
+query III rowsort
+SELECT COUNT(*) FILTER (WHERE i > 5), SUM(i) FILTER (WHERE g = 0), MIN(v) FILTER (WHERE i > 3) FROM s.rp_agg
+----
+6	18	v0
+
+query II
+EXPLAIN SELECT COUNT(*) FILTER (WHERE i > 5), SUM(i) FILTER (WHERE g = 0), MIN(v) FILTER (WHERE i > 3) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*count\(\*\) FILTER \(WHERE \("i" > 5\)\).*
+
+query II
+SELECT g, COUNT(*) FILTER (WHERE v IS NULL) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	1
+1	1
+2	1
+
+query II
+EXPLAIN SELECT g, COUNT(*) FILTER (WHERE v IS NULL) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# count_if is serialized as a conditional count
+query III rowsort
+SELECT count_if(i > 3), countif(v IS NULL), count_if(i > 3) FILTER (WHERE g = 1) FROM s.rp_agg
+----
+8	3	3
+
+query II
+EXPLAIN SELECT count_if(i > 3), countif(v IS NULL), count_if(i > 3) FILTER (WHERE g = 1) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*count\(CASE WHEN \("i" > 3\) THEN 1 END\).*
+
+# string aggregation - DuckDB's default separator is a comma
+query II
+SELECT g, string_agg(v ORDER BY i) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	v3,v1,v4
+1	v1,v2,v0
+2	v2,v0,v1
+
+query II
+EXPLAIN SELECT g, string_agg(v ORDER BY i) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*string_agg\("v", ',' ORDER BY "i" ASC NULLS LAST\).*
+
+query III
+SELECT string_agg(v, ' | ' ORDER BY i DESC), group_concat(v, '' ORDER BY v DESC NULLS FIRST, i), listagg(DISTINCT v, '-' ORDER BY v) FROM s.rp_agg
+----
+v1 | v0 | v4 | v2 | v1 | v0 | v3 | v2 | v1	v4v3v2v2v1v1v1v0v0	v0-v1-v2-v3-v4
+
+query II
+EXPLAIN SELECT string_agg(v, ' | ' ORDER BY i DESC), group_concat(v, '' ORDER BY v DESC NULLS FIRST, i) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# string aggregation of non-strings is executed locally
+query I
+SELECT string_agg(i, ',' ORDER BY i) FROM s.rp_agg
+----
+0,1,2,3,4,5,6,7,8,9,10,11
+
+query II
+EXPLAIN SELECT string_agg(i, ',' ORDER BY i) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# lists
+query III
+SELECT array_agg(i ORDER BY i DESC), list(v ORDER BY i), array_agg(DISTINCT g ORDER BY g) FROM s.rp_agg
+----
+[11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]	[NULL, v1, v2, v3, NULL, v0, v1, v2, NULL, v4, v0, v1]	[0, 1, 2]
+
+query II
+EXPLAIN SELECT array_agg(i ORDER BY i DESC), list(v ORDER BY i), array_agg(DISTINCT g ORDER BY g) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*array_agg\("i" ORDER BY "i" DESC NULLS LAST\).*
+
+query IIII
+SELECT g, list(dt ORDER BY i), list(d ORDER BY i), list(dec ORDER BY i) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	[2024-01-01, 2024-01-31, 2024-03-01, 2024-03-31]	[0.0, 1.5, 3.0, 4.5]	[0.00, 3.75, 7.50, 11.25]
+1	[2024-01-11, 2024-02-10, 2024-03-11, 2024-04-10]	[0.5, 2.0, 3.5, 5.0]	[1.25, 5.00, 8.75, 12.50]
+2	[2024-01-21, 2024-02-20, 2024-03-21, 2024-04-20]	[1.0, 2.5, 4.0, 5.5]	[2.50, 6.25, 10.00, 13.75]
+
+query II
+EXPLAIN SELECT g, list(dt ORDER BY i), list(d ORDER BY i), list(dec ORDER BY i) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT list(i) FILTER (WHERE false) FROM s.rp_agg
+----
+NULL
+
+query II
+EXPLAIN SELECT list(i) FILTER (WHERE false) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# bitwise aggregates
+query IIII rowsort
+SELECT bit_and(i), bit_or(i), bit_xor(i), bit_or(g) FILTER (WHERE i > 3) FROM s.rp_agg
+----
+0	15	0	3
+
+query II
+EXPLAIN SELECT bit_and(i), bit_or(i), bit_xor(i), bit_or(g) FILTER (WHERE i > 3) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*bit_and\("i"\).*
+
+# median / quantiles
+query IIIII rowsort
+SELECT median(i), quantile_cont(i, 0.25), quantile_disc(i, 0.75), quantile(g, 0.5), median(v) FROM s.rp_agg
+----
+5.5	2.75	8	1	v1
+
+query II
+EXPLAIN SELECT median(i), quantile_cont(i, 0.25), quantile_disc(i, 0.75), quantile(g, 0.5), median(v) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*percentile_cont\(0\.5\) WITHIN GROUP \(ORDER BY "i"\).*
+
+query III
+SELECT g, median(i), quantile_disc(v, 0.2) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	4.5	v1
+1	5.5	v0
+2	6.5	v0
+
+query II
+EXPLAIN SELECT g, median(i), quantile_disc(v, 0.2) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# DuckDB interpolates decimals and temporal types, Postgres does not
+query I rowsort
+SELECT median(dec) FROM s.rp_agg
+----
+6.87
+
+query II
+EXPLAIN SELECT median(dec) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT median(dt) FROM s.rp_agg
+----
+2024-02-25 00:00:00
+
+query II
+EXPLAIN SELECT median(dt) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT quantile_cont(dt, 0.25) FROM s.rp_agg
+----
+2024-01-28 12:00:00
+
+query II
+EXPLAIN SELECT quantile_cont(dt, 0.25) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# lists of quantiles are not supported
+query I rowsort
+SELECT quantile_disc(i, [0.25, 0.75]) FROM s.rp_agg
+----
+[2, 8]
+
+query II
+EXPLAIN SELECT quantile_disc(i, [0.25, 0.75]) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# arg_min / arg_max ignore rows where either argument is NULL
+query IIII rowsort
+SELECT arg_max(v, i), arg_min(v, i), max_by(i, d), min_by(dt, v) FROM s.rp_agg
+----
+v1	v1	11	2024-02-20
+
+query II
+EXPLAIN SELECT arg_max(v, i), arg_min(v, i), max_by(i, d), min_by(dt, v) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*\(array_agg\("v" ORDER BY "i" DESC\) FILTER \(WHERE \("v" IS NOT NULL\) AND \("i" IS NOT NULL\)\)\)\[1\].*
+
+query III
+SELECT g, arg_max(v, i), arg_min(i, d) FILTER (WHERE i > 2) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	v4	3
+1	v0	4
+2	v1	5
+
+query II
+EXPLAIN SELECT g, arg_max(v, i), arg_min(i, d) FILTER (WHERE i > 2) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# statistical aggregates
+query IIIIIII rowsort
+SELECT regr_count(d, i), regr_avgx(d, i), regr_avgy(d, i), regr_sxx(d, i), regr_slope(d, i), regr_intercept(d, i), covar_pop(i, d) FROM s.rp_agg
+----
+12	5.5	2.75	143.0	0.5	0.0	5.958333333333333
+
+query II
+EXPLAIN SELECT regr_count(d, i), regr_avgx(d, i), regr_avgy(d, i), regr_sxx(d, i), regr_slope(d, i), regr_intercept(d, i), covar_pop(i, d) FROM s.rp_agg
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# aggregates that are not available in Postgres are executed locally
+query I rowsort
+SELECT mode(i < 9) FROM s.rp_agg
+----
+true
+
+query II
+EXPLAIN SELECT mode(i < 9) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT product(i) FROM s.rp_agg WHERE i > 0
+----
+39916800.0
+
+query II
+EXPLAIN SELECT product(i) FROM s.rp_agg WHERE i > 0
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT approx_count_distinct(i) FROM s.rp_agg
+----
+12
+
+query II
+EXPLAIN SELECT approx_count_distinct(i) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT first(i ORDER BY i) FROM s.rp_agg
+----
+0
+
+query II
+EXPLAIN SELECT first(i ORDER BY i) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT entropy(g) FROM s.rp_agg
+----
+1.584962500721156
+
+query II
+EXPLAIN SELECT entropy(g) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

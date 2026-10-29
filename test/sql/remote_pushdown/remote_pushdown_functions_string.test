@@ -1,0 +1,418 @@
+# name: test/sql/remote_pushdown/remote_pushdown_functions_string.test
+# description: Test remote pushdown of string functions into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_str AS SELECT i, CASE WHEN i % 5 = 0 THEN NULL ELSE 'Str_' || i || ' ÄÉ' END AS v, ' pad ' || i AS p FROM range(8) t(i)
+
+# string functions with identical semantics
+query IIIIII
+SELECT i, length(v), len(v), char_length(v), strlen(v), bit_length(v) FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL	NULL	NULL	NULL
+1	8	8	8	10	80
+2	8	8	8	10	80
+3	8	8	8	10	80
+4	8	8	8	10	80
+5	NULL	NULL	NULL	NULL	NULL
+6	8	8	8	10	80
+7	8	8	8	10	80
+
+query II
+EXPLAIN SELECT i, length(v), len(v), char_length(v), strlen(v), bit_length(v) FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII
+SELECT i, concat(v, '-', i), concat_ws('|', v, NULL, p), v || '!', replace(v, 'Str', 'X'), repeat(v, 2) FROM s.rp_str ORDER BY i
+----
+0	-0	 pad 0	NULL	NULL	NULL
+1	Str_1 ÄÉ-1	Str_1 ÄÉ| pad 1	Str_1 ÄÉ!	X_1 ÄÉ	Str_1 ÄÉStr_1 ÄÉ
+2	Str_2 ÄÉ-2	Str_2 ÄÉ| pad 2	Str_2 ÄÉ!	X_2 ÄÉ	Str_2 ÄÉStr_2 ÄÉ
+3	Str_3 ÄÉ-3	Str_3 ÄÉ| pad 3	Str_3 ÄÉ!	X_3 ÄÉ	Str_3 ÄÉStr_3 ÄÉ
+4	Str_4 ÄÉ-4	Str_4 ÄÉ| pad 4	Str_4 ÄÉ!	X_4 ÄÉ	Str_4 ÄÉStr_4 ÄÉ
+5	-5	 pad 5	NULL	NULL	NULL
+6	Str_6 ÄÉ-6	Str_6 ÄÉ| pad 6	Str_6 ÄÉ!	X_6 ÄÉ	Str_6 ÄÉStr_6 ÄÉ
+7	Str_7 ÄÉ-7	Str_7 ÄÉ| pad 7	Str_7 ÄÉ!	X_7 ÄÉ	Str_7 ÄÉStr_7 ÄÉ
+
+query II
+EXPLAIN SELECT i, concat(v, '-', i), concat_ws('|', v, NULL, p), v || '!', replace(v, 'Str', 'X'), repeat(v, 2) FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIIII
+SELECT i, left(v, 3), right(v, -2), lpad(v, 10, '*'), rpad(v, 3, '*'), substring(v, 2, 3), substr(v, 0, 3), substring(v, 5) FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+1	Str	r_1 ÄÉ	**Str_1 ÄÉ	Str	tr_	St	1 ÄÉ
+2	Str	r_2 ÄÉ	**Str_2 ÄÉ	Str	tr_	St	2 ÄÉ
+3	Str	r_3 ÄÉ	**Str_3 ÄÉ	Str	tr_	St	3 ÄÉ
+4	Str	r_4 ÄÉ	**Str_4 ÄÉ	Str	tr_	St	4 ÄÉ
+5	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+6	Str	r_6 ÄÉ	**Str_6 ÄÉ	Str	tr_	St	6 ÄÉ
+7	Str	r_7 ÄÉ	**Str_7 ÄÉ	Str	tr_	St	7 ÄÉ
+
+query II
+EXPLAIN SELECT i, left(v, 3), right(v, -2), lpad(v, 10, '*'), rpad(v, 3, '*'), substring(v, 2, 3), substr(v, 0, 3), substring(v, 5) FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIII
+SELECT i, trim(p), ltrim(p), rtrim(p), trim(v, 'S'), ltrim(v, 'St'), rtrim(v, 'ÄÉ ') FROM s.rp_str ORDER BY i
+----
+0	pad 0	pad 0	 pad 0	NULL	NULL	NULL
+1	pad 1	pad 1	 pad 1	tr_1 ÄÉ	r_1 ÄÉ	Str_1
+2	pad 2	pad 2	 pad 2	tr_2 ÄÉ	r_2 ÄÉ	Str_2
+3	pad 3	pad 3	 pad 3	tr_3 ÄÉ	r_3 ÄÉ	Str_3
+4	pad 4	pad 4	 pad 4	tr_4 ÄÉ	r_4 ÄÉ	Str_4
+5	pad 5	pad 5	 pad 5	NULL	NULL	NULL
+6	pad 6	pad 6	 pad 6	tr_6 ÄÉ	r_6 ÄÉ	Str_6
+7	pad 7	pad 7	 pad 7	tr_7 ÄÉ	r_7 ÄÉ	Str_7
+
+query II
+EXPLAIN SELECT i, trim(p), ltrim(p), rtrim(p), trim(v, 'S'), ltrim(v, 'St'), rtrim(v, 'ÄÉ ') FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIII
+SELECT i, strpos(v, '_'), instr(v, 'r'), position('É' IN v), starts_with(v, 'Str'), prefix(v, 'X'), v ^@ 'S' FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL	NULL	NULL	NULL	NULL
+1	4	3	8	true	false	true
+2	4	3	8	true	false	true
+3	4	3	8	true	false	true
+4	4	3	8	true	false	true
+5	NULL	NULL	NULL	NULL	NULL	NULL
+6	4	3	8	true	false	true
+7	4	3	8	true	false	true
+
+query II
+EXPLAIN SELECT i, strpos(v, '_'), instr(v, 'r'), position('É' IN v), starts_with(v, 'Str'), prefix(v, 'X'), v ^@ 'S' FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII
+SELECT i, md5(v), sha256(v), ascii(v), unicode(v), translate(v, 'S_', 's-') FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL	NULL	NULL	NULL
+1	9031616541952e6c6f970598c0bf2273	f418f1cf25b6e2ad36ef63238f8419b342365205887039c0d92f46efbe7a78ef	83	83	str-1 ÄÉ
+2	3b0be2d574071eeb76ec889888ee94df	8b8c08963dbdbd93a72b16e64c18c82b1cc4b760d1e203280f486b2b9d8adc2c	83	83	str-2 ÄÉ
+3	46b3ce9b293678957e542a621c5ec4af	36e8ba8f33c26f9a2db83153ed3dd9553b050cc42efea27fbfafdacbc54df68e	83	83	str-3 ÄÉ
+4	b049e447cb91426e735baac1ae545fec	86e6d9f226884e80805536e6419288c3b89faaeafdeac8ecb3b665c26f2b2818	83	83	str-4 ÄÉ
+5	NULL	NULL	NULL	NULL	NULL
+6	e87796320c3c8edb9a9bfd4896748a6d	4eef919c909443e77e27272582bca6328ec179de4d8f10fbea64277d922cc5a1	83	83	str-6 ÄÉ
+7	bdbcd94982144ef51d629787ed8a55e4	02474adc68efccbc2db0e33473c541afb897bdf310200ad4df5ec4e027d8b7c2	83	83	str-7 ÄÉ
+
+query II
+EXPLAIN SELECT i, md5(v), sha256(v), ascii(v), unicode(v), translate(v, 'S_', 's-') FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# rewritten functions
+query II
+SELECT i, contains(v, '1') FROM s.rp_str ORDER BY i
+----
+0	NULL
+1	true
+2	false
+3	false
+4	false
+5	NULL
+6	false
+7	false
+
+query II
+EXPLAIN SELECT i, contains(v, '1') FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\(strpos\("v", '1'\) > 0\).*
+
+query III
+SELECT i, ends_with(v, 'É'), suffix(v, '') FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL
+1	true	true
+2	true	true
+3	true	true
+4	true	true
+5	NULL	NULL
+6	true	true
+7	true	true
+
+query II
+EXPLAIN SELECT i, ends_with(v, 'É'), suffix(v, '') FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\(right\("v", length\('É'\)\) = 'É'\).*
+
+query II
+SELECT i, lower(v) FROM s.rp_str ORDER BY i
+----
+0	NULL
+1	str_1 äé
+2	str_2 äé
+3	str_3 äé
+4	str_4 äé
+5	NULL
+6	str_6 äé
+7	str_7 äé
+
+query II
+EXPLAIN SELECT i, lower(v) FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*lower\("v"\).*
+
+# LIKE has no default escape character in DuckDB
+query IIIII
+SELECT i, v LIKE 'Str\_%', v NOT LIKE '%1%', v ILIKE 'str_%', v NOT ILIKE '%ä%' FROM s.rp_str ORDER BY i
+----
+0	NULL	NULL	NULL	NULL
+1	false	false	true	false
+2	false	true	true	false
+3	false	true	true	false
+4	false	true	true	false
+5	NULL	NULL	NULL	NULL
+6	false	true	true	false
+7	false	true	true	false
+
+query II
+EXPLAIN SELECT i, v LIKE 'Str\_%', v NOT LIKE '%1%', v ILIKE 'str_%', v NOT ILIKE '%ä%' FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\("v" LIKE E'Str\\\\_%' ESCAPE ''\).*
+
+query I rowsort
+SELECT COUNT(*) FROM s.rp_str WHERE v LIKE '%\%'
+----
+0
+
+query II
+EXPLAIN SELECT COUNT(*) FROM s.rp_str WHERE v LIKE '%\%'
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# string literals with special characters
+query II
+SELECT i, v || 'it''s' || E'\\back' FROM s.rp_str WHERE v <> 'O''Reilly' ORDER BY i
+----
+1	Str_1 ÄÉit's\back
+2	Str_2 ÄÉit's\back
+3	Str_3 ÄÉit's\back
+4	Str_4 ÄÉit's\back
+6	Str_6 ÄÉit's\back
+7	Str_7 ÄÉit's\back
+
+query II
+EXPLAIN SELECT i, v || 'it''s' || E'\\back' FROM s.rp_str WHERE v <> 'O''Reilly' ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# functions with different semantics are executed locally
+query I
+SELECT upper(v) FROM s.rp_str ORDER BY i
+----
+NULL
+STR_1 ÄÉ
+STR_2 ÄÉ
+STR_3 ÄÉ
+STR_4 ÄÉ
+NULL
+STR_6 ÄÉ
+STR_7 ÄÉ
+
+query II
+EXPLAIN SELECT upper(v) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT reverse(v) FROM s.rp_str ORDER BY i
+----
+NULL
+ÉÄ 1_rtS
+ÉÄ 2_rtS
+ÉÄ 3_rtS
+ÉÄ 4_rtS
+NULL
+ÉÄ 6_rtS
+ÉÄ 7_rtS
+
+query II
+EXPLAIN SELECT reverse(v) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT split_part(v, '_', 2) FROM s.rp_str ORDER BY i
+----
+NULL
+1 ÄÉ
+2 ÄÉ
+3 ÄÉ
+4 ÄÉ
+NULL
+6 ÄÉ
+7 ÄÉ
+
+query II
+EXPLAIN SELECT split_part(v, '_', 2) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT substring(v, -3, 2) FROM s.rp_str ORDER BY i
+----
+NULL
+ Ä
+ Ä
+ Ä
+ Ä
+NULL
+ Ä
+ Ä
+
+query II
+EXPLAIN SELECT substring(v, -3, 2) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT regexp_matches(v, '\d') FROM s.rp_str ORDER BY i
+----
+NULL
+true
+true
+true
+true
+NULL
+true
+true
+
+query II
+EXPLAIN SELECT regexp_matches(v, '\d') FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT v SIMILAR TO 'S.*' FROM s.rp_str ORDER BY i
+----
+NULL
+true
+true
+true
+true
+NULL
+true
+true
+
+query II
+EXPLAIN SELECT v SIMILAR TO 'S.*' FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT string_split(v, '_') FROM s.rp_str ORDER BY i
+----
+NULL
+[Str, 1 ÄÉ]
+[Str, 2 ÄÉ]
+[Str, 3 ÄÉ]
+[Str, 4 ÄÉ]
+NULL
+[Str, 6 ÄÉ]
+[Str, 7 ÄÉ]
+
+query II
+EXPLAIN SELECT string_split(v, '_') FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# concatenating non-strings is only pushed for types with identical text representations
+query III
+SELECT i, concat(v, i, 1.5), v || i FROM s.rp_str ORDER BY i
+----
+0	01.5	NULL
+1	Str_1 ÄÉ11.5	Str_1 ÄÉ1
+2	Str_2 ÄÉ21.5	Str_2 ÄÉ2
+3	Str_3 ÄÉ31.5	Str_3 ÄÉ3
+4	Str_4 ÄÉ41.5	Str_4 ÄÉ4
+5	51.5	NULL
+6	Str_6 ÄÉ61.5	Str_6 ÄÉ6
+7	Str_7 ÄÉ71.5	Str_7 ÄÉ7
+
+query II
+EXPLAIN SELECT i, concat(v, i, 1.5), v || i FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, concat(v, i > 3) FROM s.rp_str ORDER BY i
+----
+0	false
+1	Str_1 ÄÉfalse
+2	Str_2 ÄÉfalse
+3	Str_3 ÄÉfalse
+4	Str_4 ÄÉtrue
+5	true
+6	Str_6 ÄÉtrue
+7	Str_7 ÄÉtrue
+
+query II
+EXPLAIN SELECT i, concat(v, i > 3) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, CAST(i > 3 AS VARCHAR) FROM s.rp_str ORDER BY i
+----
+0	false
+1	false
+2	false
+3	false
+4	true
+5	true
+6	true
+7	true
+
+query II
+EXPLAIN SELECT i, CAST(i > 3 AS VARCHAR) FROM s.rp_str ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, concat(v, i * 1.5::DOUBLE) FROM s.rp_str ORDER BY i
+----
+0	0.0
+1	Str_1 ÄÉ1.5
+2	Str_2 ÄÉ3.0
+3	Str_3 ÄÉ4.5
+4	Str_4 ÄÉ6.0
+5	7.5
+6	Str_6 ÄÉ9.0
+7	Str_7 ÄÉ10.5
+
+query II
+EXPLAIN SELECT i, concat(v, i * 1.5::DOUBLE) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, v || (i / 2) FROM s.rp_str ORDER BY i
+----
+0	NULL
+1	Str_1 ÄÉ0.5
+2	Str_2 ÄÉ1.0
+3	Str_3 ÄÉ1.5
+4	Str_4 ÄÉ2.0
+5	NULL
+6	Str_6 ÄÉ3.0
+7	Str_7 ÄÉ3.5
+
+query II
+EXPLAIN SELECT i, v || (i / 2) FROM s.rp_str ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

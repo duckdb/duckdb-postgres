@@ -50,6 +50,11 @@ public:
 
 	static bool SchemaIsInternal(const string &name);
 
+	//! Remove an entry from the cache - after it was modified by a statement that was executed in Postgres
+	void InvalidateEntry(CatalogType type, const string &name);
+	//! Remove all tables from the cache
+	void InvalidateTables();
+
 private:
 	void AlterTable(PostgresTransaction &transaction, RenameTableInfo &info);
 	void AlterTable(PostgresTransaction &transaction, RenameColumnInfo &info);

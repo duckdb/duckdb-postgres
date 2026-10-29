@@ -52,6 +52,55 @@ D SELECT * FROM postgres_db.uuids;
 
 For more information on how to use the connector, refer to the [Postgres documentation on the website](https://duckdb.org/docs/extensions/postgres).
 
+### Remote Pushdown
+
+Queries and statements that only reference tables of a single attached Postgres database are executed in Postgres as a whole (instead of scanning the tables and executing the query in DuckDB), when every construct they use can be translated to Postgres SQL with the same semantics. This covers e.g. joins, aggregates, window functions, CTEs, set operations, subqueries, many scalar functions, `UPDATE` / `DELETE` / `INSERT` (including `RETURNING` and `ON CONFLICT`), `CREATE TABLE ... AS`, `CREATE VIEW` and most `DROP` / `ALTER TABLE` statements. `EXPLAIN` shows the generated SQL (`Postgres Query`), and `SET pg_debug_show_queries = true` also prints why a query is not pushed down.
+
+```sql
+D EXPLAIN SELECT customer, sum(amount) FROM postgres_db.orders WHERE status = 'open' GROUP BY customer;
+╭─ Postgres Query ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ SQL:                                                                                                                   │
+│ SELECT "customer", sum("amount") AS "sum(amount)" FROM "public"."orders" WHERE ("status" = 'open') GROUP BY "customer" │
+│ Projections: c0, c1                                                                                                    │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+A pushed down query is executed as a single Postgres query over a single connection. Queries that are plain scans of a single table are instead executed through the regular table scan, which reads the table in parallel over multiple connections (by ranges of the `ctid`). A query is a plain scan when it reads a single table, selects only columns (or `*`), filters only with comparisons of columns with constants, `IN` lists and `IS [NOT] NULL` combined with `AND` / `OR`, and has no `ORDER BY` or `OFFSET` (a `LIMIT` is fine). For example, this query is still executed with a parallel scan:
+
+```sql
+SELECT id, customer, amount FROM postgres_db.orders WHERE status = 'open' AND amount > 100 LIMIT 10;
+```
+
+Any other construct makes the query a candidate for pushdown, including seemingly simple ones such as a computed column, a `LIKE` filter or an `ORDER BY`. These queries are executed by Postgres over a single connection, which can be slower than a parallel scan for queries that read most of a large table:
+
+```sql
+-- pushed down: the computed column makes it more than a plain scan
+SELECT id, amount * 1.2 AS amount_with_tax FROM postgres_db.orders WHERE status = 'open';
+-- pushed down as well
+SELECT * FROM postgres_db.orders WHERE customer LIKE 'c1%';
+SELECT * FROM postgres_db.orders ORDER BY id;
+```
+
+Plain scans are pushed down as well when the settings at attach time do not allow parallel scans (`pg_use_ctid_scan = false`, the text protocol through `pg_query_mode`, `pg_use_text_protocol` or the `USE_TEXT_PROTOCOL` attach option, or Postgres versions before 14).
+
+Remote pushdown is enabled by default. It can be disabled for newly attached databases:
+
+```sql
+SET pg_enable_remote_pushdown = false;
+```
+
+Known differences to executing the query in DuckDB:
+
+* Floating point results of statistical aggregates (e.g. `corr`, `regr_*`, `quantile_cont`) can differ in the last digits.
+* Postgres raises errors for floating point overflows, where DuckDB produces `inf`.
+* `HUGEINT` results are transferred as `NUMERIC(38, 0)` - values of 10^38 or more raise an error.
+* Duplicate result column names are made unique (e.g. `i` and `i_1`), like for the result of a subquery.
+* `CURRENT_DATE` / `CURRENT_TIMESTAMP` (without parentheses) are evaluated by Postgres, at the start of the Postgres transaction.
+* DuckDB orders strings byte-wise. When the database collation orders them differently (e.g. `en_US.UTF-8`), string ordering (`ORDER BY`, `<`, `min` / `max`, ...) is pushed down with the `C` collation (`COLLATE "C"`), which cannot use indexes built with the database collation. `SELECT DISTINCT` / set operations / `DISTINCT` aggregates ordered by strings are then executed locally, and `CREATE TABLE ... AS` / `CREATE VIEW` statements that order strings are not pushed down as a whole. Column-level collations are not taken into account.
+* `lower` / `ILIKE` are only pushed down when Postgres maps Unicode characters to lower case.
+* Casts of string columns to dates, timestamps or booleans use the Postgres parsing rules, which accept some inputs that DuckDB rejects (and vice versa).
+* Unqualified tables are only pushed down when the Postgres database has no schema named `main` (or when it is attached with the `SCHEMA` option).
+
 ### Connection Pooling
 
 By default, the extension opens a new connection whenever none are idle. Behind a transaction-mode pooler (e.g. PgBouncer `pool_mode=transaction`), this can exceed the pooler's own pool size under load and hang. If that applies to you, cap and wait instead:
@@ -142,27 +191,20 @@ Requires a running Postgres instance reachable via libpq defaults (e.g. `psql` w
 PGHOST=localhost PGPORT=5432 PGUSER=<user> PGPASSWORD=<password> ./create-postgres-tables.sh
 ```
 
-The extension is loaded from `~/.duckdb/extensions/<version>/<platform>/`, copied there on first load and not overwritten on reruns. Create a symlink so the latest build is always used:
+Run the tests with `scripts/run-tests.sh`, which also links the freshly built extension into `~/.duckdb/extensions/<version>/<platform>/` (the extension is copied there on first load and not overwritten on reruns otherwise):
 
 ```bash
-DUCKDB_VERSION=$(ls build/reldebug/repository/)
-DUCKDB_PLATFORM=$(ls build/reldebug/repository/${DUCKDB_VERSION}/)
-ln -sf "$(pwd)/build/reldebug/extension/postgres_scanner/postgres_scanner.duckdb_extension" \
-  ~/.duckdb/extensions/${DUCKDB_VERSION}/${DUCKDB_PLATFORM}/postgres_scanner.duckdb_extension
-```
-
-Run all tests:
-
-```bash
-POSTGRES_TEST_DATABASE_AVAILABLE=1 LOCAL_EXTENSION_REPO=./build/release/repository \
-  ./build/release/test/unittest --autoloading available
+POSTGRES_TEST_DATABASE_AVAILABLE=1 scripts/run-tests.sh build/release
 ```
 
 Run a single test:
 
 ```bash
-POSTGRES_TEST_DATABASE_AVAILABLE=1 LOCAL_EXTENSION_REPO=./build/release/repository \
-  ./build/release/test/unittest --autoloading available test/sql/storage/attach_simple.test
+POSTGRES_TEST_DATABASE_AVAILABLE=1 scripts/run-tests.sh build/release test/sql/storage/attach_simple.test
 ```
+
+The script runs `unittest --keep-home --order lex`. Do not set `LOCAL_EXTENSION_REPO` (or pass `--autoloading`) - the test runner then autoloads extensions instead of loading them with `require`, and settings of the extension are unknown until it is autoloaded.
+
+The remote pushdown tests pass with both byte-wise (e.g. `C.UTF-8`) and other (e.g. `en_US.UTF-8`, as in the Postgres Docker images used by the CI) database collations.
 
 > **Note:** debug and release launchers and extensions should not be mixed — use `build/reldebug` consistently if building with `make reldebug`.

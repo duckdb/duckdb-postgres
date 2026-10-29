@@ -1,5 +1,6 @@
 add_library(
   postgres_ext_storage OBJECT
+  postgres_capabilities.cpp
   postgres_catalog.cpp
   postgres_catalog_set.cpp
   postgres_connection_pool.cpp

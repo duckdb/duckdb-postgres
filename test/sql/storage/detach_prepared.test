@@ -2,7 +2,7 @@
 # description: Test the behaviour of DETACH with PREPARE/EXECUTE
 # group: [storage]
 
-require mysql_scanner
+require postgres_scanner
 
 require-env POSTGRES_TEST_DATABASE_AVAILABLE
 

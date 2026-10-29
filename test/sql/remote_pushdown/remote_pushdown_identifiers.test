@@ -1,0 +1,141 @@
+# name: test/sql/remote_pushdown/remote_pushdown_identifiers.test
+# description: Test identifier handling in remote pushdown into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+# DESC: Test identifier handling in remote pushdown into Postgres
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS "RP Schema" CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA "RP Schema"')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE "RP Schema"."Mixed Case" ("Id" INT, "select" TEXT, "quote""d" INT, lower_col INT)')
+
+statement ok
+CALL postgres_execute('s', 'INSERT INTO "RP Schema"."Mixed Case" VALUES (1, ''a'', 10, 100), (2, ''b'', 20, 200), (3, NULL, 30, 300)')
+
+statement ok
+CALL postgres_clear_cache()
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s2 (TYPE POSTGRES)
+
+# identifiers are case insensitive in DuckDB - the Postgres spelling is used when serializing
+query IIII
+SELECT id, "SELECT", "QUOTE""D", LOWER_COL FROM s2."rp schema"."mixed case" ORDER BY ID
+----
+1	a	10	100
+2	b	20	200
+3	NULL	30	300
+
+query II
+EXPLAIN SELECT id, "SELECT", "QUOTE""D", LOWER_COL FROM s2."rp schema"."mixed case" ORDER BY ID
+----
+physical_plan	<REGEX>:(?s).*SELECT "Id", "select", "quote""d", "lower_col" FROM "RP Schema"\."Mixed Case" ORDER BY "Id" ASC NULLS LAST.*
+
+query II
+SELECT "Id", SUM("quote""d") FROM s2."RP Schema"."Mixed Case" GROUP BY "Id" ORDER BY "Id"
+----
+1	10
+2	20
+3	30
+
+query II
+EXPLAIN SELECT "Id", SUM("quote""d") FROM s2."RP Schema"."Mixed Case" GROUP BY "Id" ORDER BY "Id"
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT t.id, t."select" FROM s2."RP Schema"."Mixed Case" AS T WHERE T.Id > 1 ORDER BY T.ID
+----
+2	b
+3	NULL
+
+query II
+EXPLAIN SELECT t.id, t."select" FROM s2."RP Schema"."Mixed Case" AS T WHERE T.Id > 1 ORDER BY T.ID
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# aliases are case insensitive as well
+query II
+SELECT id AS MyId, lower_col * 2 AS Doubled FROM s2."RP Schema"."Mixed Case" ORDER BY myid DESC, DOUBLED
+----
+3	600
+2	400
+1	200
+
+query II
+EXPLAIN SELECT id AS MyId, lower_col * 2 AS Doubled FROM s2."RP Schema"."Mixed Case" ORDER BY myid DESC, DOUBLED
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+WITH MyCTE AS (SELECT id AS X FROM s2."RP Schema"."Mixed Case") SELECT SUM(x) FROM mycte
+----
+6
+
+query II
+EXPLAIN WITH MyCTE AS (SELECT id AS X FROM s2."RP Schema"."Mixed Case") SELECT SUM(x) FROM mycte
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# result column names are the names DuckDB would produce
+statement ok
+CREATE OR REPLACE TABLE ident_names AS SELECT ID, "SELECT", lower_col + 1, COUNT(*) AS Cnt FROM s2."RP Schema"."Mixed Case" GROUP BY ALL LIMIT 0
+
+query I rowsort
+SELECT column_name FROM (DESCRIBE ident_names)
+----
+(lower_col + 1)
+Cnt
+Id
+select
+
+# expressions are named the way DuckDB names them, also in subqueries
+query I
+SELECT "(lower_col + 1)" FROM (SELECT lower_col + 1 FROM s2."RP Schema"."Mixed Case") ORDER BY 1
+----
+101
+201
+301
+
+query II
+EXPLAIN SELECT "(lower_col + 1)" FROM (SELECT lower_col + 1 FROM s2."RP Schema"."Mixed Case") ORDER BY 1
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+WITH c AS (SELECT "select", COUNT(*) FROM s2."RP Schema"."Mixed Case" GROUP BY "select") SELECT "count_star()" FROM c ORDER BY 1
+----
+1
+1
+1
+
+query II
+EXPLAIN WITH c AS (SELECT "select", COUNT(*) FROM s2."RP Schema"."Mixed Case" GROUP BY "select") SELECT "count_star()" FROM c ORDER BY 1
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# long expression names exceed the Postgres identifier length
+query II
+SELECT lower_col + 1 + lower_col + 2 + lower_col + 3 + lower_col + 4 + lower_col + 5 + lower_col + 6, lower_col FROM s2."RP Schema"."Mixed Case" ORDER BY lower_col
+----
+621	100
+1221	200
+1821	300
+
+query II
+EXPLAIN SELECT lower_col + 1 + lower_col + 2 + lower_col + 3 + lower_col + 4 + lower_col + 5 + lower_col + 6, lower_col FROM s2."RP Schema"."Mixed Case" ORDER BY lower_col
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA "RP Schema" CASCADE')

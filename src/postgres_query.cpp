@@ -44,6 +44,10 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 		// binder via the return-type modifier so that when this is routed through CONNECT the outer
 		// statement is reported as NOTHING and displays like a native command (no spurious result table).
 		input.table_function.call_return_type = StatementReturnType::NOTHING;
+	} else if (ExtractFlag(input, "return_changed_rows", false)) {
+		// The command is a DML statement that is executed remotely in place of a DuckDB statement - report the
+		// number of changed rows, like DuckDB reports them for its own DML statements
+		input.table_function.call_return_type = StatementReturnType::CHANGED_ROWS;
 	}
 	return_types.emplace_back(LogicalType::BIGINT);
 	names.emplace_back(Identifier("rowcount"));
@@ -209,6 +213,9 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
 	string stmt_name = PostgresPreparedStatement::GenerateName();
+	if (PostgresConnection::DebugPrintQueries()) {
+		Printer::Print("PREPARE " + stmt_name + ": " + sql + "\n");
+	}
 	PGresult *prepared_res_ptr = PQprepare(conn, stmt_name.c_str(), sql.c_str(), 0, nullptr);
 	auto prepared = make_uniq<PostgresPreparedStatement>(conn, pool_connection_id, stmt_name, sql, prepared_res_ptr);
 	// use describe_prepared
@@ -271,6 +278,17 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	return std::move(result);
 }
 
+static InsertionOrderPreservingMap<string> PostgresQueryToString(TableFunctionToStringInput &input) {
+	D_ASSERT(input.bind_data);
+	InsertionOrderPreservingMap<string> result;
+	auto &bind_data = input.bind_data->Cast<PostgresBindData>();
+	if (!bind_data.preliminary_queries.empty()) {
+		result["Preliminary Queries"] = StringUtil::Join(bind_data.preliminary_queries, "\n");
+	}
+	result["SQL"] = bind_data.sql;
+	return result;
+}
+
 static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
 	FunctionSignature signature;
 	signature.AddParameter("database", LogicalType::VARCHAR)
@@ -285,6 +303,7 @@ static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
 		    options.Add("connection", LogicalType::UBIGINT);
 		    options.Add("preliminary_queries", LogicalType::LIST(LogicalType::VARCHAR));
 		    options.Add("clear_catalog_cache", LogicalType::BOOLEAN);
+		    options.Add("return_changed_rows", LogicalType::BOOLEAN);
 	    });
 	return signature;
 }
@@ -295,6 +314,7 @@ PostgresQueryFunction::PostgresQueryFunction()
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;
 	function = scan_function.function;
+	to_string = PostgresQueryToString;
 	projection_pushdown = true;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }

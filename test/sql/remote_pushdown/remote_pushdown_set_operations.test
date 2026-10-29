@@ -1,0 +1,242 @@
+# name: test/sql/remote_pushdown/remote_pushdown_set_operations.test
+# description: Test remote pushdown of set operations into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_setop1 AS SELECT i, i % 3 AS g FROM range(6) t(i)
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_setop2 AS SELECT i FROM range(3, 9) t(i)
+
+query I
+SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i
+----
+0
+1
+2
+3
+3
+4
+4
+5
+5
+6
+7
+8
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\(SELECT "i" FROM "public"\."rp_setop1"\) UNION ALL \(SELECT "i" FROM "public"\."rp_setop2"\) ORDER BY "i" ASC NULLS LAST.*
+
+query I
+SELECT i FROM s.rp_setop1 UNION SELECT i FROM s.rp_setop2 ORDER BY 1 DESC
+----
+8
+7
+6
+5
+4
+3
+2
+1
+0
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 UNION SELECT i FROM s.rp_setop2 ORDER BY 1 DESC
+----
+physical_plan	<REGEX>:(?s).*UNION \(SELECT.*
+
+query I
+SELECT i FROM s.rp_setop1 EXCEPT SELECT i FROM s.rp_setop2 ORDER BY i
+----
+0
+1
+2
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 EXCEPT SELECT i FROM s.rp_setop2 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*EXCEPT \(SELECT.*
+
+query I
+SELECT g FROM s.rp_setop1 EXCEPT ALL SELECT i FROM s.rp_setop2 ORDER BY g
+----
+0
+0
+1
+1
+2
+2
+
+query II
+EXPLAIN SELECT g FROM s.rp_setop1 EXCEPT ALL SELECT i FROM s.rp_setop2 ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*EXCEPT ALL \(SELECT.*
+
+query I
+SELECT i FROM s.rp_setop1 INTERSECT SELECT i FROM s.rp_setop2 ORDER BY i
+----
+3
+4
+5
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 INTERSECT SELECT i FROM s.rp_setop2 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*INTERSECT \(SELECT.*
+
+query I
+SELECT g FROM s.rp_setop1 INTERSECT ALL SELECT g FROM s.rp_setop1 WHERE i > 1 ORDER BY g
+----
+0
+1
+2
+2
+
+query II
+EXPLAIN SELECT g FROM s.rp_setop1 INTERSECT ALL SELECT g FROM s.rp_setop1 WHERE i > 1 ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*INTERSECT ALL \(SELECT.*
+
+# nested set operations
+query I
+(SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2) EXCEPT SELECT g FROM s.rp_setop1 ORDER BY i
+----
+3
+4
+5
+6
+7
+8
+
+query II
+EXPLAIN (SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2) EXCEPT SELECT g FROM s.rp_setop1 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# set operations with a LIMIT
+query I
+SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i DESC LIMIT 3
+----
+8
+7
+6
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i DESC LIMIT 3
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+(SELECT i FROM s.rp_setop1 ORDER BY i DESC LIMIT 2) UNION ALL (SELECT i FROM s.rp_setop2 ORDER BY i LIMIT 2) ORDER BY i
+----
+3
+4
+4
+5
+
+query II
+EXPLAIN (SELECT i FROM s.rp_setop1 ORDER BY i DESC LIMIT 2) UNION ALL (SELECT i FROM s.rp_setop2 ORDER BY i LIMIT 2) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# aggregates in set operations keep their exact types
+query I
+SELECT SUM(i) AS s FROM s.rp_setop1 UNION ALL SELECT SUM(i) FROM s.rp_setop2 ORDER BY s
+----
+15
+33
+
+query II
+EXPLAIN SELECT SUM(i) AS s FROM s.rp_setop1 UNION ALL SELECT SUM(i) FROM s.rp_setop2 ORDER BY s
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT typeof(s) FROM (SELECT SUM(i) AS s FROM s.rp_setop1 UNION ALL SELECT SUM(i) FROM s.rp_setop2) LIMIT 1
+----
+HUGEINT
+
+# a set operation over constants and a remote table
+query I
+SELECT i FROM s.rp_setop1 UNION SELECT 42 ORDER BY i
+----
+0
+1
+2
+3
+4
+5
+42
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 UNION SELECT 42 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# ordering the result of a set operation by an expression is not supported in Postgres
+query I
+SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i % 4, i
+----
+0
+4
+4
+8
+1
+5
+5
+2
+6
+3
+3
+7
+
+query II
+EXPLAIN SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM s.rp_setop2 ORDER BY i % 4, i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# UNION BY NAME is DuckDB-specific
+query II
+SELECT i, g FROM s.rp_setop1 UNION BY NAME SELECT i FROM s.rp_setop2 ORDER BY i, g
+----
+0	0
+1	1
+2	2
+3	0
+3	NULL
+4	1
+4	NULL
+5	2
+5	NULL
+6	NULL
+7	NULL
+8	NULL
+
+query II
+EXPLAIN SELECT i, g FROM s.rp_setop1 UNION BY NAME SELECT i FROM s.rp_setop2 ORDER BY i, g
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# a set operation with a local table is not pushed down as a whole - but the remote side is
+statement ok
+CREATE TABLE local_setop AS SELECT 100 AS i
+
+query I
+SELECT i FROM s.rp_setop1 UNION ALL SELECT i FROM local_setop ORDER BY i
+----
+0
+1
+2
+3
+4
+5
+100

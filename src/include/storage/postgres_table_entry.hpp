@@ -51,6 +51,7 @@ struct PostgresTableInfo {
 	unique_ptr<CreateTableInfo> create_info;
 	vector<PostgresType> postgres_types;
 	vector<string> postgres_names;
+	vector<string> postgres_type_names;
 	vector<PostgresColumnDefault> column_defaults;
 	int64_t approx_num_pages = 0;
 	unordered_map<int64_t, idx_t> attnum_to_logical;
@@ -91,6 +92,8 @@ public:
 	//! We track these separately because of case sensitivity - Postgres allows e.g. the columns "ID" and "id" together
 	//! We would in this case remap them to "ID" and "id:1", while postgres_names store the original names
 	vector<string> postgres_names;
+	//! The (schema qualified, quoted) names of the column types within Postgres - empty if not known
+	vector<string> postgres_type_names;
 	//! How Postgres fills in each column when it is not specified in an INSERT
 	vector<PostgresColumnDefault> column_defaults;
 	//! The approximate number of pages a table consumes in Postgres

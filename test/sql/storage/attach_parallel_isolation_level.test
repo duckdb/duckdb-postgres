@@ -10,6 +10,16 @@ statement ok
 ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
 
 statement ok
+DETACH s
+
+# this test inspects the connections used by parallel table scans
+statement ok
+SET pg_enable_remote_pushdown = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+statement ok
 CREATE OR REPLACE TABLE s.large_parallel_isolation AS FROM range(1000000) t(i)
 
 statement ok

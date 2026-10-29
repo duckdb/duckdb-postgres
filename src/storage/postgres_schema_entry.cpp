@@ -202,6 +202,14 @@ optional_ptr<CatalogEntry> PostgresSchemaEntry::LookupEntry(CatalogTransaction t
 	    .GetEntry(transaction.GetContext(), postgres_transaction, lookup_info.GetEntryName());
 }
 
+void PostgresSchemaEntry::InvalidateEntry(CatalogType type, const string &name) {
+	GetCatalogSet(type).InvalidateEntry(name);
+}
+
+void PostgresSchemaEntry::InvalidateTables() {
+	tables.ClearEntries();
+}
+
 PostgresCatalogSet &PostgresSchemaEntry::GetCatalogSet(CatalogType type) {
 	switch (type) {
 	case CatalogType::TABLE_ENTRY:
