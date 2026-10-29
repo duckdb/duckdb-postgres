@@ -1,0 +1,204 @@
+# name: test/sql/remote_pushdown/remote_pushdown_cast.test
+# description: Test remote pushdown of casts into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_cast AS SELECT * FROM (VALUES (1, 2.5::DOUBLE, '12', 1.25::DECIMAL(5,2), true, DATE '2024-02-29', TIMESTAMP '2024-02-29 13:14:15.5', INTERVAL '1 day'), (2, -2.5, ' 7 ', -3.75, false, DATE '1999-12-31', TIMESTAMP '1999-12-31 23:59:59', INTERVAL '2 months'), (3, 0.5, '-0', 0, NULL, NULL, NULL, NULL), (4, 1e10, '2147483647', 999.99, true, DATE '2000-01-01', TIMESTAMP '2000-01-01 00:00:00', INTERVAL '3 hours')) t(id, d, s, dec, b, dt, ts, iv)
+
+# casts to integers - both DuckDB and Postgres round doubles to the nearest even integer
+query IIIIIII
+SELECT id, CAST(d AS INTEGER), CAST(d AS BIGINT), CAST(dec AS INTEGER), CAST(s AS INTEGER), CAST(b AS INTEGER), CAST(b AS BIGINT) FROM s.rp_cast WHERE id < 4 ORDER BY id
+----
+1	2	2	1	12	1	1
+2	-2	-2	-4	7	0	0
+3	0	0	0	0	NULL	NULL
+
+query II
+EXPLAIN SELECT id, CAST(d AS INTEGER), CAST(d AS BIGINT), CAST(dec AS INTEGER), CAST(s AS INTEGER), CAST(b AS INTEGER), CAST(b AS BIGINT) FROM s.rp_cast WHERE id < 4 ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*CAST\("d" AS INTEGER\).*
+
+query III
+SELECT id, d::SMALLINT, dec::SMALLINT FROM s.rp_cast WHERE id < 4 ORDER BY id
+----
+1	2	1
+2	-2	-4
+3	0	0
+
+query II
+EXPLAIN SELECT id, d::SMALLINT, dec::SMALLINT FROM s.rp_cast WHERE id < 4 ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# casts to floating point / decimals
+query IIIIIII
+SELECT id, CAST(s AS DOUBLE), CAST(dec AS DOUBLE), CAST(d AS DECIMAL(12,1)), CAST(s AS DECIMAL(12,2)), d::FLOAT, id::REAL FROM s.rp_cast ORDER BY id
+----
+1	12.0	1.25	2.5	12.00	2.5	1.0
+2	7.0	-3.75	-2.5	7.00	-2.5	2.0
+3	-0.0	0.0	0.5	0.00	0.5	3.0
+4	2147483647.0	999.99	10000000000.0	2147483647.00	10000000000.0	4.0
+
+query II
+EXPLAIN SELECT id, CAST(s AS DOUBLE), CAST(dec AS DOUBLE), CAST(d AS DECIMAL(12,1)), CAST(s AS DECIMAL(12,2)), d::FLOAT, id::REAL FROM s.rp_cast ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# casts to VARCHAR are only pushed for types that Postgres formats identically
+query IIIIII
+SELECT id, CAST(id AS VARCHAR), CAST(dec AS VARCHAR), CAST(b AS VARCHAR), CAST(dt AS VARCHAR), CAST(ts AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+1	1	1.25	true	2024-02-29	2024-02-29 13:14:15.5
+2	2	-3.75	false	1999-12-31	1999-12-31 23:59:59
+3	3	0.00	NULL	NULL	NULL
+4	4	999.99	true	2000-01-01	2000-01-01 00:00:00
+
+query II
+EXPLAIN SELECT id, CAST(id AS VARCHAR), CAST(dec AS VARCHAR), CAST(b AS VARCHAR), CAST(dt AS VARCHAR), CAST(ts AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*SET LOCAL DateStyle.*
+
+query II
+SELECT id, CAST(d AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+1	2.5
+2	-2.5
+3	0.5
+4	10000000000.0
+
+query II
+EXPLAIN SELECT id, CAST(d AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, CAST(iv AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+1	1 day
+2	2 months
+3	NULL
+4	03:00:00
+
+query II
+EXPLAIN SELECT id, CAST(iv AS VARCHAR) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# date / time casts
+query IIIII
+SELECT id, CAST(ts AS DATE), CAST(dt AS TIMESTAMP), CAST(ts AS TIME), CAST('2024-01-01' AS DATE) < dt FROM s.rp_cast ORDER BY id
+----
+1	2024-02-29	2024-02-29 00:00:00	13:14:15.5	true
+2	1999-12-31	1999-12-31 00:00:00	23:59:59	false
+3	NULL	NULL	NULL	NULL
+4	2000-01-01	2000-01-01 00:00:00	00:00:00	false
+
+query II
+EXPLAIN SELECT id, CAST(ts AS DATE), CAST(dt AS TIMESTAMP), CAST(ts AS TIME), CAST('2024-01-01' AS DATE) < dt FROM s.rp_cast ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# casts to BOOLEAN
+query III
+SELECT id, CAST(id - 1 AS BOOLEAN), CAST(CASE WHEN id = 1 THEN 'true' ELSE 'false' END AS BOOLEAN) FROM s.rp_cast ORDER BY id
+----
+1	false	true
+2	true	false
+3	true	false
+4	true	false
+
+query II
+EXPLAIN SELECT id, CAST(id - 1 AS BOOLEAN), CAST(CASE WHEN id = 1 THEN 'true' ELSE 'false' END AS BOOLEAN) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# casts of literals are evaluated locally
+query I
+SELECT id FROM s.rp_cast WHERE dt > CAST('2000-01-01' AS DATE) ORDER BY id
+----
+1
+
+query II
+EXPLAIN SELECT id FROM s.rp_cast WHERE dt > CAST('2000-01-01' AS DATE) ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*\("dt" > DATE '2000-01-01'\).*
+
+query III
+SELECT id, d + '1.5'::DOUBLE, dec * 2::DECIMAL(3,1) FROM s.rp_cast ORDER BY id
+----
+1	4.0	2.500
+2	-1.0	-7.500
+3	2.0	0.000
+4	10000000001.5	1999.980
+
+query II
+EXPLAIN SELECT id, d + '1.5'::DOUBLE, dec * 2::DECIMAL(3,1) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# TRY_CAST is DuckDB-specific
+query II
+SELECT id, TRY_CAST(s AS INTEGER) FROM s.rp_cast ORDER BY id
+----
+1	12
+2	7
+3	0
+4	2147483647
+
+query II
+EXPLAIN SELECT id, TRY_CAST(s AS INTEGER) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# casts to unsigned / nested types are not supported by Postgres
+query II
+SELECT id, CAST(id AS UBIGINT) FROM s.rp_cast ORDER BY id
+----
+1	1
+2	2
+3	3
+4	4
+
+query II
+EXPLAIN SELECT id, CAST(id AS UBIGINT) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, CAST(id AS TINYINT) FROM s.rp_cast ORDER BY id
+----
+1	1
+2	2
+3	3
+4	4
+
+query II
+EXPLAIN SELECT id, CAST(id AS TINYINT) FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, [id]::BIGINT[] FROM s.rp_cast ORDER BY id
+----
+1	[1]
+2	[2]
+3	[3]
+4	[4]
+
+query II
+EXPLAIN SELECT id, [id]::BIGINT[] FROM s.rp_cast ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# integer overflow raises an error in both systems
+statement error
+SELECT CAST(d AS INTEGER) FROM s.rp_cast WHERE id = 4
+----
+out of range

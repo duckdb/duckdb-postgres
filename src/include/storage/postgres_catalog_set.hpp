@@ -32,6 +32,8 @@ public:
 	          const std::function<void(CatalogEntry &)> &callback);
 	virtual optional_ptr<CatalogEntry> CreateEntry(PostgresTransaction &transaction, shared_ptr<CatalogEntry> entry);
 	void ClearEntries();
+	//! Remove an entry from the cache (without dropping it) - it is reloaded when it is looked up the next time
+	void InvalidateEntry(const string &name);
 	virtual bool SupportReload() const {
 		return false;
 	}

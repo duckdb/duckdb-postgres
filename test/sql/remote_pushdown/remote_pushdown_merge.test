@@ -1,0 +1,93 @@
+# name: test/sql/remote_pushdown/remote_pushdown_merge.test
+# description: Test remote pushdown of MERGE statements into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_merge_t (id INTEGER PRIMARY KEY, v VARCHAR, n INTEGER)
+
+statement ok
+INSERT INTO s.rp_merge_t VALUES (1, 'a', 10), (2, 'b', 20), (3, 'c', 30)
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_merge_s (id INTEGER, v VARCHAR, del BOOLEAN)
+
+statement ok
+INSERT INTO s.rp_merge_s VALUES (1, 'A', false), (2, 'B', true), (4, 'D', false)
+
+# MERGE requires Postgres 15 - on older versions the statement is executed by the regular MERGE
+query II
+EXPLAIN MERGE INTO s.rp_merge_t t USING s.rp_merge_s src ON t.id = src.id WHEN MATCHED AND src.del THEN DELETE WHEN MATCHED THEN UPDATE SET v = src.v, n = t.n + 1 WHEN NOT MATCHED THEN INSERT (id, v, n) VALUES (src.id, src.v, 0)
+----
+physical_plan	<REGEX>:(?s).*(Postgres Query.*MERGE INTO "public"."rp_merge_t" AS "t" USING "public"."rp_merge_s" AS "src" ON \("t"."id" = "src"."id"\) WHEN MATCHED AND "src"."del" THEN DELETE WHEN MATCHED THEN UPDATE SET "v" = "src"."v", "n" = \("t"."n" \+ 1\) WHEN NOT MATCHED THEN INSERT \("id", "v", "n"\) VALUES \("src"."id", "src"."v", 0\)|Merge Into.*Pg Delete.*Pg Update.*Pg Insert).*
+
+# the statement returns the number of changed rows
+query I
+MERGE INTO s.rp_merge_t t USING s.rp_merge_s src ON t.id = src.id WHEN MATCHED AND src.del THEN DELETE WHEN MATCHED THEN UPDATE SET v = src.v, n = t.n + 1 WHEN NOT MATCHED THEN INSERT (id, v, n) VALUES (src.id, src.v, 0)
+----
+3
+
+query III
+SELECT * FROM s.rp_merge_t ORDER BY id
+----
+1	A	11
+3	c	30
+4	D	0
+
+# USING, DO NOTHING and WHEN NOT MATCHED BY SOURCE
+statement ok
+MERGE INTO s.rp_merge_t t USING (SELECT id, v FROM s.rp_merge_s WHERE id = 4) src USING (id) WHEN MATCHED THEN DO NOTHING WHEN NOT MATCHED BY SOURCE AND t.n > 20 THEN UPDATE SET n = -1
+
+query III
+SELECT * FROM s.rp_merge_t ORDER BY id
+----
+1	A	11
+3	c	-1
+4	D	0
+
+# RETURNING requires Postgres 17 - it is not supported by the regular MERGE
+statement maybe
+MERGE INTO s.rp_merge_t t USING s.rp_merge_s src ON t.id = src.id WHEN MATCHED THEN UPDATE SET n = t.n * 2 RETURNING t.id, t.n, t.v || '!'
+----
+RETURNING is not implemented for Postgres yet
+
+# MERGE with a local source is not pushed down
+statement ok
+CREATE TABLE local_merge AS SELECT 3 AS id
+
+query II
+EXPLAIN MERGE INTO s.rp_merge_t t USING local_merge src ON t.id = src.id WHEN MATCHED THEN DELETE
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+MERGE INTO s.rp_merge_t t USING local_merge src ON t.id = src.id WHEN MATCHED THEN DELETE
+
+query I
+SELECT id FROM s.rp_merge_t ORDER BY id
+----
+1
+4
+
+# THEN ERROR / UPDATE without SET / INSERT without values are DuckDB-specific
+query II
+EXPLAIN MERGE INTO s.rp_merge_t t USING (SELECT id, v, 0 AS n FROM s.rp_merge_s) src ON t.id = src.id WHEN MATCHED THEN UPDATE
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+EXPLAIN MERGE INTO s.rp_merge_t t USING s.rp_merge_s src ON t.id = src.id WHEN MATCHED THEN ERROR
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+DROP TABLE s.rp_merge_t
+
+statement ok
+DROP TABLE s.rp_merge_s

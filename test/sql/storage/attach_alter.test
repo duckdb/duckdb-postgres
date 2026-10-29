@@ -85,11 +85,26 @@ ALTER TABLE s1.test2 ADD COLUMN i INTEGER
 ----
 already exists
 
-# unsupported alter table type
-statement error
+# DROP NOT NULL is only supported when the statement is pushed down into Postgres
+statement ok
 ALTER TABLE s1.test2 ALTER COLUMN i DROP NOT NULL
+
+statement ok
+SET pg_enable_remote_pushdown = false
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1_local (TYPE POSTGRES)
+
+statement error
+ALTER TABLE s1_local.test2 ALTER COLUMN i DROP NOT NULL
 ----
 Unsupported ALTER TABLE type
+
+statement ok
+DETACH s1_local
+
+statement ok
+RESET pg_enable_remote_pushdown
 
 # rename column does not exist
 statement error

@@ -1,0 +1,470 @@
+# name: test/sql/remote_pushdown/remote_pushdown_window.test
+# description: Test remote pushdown of window functions into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_window AS SELECT i, i % 3 AS g, CASE WHEN i % 4 = 0 THEN NULL ELSE i * 10 END AS v, (i * 1.25)::DECIMAL(10,2) AS d FROM range(10) t(i)
+
+query II
+SELECT i, row_number() OVER (ORDER BY i DESC) FROM s.rp_window ORDER BY i
+----
+0	10
+1	9
+2	8
+3	7
+4	6
+5	5
+6	4
+7	3
+8	2
+9	1
+
+query II
+EXPLAIN SELECT i, row_number() OVER (ORDER BY i DESC) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*row_number\(\) OVER \(ORDER BY "i" DESC NULLS LAST\).*
+
+query III
+SELECT i, rank() OVER (PARTITION BY g ORDER BY v), dense_rank() OVER (ORDER BY g) FROM s.rp_window ORDER BY i
+----
+0	4	1
+1	1	2
+2	1	3
+3	1	1
+4	3	2
+5	2	3
+6	2	1
+7	2	2
+8	3	3
+9	3	1
+
+query II
+EXPLAIN SELECT i, rank() OVER (PARTITION BY g ORDER BY v), dense_rank() OVER (ORDER BY g) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*rank\(\) OVER \(PARTITION BY "g" ORDER BY "v" ASC NULLS LAST\).*
+
+query IIII
+SELECT i, percent_rank() OVER (ORDER BY g), cume_dist() OVER (ORDER BY g), ntile(3) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	0.0	0.4	1
+1	0.4444444444444444	0.7	1
+2	0.7777777777777778	1.0	1
+3	0.0	0.4	1
+4	0.4444444444444444	0.7	2
+5	0.7777777777777778	1.0	2
+6	0.0	0.4	2
+7	0.4444444444444444	0.7	3
+8	0.7777777777777778	1.0	3
+9	0.0	0.4	3
+
+query II
+EXPLAIN SELECT i, percent_rank() OVER (ORDER BY g), cume_dist() OVER (ORDER BY g), ntile(3) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# value functions
+query IIII
+SELECT i, lag(v) OVER (ORDER BY i), lead(v, 2) OVER (ORDER BY i), lag(i, 1, -1) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	NULL	20	-1
+1	NULL	30	-1
+2	10	NULL	-1
+3	20	50	0
+4	30	60	1
+5	NULL	70	2
+6	50	NULL	3
+7	60	90	4
+8	70	NULL	5
+9	NULL	NULL	6
+
+query II
+EXPLAIN SELECT i, lag(v) OVER (ORDER BY i), lead(v, 2) OVER (ORDER BY i), lag(i, 1, -1) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII
+SELECT i, first_value(v) OVER (PARTITION BY g ORDER BY i), last_value(v) OVER (PARTITION BY g ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), nth_value(v, 2) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	NULL	90	NULL
+1	10	70	NULL
+2	20	NULL	NULL
+3	NULL	90	30
+4	10	70	NULL
+5	20	NULL	50
+6	NULL	90	30
+7	10	70	NULL
+8	20	NULL	50
+9	NULL	90	30
+
+query II
+EXPLAIN SELECT i, first_value(v) OVER (PARTITION BY g ORDER BY i), last_value(v) OVER (PARTITION BY g ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), nth_value(v, 2) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# aggregates as window functions
+query IIIIII
+SELECT i, SUM(v) OVER (PARTITION BY g), COUNT(*) OVER (), AVG(i) OVER (ORDER BY i), MIN(v) OVER (ORDER BY i DESC), MAX(d) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	180	10	0.0	10	0.00
+1	80	10	0.5	10	1.25
+2	70	10	1.0	20	2.50
+3	180	10	1.5	30	3.75
+4	80	10	2.0	50	5.00
+5	70	10	2.5	50	6.25
+6	180	10	3.0	60	7.50
+7	80	10	3.5	70	8.75
+8	70	10	4.0	90	10.00
+9	180	10	4.5	90	11.25
+
+query II
+EXPLAIN SELECT i, SUM(v) OVER (PARTITION BY g), COUNT(*) OVER (), AVG(i) OVER (ORDER BY i), MIN(v) OVER (ORDER BY i DESC), MAX(d) OVER (PARTITION BY g ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT typeof(SUM(v) OVER ()), typeof(SUM(d) OVER ()) FROM s.rp_window LIMIT 1
+----
+HUGEINT	DECIMAL(38,2)
+
+# window frames
+query II
+SELECT i, SUM(i) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM s.rp_window ORDER BY i
+----
+0	1
+1	3
+2	6
+3	9
+4	12
+5	15
+6	18
+7	21
+8	24
+9	17
+
+query II
+EXPLAIN SELECT i, SUM(i) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING.*
+
+query II
+SELECT i, SUM(i) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM s.rp_window ORDER BY i
+----
+0	45
+1	45
+2	44
+3	42
+4	39
+5	35
+6	30
+7	24
+8	17
+9	9
+
+query II
+EXPLAIN SELECT i, SUM(i) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING.*
+
+query II
+SELECT i, SUM(i) OVER (ORDER BY i RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+0	0
+1	1
+2	3
+3	6
+4	9
+5	12
+6	15
+7	18
+8	21
+9	24
+
+query II
+EXPLAIN SELECT i, SUM(i) OVER (ORDER BY i RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*RANGE BETWEEN 2 PRECEDING AND CURRENT ROW.*
+
+query II
+SELECT i, COUNT(*) OVER (ORDER BY g GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+0	4
+1	7
+2	6
+3	4
+4	7
+5	6
+6	4
+7	7
+8	6
+9	4
+
+query II
+EXPLAIN SELECT i, COUNT(*) OVER (ORDER BY g GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW.*
+
+query II
+SELECT i, COUNT(*) OVER (ORDER BY g ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+0	9
+1	9
+2	9
+3	9
+4	9
+5	9
+6	9
+7	9
+8	9
+9	9
+
+query II
+EXPLAIN SELECT i, COUNT(*) OVER (ORDER BY g ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*EXCLUDE CURRENT ROW.*
+
+query II
+SELECT i, COUNT(*) OVER (ORDER BY g RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP) FROM s.rp_window ORDER BY i
+----
+0	0
+1	4
+2	7
+3	0
+4	4
+5	7
+6	0
+7	4
+8	7
+9	0
+
+query II
+EXPLAIN SELECT i, COUNT(*) OVER (ORDER BY g RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, COUNT(*) OVER (ORDER BY g RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) FROM s.rp_window ORDER BY i
+----
+0	1
+1	5
+2	8
+3	1
+4	5
+5	8
+6	1
+7	5
+8	8
+9	1
+
+query II
+EXPLAIN SELECT i, COUNT(*) OVER (ORDER BY g RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# FILTER on aggregate window functions
+query II
+SELECT i, COUNT(*) FILTER (WHERE v IS NULL) OVER (PARTITION BY g) FROM s.rp_window ORDER BY i
+----
+0	1
+1	1
+2	1
+3	1
+4	1
+5	1
+6	1
+7	1
+8	1
+9	1
+
+query II
+EXPLAIN SELECT i, COUNT(*) FILTER (WHERE v IS NULL) OVER (PARTITION BY g) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*count\(\*\) FILTER \(WHERE \("v" IS NULL\)\) OVER.*
+
+# NULL ordering within the window
+query II
+SELECT i, SUM(i) OVER (ORDER BY v NULLS FIRST, i) FROM s.rp_window ORDER BY i
+----
+0	0
+1	13
+2	15
+3	18
+4	4
+5	23
+6	29
+7	36
+8	12
+9	45
+
+query II
+EXPLAIN SELECT i, SUM(i) OVER (ORDER BY v NULLS FIRST, i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, SUM(i) OVER (ORDER BY v DESC, i) FROM s.rp_window ORDER BY i
+----
+0	33
+1	33
+2	32
+3	30
+4	37
+5	27
+6	22
+7	16
+8	45
+9	9
+
+query II
+EXPLAIN SELECT i, SUM(i) OVER (ORDER BY v DESC, i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# named windows
+query III
+SELECT i, MIN(i) OVER w, MAX(i) OVER w FROM s.rp_window WINDOW w AS (PARTITION BY g ORDER BY i) ORDER BY i
+----
+0	0	0
+1	1	1
+2	2	2
+3	0	3
+4	1	4
+5	2	5
+6	0	6
+7	1	7
+8	2	8
+9	0	9
+
+query II
+EXPLAIN SELECT i, MIN(i) OVER w, MAX(i) OVER w FROM s.rp_window WINDOW w AS (PARTITION BY g ORDER BY i) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# filtering on window results in a subquery
+query III
+SELECT * FROM (SELECT i, g, row_number() OVER (PARTITION BY g ORDER BY i DESC) AS rn FROM s.rp_window) WHERE rn = 1 ORDER BY g
+----
+9	0	1
+7	1	1
+8	2	1
+
+query II
+EXPLAIN SELECT * FROM (SELECT i, g, row_number() OVER (PARTITION BY g ORDER BY i DESC) AS rn FROM s.rp_window) WHERE rn = 1 ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# QUALIFY is not supported in Postgres
+query II
+SELECT i, g FROM s.rp_window QUALIFY row_number() OVER (PARTITION BY g ORDER BY i DESC) = 1 ORDER BY g
+----
+9	0
+7	1
+8	2
+
+query II
+EXPLAIN SELECT i, g FROM s.rp_window QUALIFY row_number() OVER (PARTITION BY g ORDER BY i DESC) = 1 ORDER BY g
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# IGNORE NULLS / DISTINCT / ORDER BY arguments are not pushed down
+query II
+SELECT i, last_value(v IGNORE NULLS) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	NULL
+1	10
+2	20
+3	30
+4	30
+5	50
+6	60
+7	70
+8	70
+9	90
+
+query II
+EXPLAIN SELECT i, last_value(v IGNORE NULLS) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, COUNT(DISTINCT g) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	1
+1	2
+2	3
+3	3
+4	3
+5	3
+6	3
+7	3
+8	3
+9	3
+
+query II
+EXPLAIN SELECT i, COUNT(DISTINCT g) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, first_value(v ORDER BY i DESC) OVER (PARTITION BY g) FROM s.rp_window ORDER BY i
+----
+0	90
+1	70
+2	NULL
+3	90
+4	70
+5	NULL
+6	90
+7	70
+8	NULL
+9	90
+
+query II
+EXPLAIN SELECT i, first_value(v ORDER BY i DESC) OVER (PARTITION BY g) FROM s.rp_window ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# negative / non-constant offsets are not pushed down
+query II
+SELECT i, lag(i, -1) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	1
+1	2
+2	3
+3	4
+4	5
+5	6
+6	7
+7	8
+8	9
+9	NULL
+
+query II
+EXPLAIN SELECT i, lag(i, -1) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, lag(i, g) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+0	0
+1	0
+2	0
+3	3
+4	3
+5	3
+6	6
+7	6
+8	6
+9	9
+
+query II
+EXPLAIN SELECT i, lag(i, g) OVER (ORDER BY i) FROM s.rp_window ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

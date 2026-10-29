@@ -135,6 +135,9 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	auto column_type = PostgresUtils::TypeToLogicalType(transaction, schema, type_config, type_info, postgres_type);
 	table_info.postgres_types.push_back(std::move(postgres_type));
 	table_info.postgres_names.push_back(column_name);
+	string type_name =
+	    type_info.type_schema.empty() ? string() : PostgresUtils::WriteIdentifier(type_info.type_schema) + ".";
+	table_info.postgres_type_names.push_back(type_name + PostgresUtils::WriteIdentifier(type_info.type_name));
 	auto column_default = PostgresColumnDefault::NONE;
 	if (!result.IsNull(row, 15)) {
 		column_default =

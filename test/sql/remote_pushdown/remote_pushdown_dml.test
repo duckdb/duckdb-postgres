@@ -1,0 +1,391 @@
+# name: test/sql/remote_pushdown/remote_pushdown_dml.test
+# description: Test remote pushdown of UPDATE / DELETE / INSERT statements into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_dml (id INTEGER PRIMARY KEY, v VARCHAR, n DOUBLE, d DATE, dec DECIMAL(10,2) DEFAULT 42)
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_dml_src (id INTEGER, v VARCHAR)
+
+statement ok
+INSERT INTO s.rp_dml_src VALUES (1, 'src1'), (2, 'src2'), (5, 'src5')
+
+# INSERT with a VALUES list - constants are cast to the column types locally, DEFAULT is supported
+query II
+EXPLAIN INSERT INTO s.rp_dml VALUES (1, 'a', 1.5, '2024-01-01', 1.255), (2, 'b', 2, NULL, DEFAULT)
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*INSERT INTO "public"."rp_dml" \("id", "v", "n", "d", "dec"\) VALUES \(1, 'a', CAST\('1.5' AS DOUBLE PRECISION\), DATE '2024-01-01', CAST\('1.26' AS NUMERIC\(10,2\)\)\), \(2, 'b', CAST\('2.0' AS DOUBLE PRECISION\), NULL, DEFAULT\).*
+
+# the statement returns the number of affected rows, like a regular INSERT
+query I
+INSERT INTO s.rp_dml VALUES (1, 'a', 1.5, '2024-01-01', 1.255), (2, 'b', 2, NULL, DEFAULT)
+----
+2
+
+query IIIII
+SELECT * FROM s.rp_dml ORDER BY id
+----
+1	a	1.5	2024-01-01	1.26
+2	b	2.0	NULL	42.00
+
+# INSERT with a column list
+statement ok
+INSERT INTO s.rp_dml (v, id) VALUES ('c', 3), ('d', 4)
+
+# INSERT ... SELECT from a remote table is pushed down as a whole
+query II
+EXPLAIN INSERT INTO s.rp_dml (id, v) SELECT id + 10, v FROM s.rp_dml_src
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*INSERT INTO "public"."rp_dml" \("id", "v"\) SELECT.*FROM "public"."rp_dml_src".*
+
+query I
+INSERT INTO s.rp_dml (id, v) SELECT id + 10, v FROM s.rp_dml_src
+----
+3
+
+# values of other types are cast like DuckDB casts them
+statement ok
+INSERT INTO s.rp_dml (id, v, n, d) SELECT 20, 1.5, '3', DATE '2024-02-02' + 1 FROM s.rp_dml_src LIMIT 1
+
+query IIIII
+SELECT * FROM s.rp_dml ORDER BY id
+----
+1	a	1.5	2024-01-01	1.26
+2	b	2.0	NULL	42.00
+3	c	NULL	NULL	42.00
+4	d	NULL	NULL	42.00
+11	src1	NULL	NULL	42.00
+12	src2	NULL	NULL	42.00
+15	src5	NULL	NULL	42.00
+20	1.5	3.0	2024-02-03	42.00
+
+# UPDATE
+query II
+EXPLAIN UPDATE s.rp_dml SET n = id * 2, v = v || '!' WHERE id > 10
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*UPDATE "public"."rp_dml" SET "n" = .*, "v" = \("v" \|\| '!'\) WHERE \("id" > 10\).*
+
+query I
+UPDATE s.rp_dml SET n = id * 2, v = v || '!' WHERE id > 10
+----
+4
+
+# UPDATE ... FROM
+query I
+UPDATE s.rp_dml SET v = src.v FROM s.rp_dml_src src WHERE rp_dml.id = src.id
+----
+2
+
+# UPDATE with DEFAULT
+statement ok
+UPDATE s.rp_dml SET dec = DEFAULT WHERE id = 1
+
+query IIIII
+SELECT * FROM s.rp_dml ORDER BY id
+----
+1	src1	1.5	2024-01-01	42.00
+2	src2	2.0	NULL	42.00
+3	c	NULL	NULL	42.00
+4	d	NULL	NULL	42.00
+11	src1!	22.0	NULL	42.00
+12	src2!	24.0	NULL	42.00
+15	src5!	30.0	NULL	42.00
+20	1.5!	40.0	2024-02-03	42.00
+
+# RETURNING is supported when the statement is pushed down
+query III
+UPDATE s.rp_dml SET n = n + 1 WHERE id IN (11, 12) RETURNING id, n, n * 2 AS doubled
+----
+11	23.0	46.0
+12	25.0	50.0
+
+query IIIIII
+INSERT INTO s.rp_dml (id, v) VALUES (30, 'thirty') RETURNING *, dec + 1
+----
+30	thirty	NULL	NULL	42.00	43.00
+
+query II
+DELETE FROM s.rp_dml WHERE id = 30 RETURNING id, v
+----
+30	thirty
+
+# DELETE
+query II
+EXPLAIN DELETE FROM s.rp_dml WHERE id >= 20
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*DELETE FROM "public"."rp_dml" WHERE \("id" >= 20\).*
+
+query I
+DELETE FROM s.rp_dml WHERE id >= 20
+----
+1
+
+# DELETE ... USING
+query I
+DELETE FROM s.rp_dml USING s.rp_dml_src src WHERE rp_dml.id = src.id + 10
+----
+3
+
+query I
+SELECT id FROM s.rp_dml ORDER BY id
+----
+1
+2
+3
+4
+
+# ON CONFLICT
+query II
+EXPLAIN INSERT INTO s.rp_dml (id, v) VALUES (1, 'conflict') ON CONFLICT (id) DO UPDATE SET v = excluded.v || '_updated', n = rp_dml.n + 100
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*ON CONFLICT \("id"\) DO UPDATE SET "v" = .*
+
+statement ok
+INSERT INTO s.rp_dml (id, v) VALUES (1, 'conflict') ON CONFLICT (id) DO UPDATE SET v = excluded.v || '_updated', n = rp_dml.n + 100
+
+statement ok
+INSERT INTO s.rp_dml (id, v) VALUES (2, 'ignored') ON CONFLICT DO NOTHING
+
+statement ok
+INSERT OR IGNORE INTO s.rp_dml (id, v) VALUES (3, 'ignored'), (5, 'five')
+
+# INSERT OR REPLACE updates the existing row using the primary key as the conflict target
+query II
+EXPLAIN INSERT OR REPLACE INTO s.rp_dml (id, v, n) VALUES (4, 'replaced', 0)
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*ON CONFLICT \("id"\) DO UPDATE SET "v" = "excluded"."v", "n" = "excluded"."n".*
+
+statement ok
+INSERT OR REPLACE INTO s.rp_dml (id, v, n) VALUES (4, 'replaced', 0)
+
+query IIIII
+SELECT * FROM s.rp_dml ORDER BY id
+----
+1	conflict_updated	101.5	2024-01-01	42.00
+2	src2	2.0	NULL	42.00
+3	c	NULL	NULL	42.00
+4	replaced	0.0	NULL	42.00
+5	five	NULL	NULL	42.00
+
+# DML is executed within the DuckDB transaction
+statement ok
+BEGIN
+
+statement ok
+DELETE FROM s.rp_dml WHERE id > 1
+
+query I
+SELECT COUNT(*) FROM s.rp_dml
+----
+1
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM s.rp_dml
+----
+5
+
+# DML with a local table is not pushed down
+statement ok
+CREATE TABLE local_dml AS SELECT 1 AS id
+
+query II
+EXPLAIN UPDATE s.rp_dml SET v = 'local' WHERE id IN (SELECT id FROM local_dml)
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# but the query that is inserted can be pushed down on its own
+query II
+EXPLAIN INSERT INTO local_dml SELECT MAX(id) FROM s.rp_dml
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# DML with constructs that cannot be translated is executed locally
+query II
+EXPLAIN UPDATE s.rp_dml SET n = n % 1.5::DOUBLE
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+UPDATE s.rp_dml SET n = n % 1.5::DOUBLE
+
+query II
+SELECT id, n FROM s.rp_dml ORDER BY id
+----
+1	1.0
+2	0.5
+3	NULL
+4	0.0
+5	NULL
+
+# INSERT BY NAME is DuckDB-specific
+query II
+EXPLAIN INSERT INTO s.rp_dml BY NAME SELECT 6 AS id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# DML is never pushed down into read-only databases
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_ro (TYPE POSTGRES, SCHEMA 'public', READ_ONLY)
+
+statement error
+UPDATE s_ro.rp_dml SET v = 'x'
+----
+read-only
+
+statement error
+DELETE FROM s_ro.rp_dml
+----
+read-only
+
+statement error
+INSERT INTO s_ro.rp_dml (id) VALUES (100)
+----
+read-only
+
+query I
+SELECT COUNT(*) FROM s.rp_dml
+----
+5
+
+# columns with Postgres-side defaults - NULL values are replaced with the default, like in a regular INSERT
+statement ok
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS rp_dml_defaults')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE rp_dml_defaults (id SERIAL PRIMARY KEY, v INT, total INT GENERATED ALWAYS AS (v * 2) STORED, e TEXT DEFAULT ''dflt'')')
+
+statement ok
+CALL postgres_clear_cache()
+
+query II
+EXPLAIN INSERT INTO s.rp_dml_defaults VALUES (NULL, 1, NULL, NULL), (DEFAULT, 2, DEFAULT, 'x')
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*INSERT INTO "public"."rp_dml_defaults" \("id", "v", "e"\) VALUES \(DEFAULT, 1, DEFAULT\), \(DEFAULT, 2, 'x'\).*
+
+statement ok
+INSERT INTO s.rp_dml_defaults VALUES (NULL, 1, NULL, NULL), (DEFAULT, 2, DEFAULT, 'x')
+
+statement ok
+INSERT INTO s.rp_dml_defaults (v) VALUES (3)
+
+# values for generated columns are rejected
+statement error
+INSERT INTO s.rp_dml_defaults (v, total) VALUES (4, 8)
+----
+generated column
+
+# INSERT ... SELECT into columns with defaults is executed by the regular INSERT
+query II
+EXPLAIN INSERT INTO s.rp_dml_defaults (v, e) SELECT v + 10, NULL FROM s.rp_dml_defaults
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+INSERT INTO s.rp_dml_defaults (v, e) SELECT v + 10, NULL FROM s.rp_dml_defaults
+
+query II
+EXPLAIN INSERT INTO s.rp_dml_defaults (v) SELECT v + 10 FROM s.rp_dml_defaults
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII
+SELECT * FROM s.rp_dml_defaults ORDER BY id
+----
+1	1	2	dflt
+2	2	4	x
+3	3	6	dflt
+4	11	22	dflt
+5	12	24	dflt
+6	13	26	dflt
+
+# columns with types that DuckDB does not read natively
+statement ok
+CALL postgres_execute('s', 'DROP TABLE IF EXISTS rp_dml_types')
+
+statement ok
+CALL postgres_execute('s', 'DROP TYPE IF EXISTS rp_dml_mood')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TYPE rp_dml_mood AS ENUM (''sad'', ''ok'', ''happy'')')
+
+statement ok
+CALL postgres_execute('s', 'CREATE TABLE rp_dml_types (id INT PRIMARY KEY, j JSON, m rp_dml_mood)')
+
+statement ok
+CALL postgres_clear_cache()
+
+statement ok
+INSERT INTO s.rp_dml_types VALUES (1, '{"a": 1}', 'ok'), (2, NULL, NULL)
+
+query II
+EXPLAIN UPDATE s.rp_dml_types SET j = '[' || id || ']', m = 'happy' WHERE id = 2
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*SET "j" = CAST\(.* AS "pg_catalog"."json"\), "m" = 'happy'.*
+
+statement ok
+UPDATE s.rp_dml_types SET j = '[' || id || ']', m = 'happy' WHERE id = 2
+
+query III
+SELECT id, j, m FROM s.rp_dml_types ORDER BY id
+----
+1	{"a": 1}	ok
+2	[2]	happy
+
+# invalid enum values are rejected by DuckDB
+statement error
+INSERT INTO s.rp_dml_types VALUES (3, NULL, 'unknown')
+----
+Could not convert
+
+# Postgres raises an error when an upsert affects the same row twice - DuckDB does not, so these are executed by
+# the regular INSERT
+query II
+EXPLAIN INSERT INTO s.rp_dml (id, v) VALUES (1, 'first'), (1, 'second') ON CONFLICT (id) DO UPDATE SET v = excluded.v
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+INSERT INTO s.rp_dml (id, v) VALUES (1, 'first'), (1, 'second') ON CONFLICT (id) DO UPDATE SET v = excluded.v
+
+query I
+SELECT v FROM s.rp_dml WHERE id = 1
+----
+first
+
+statement ok
+UPDATE s.rp_dml_types SET m = 'happy' WHERE id = 1
+
+# unqualified columns in ON CONFLICT DO UPDATE refer to the existing row
+query II
+EXPLAIN INSERT INTO s.rp_dml_types VALUES (2, NULL, 'sad') ON CONFLICT (id) DO UPDATE SET m = excluded.m WHERE m = 'happy'
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*DO UPDATE SET "m" = "excluded"."m" WHERE \(CAST\("rp_dml_types"."m" AS TEXT\) = 'happy'\).*
+
+statement ok
+INSERT INTO s.rp_dml_types VALUES (2, NULL, 'sad') ON CONFLICT (id) DO UPDATE SET m = excluded.m WHERE m = 'happy'
+
+query II
+SELECT id, m FROM s.rp_dml_types ORDER BY id
+----
+1	happy
+2	sad
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE rp_dml_types')
+
+statement ok
+CALL postgres_execute('s', 'DROP TYPE rp_dml_mood')
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE rp_dml_defaults')

@@ -28,10 +28,11 @@ CREATE VIEW v1 AS SELECT 84;
 ----
 already exists
 
+# the error is raised by Postgres - "cannot insert into view" when the INSERT is pushed down
 statement error
 INSERT INTO v1 VALUES (42);
 ----
-cannot copy to view
+<REGEX>:.*(cannot copy to view|cannot insert into view).*
 
 # FIXME - error message here is not very descriptive
 statement error

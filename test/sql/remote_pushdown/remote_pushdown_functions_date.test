@@ -1,0 +1,425 @@
+# name: test/sql/remote_pushdown/remote_pushdown_functions_date.test
+# description: Test remote pushdown of date / time functions into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require icu
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+# setting the time zone also loads ICU when the test runner autoloads extensions instead of loading them with
+# "require" (e.g. with LOCAL_EXTENSION_REPO) - and makes the results independent of the time zone of the machine
+statement ok
+SET TimeZone = 'UTC'
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_date AS SELECT i, DATE '2023-12-25' + (i * 17)::INT AS dt, TIMESTAMP '1969-12-31 22:30:00.123456' + INTERVAL (i * 7) HOUR + INTERVAL (i * 13) MINUTE + INTERVAL (i * 1001) MILLISECOND AS ts, INTERVAL (i * 30) HOUR + INTERVAL (i) MONTH AS iv, TIME '10:15:30' + INTERVAL (i * 7) MINUTE AS tm FROM range(10) t(i)
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_date_tz AS SELECT i, TIMESTAMPTZ '2024-03-30 22:00:00+00' + INTERVAL (i * 5) HOUR AS tstz FROM range(10) t(i)
+
+# date parts are serialized as EXTRACT
+query IIIIIIIIII
+SELECT i, year(dt), month(dt), day(dt), quarter(dt), dayofweek(dt), isodow(dt), dayofyear(dt), week(dt), isoyear(dt) FROM s.rp_date ORDER BY i
+----
+0	2023	12	25	4	1	1	359	52	2023
+1	2024	1	11	1	4	4	11	2	2024
+2	2024	1	28	1	0	7	28	4	2024
+3	2024	2	14	1	3	3	45	7	2024
+4	2024	3	2	1	6	6	62	9	2024
+5	2024	3	19	1	2	2	79	12	2024
+6	2024	4	5	2	5	5	96	14	2024
+7	2024	4	22	2	1	1	113	17	2024
+8	2024	5	9	2	4	4	130	19	2024
+9	2024	5	26	2	0	7	147	21	2024
+
+query II
+EXPLAIN SELECT i, year(dt), month(dt), day(dt), quarter(dt), dayofweek(dt), isodow(dt), dayofyear(dt), week(dt), isoyear(dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*CAST\(EXTRACT\(MONTH FROM "dt"\) AS BIGINT\).*
+
+query IIIIIIIII
+SELECT i, hour(ts), minute(ts), second(ts), millisecond(ts), microsecond(ts), decade(ts), century(ts), millennium(dt) FROM s.rp_date ORDER BY i
+----
+0	22	30	0	123	123456	196	20	3
+1	5	43	1	1124	1124456	197	20	3
+2	12	56	2	2125	2125456	197	20	3
+3	20	9	3	3126	3126456	197	20	3
+4	3	22	4	4127	4127456	197	20	3
+5	10	35	5	5128	5128456	197	20	3
+6	17	48	6	6129	6129456	197	20	3
+7	1	1	7	7130	7130456	197	20	3
+8	8	14	8	8131	8131456	197	20	3
+9	15	27	9	9132	9132456	197	20	3
+
+query II
+EXPLAIN SELECT i, hour(ts), minute(ts), second(ts), millisecond(ts), microsecond(ts), decade(ts), century(ts), millennium(dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIIIII
+SELECT i, date_part('year', ts), date_part('month', dt), extract(day FROM ts), extract(hour FROM tm), extract(minute FROM tm), date_part('second', tm), date_part('doy', dt), date_part('dow', ts) FROM s.rp_date ORDER BY i
+----
+0	1969	12	31	10	15	30	359	3
+1	1970	1	1	10	22	30	11	4
+2	1970	1	1	10	29	30	28	4
+3	1970	2	1	10	36	30	45	4
+4	1970	3	2	10	43	30	62	5
+5	1970	3	2	10	50	30	79	5
+6	1970	4	2	10	57	30	96	5
+7	1970	4	3	11	4	30	113	6
+8	1970	5	3	11	11	30	130	6
+9	1970	5	3	11	18	30	147	6
+
+query II
+EXPLAIN SELECT i, date_part('year', ts), date_part('month', dt), extract(day FROM ts), extract(hour FROM tm), extract(minute FROM tm), date_part('second', tm), date_part('doy', dt), date_part('dow', ts) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII
+SELECT i, epoch(ts), epoch(dt), date_part('epoch', ts), epoch_ms(ts), date_part('julian', dt) FROM s.rp_date ORDER BY i
+----
+0	-5399.876544	1703462400.0	-5399.876544	-5399877	2460304.0
+1	20581.124456	1704931200.0	20581.124456	20581124	2460321.0
+2	46562.125456	1706400000.0	46562.125456	46562125	2460338.0
+3	72543.126456	1707868800.0	72543.126456	72543126	2460355.0
+4	98524.127456	1709337600.0	98524.127456	98524127	2460372.0
+5	124505.128456	1710806400.0	124505.128456	124505128	2460389.0
+6	150486.129456	1712275200.0	150486.129456	150486129	2460406.0
+7	176467.130456	1713744000.0	176467.130456	176467130	2460423.0
+8	202448.131456	1715212800.0	202448.131456	202448131	2460440.0
+9	228429.132456	1716681600.0	228429.132456	228429132	2460457.0
+
+query II
+EXPLAIN SELECT i, epoch(ts), epoch(dt), date_part('epoch', ts), epoch_ms(ts), date_part('julian', dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIII
+SELECT i, date_part('year', iv), date_part('month', iv), date_part('day', iv), date_part('hour', iv), date_part('minute', iv), date_part('epoch', iv) FROM s.rp_date ORDER BY i
+----
+0	0	0	0	0	0	0.0
+1	0	1	0	30	0	2700000.0
+2	0	2	0	60	0	5400000.0
+3	0	3	0	90	0	8100000.0
+4	0	4	0	120	0	10800000.0
+5	0	5	0	150	0	13500000.0
+6	0	6	0	180	0	16200000.0
+7	0	7	0	210	0	18900000.0
+8	0	8	0	240	0	21600000.0
+9	0	9	0	270	0	24300000.0
+
+query II
+EXPLAIN SELECT i, date_part('year', iv), date_part('month', iv), date_part('day', iv), date_part('hour', iv), date_part('minute', iv), date_part('epoch', iv) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# date parts of a TIMESTAMP WITH TIME ZONE use the DuckDB time zone
+statement ok
+SET TimeZone = 'America/New_York'
+
+query IIIIIIII
+SELECT i, tstz, year(tstz), month(tstz), day(tstz), hour(tstz), dayofweek(tstz), epoch(tstz) FROM s.rp_date_tz ORDER BY i
+----
+0	2024-03-30 18:00:00-04	2024	3	30	18	6	1711836000.0
+1	2024-03-30 23:00:00-04	2024	3	30	23	6	1711854000.0
+2	2024-03-31 04:00:00-04	2024	3	31	4	0	1711872000.0
+3	2024-03-31 09:00:00-04	2024	3	31	9	0	1711890000.0
+4	2024-03-31 14:00:00-04	2024	3	31	14	0	1711908000.0
+5	2024-03-31 19:00:00-04	2024	3	31	19	0	1711926000.0
+6	2024-04-01 00:00:00-04	2024	4	1	0	1	1711944000.0
+7	2024-04-01 05:00:00-04	2024	4	1	5	1	1711962000.0
+8	2024-04-01 10:00:00-04	2024	4	1	10	1	1711980000.0
+9	2024-04-01 15:00:00-04	2024	4	1	15	1	1711998000.0
+
+query II
+EXPLAIN SELECT i, tstz, year(tstz), month(tstz), day(tstz), hour(tstz), dayofweek(tstz), epoch(tstz) FROM s.rp_date_tz ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*CAST\(EXTRACT\(HOUR FROM "tstz"\) AS BIGINT\).*
+
+query IIIII
+SELECT i, date_trunc('day', tstz), CAST(tstz AS DATE), CAST(tstz AS TIMESTAMP), CAST(tstz AS VARCHAR) FROM s.rp_date_tz ORDER BY i
+----
+0	2024-03-30 00:00:00-04	2024-03-30	2024-03-30 18:00:00	2024-03-30 18:00:00-04
+1	2024-03-30 00:00:00-04	2024-03-30	2024-03-30 23:00:00	2024-03-30 23:00:00-04
+2	2024-03-31 00:00:00-04	2024-03-31	2024-03-31 04:00:00	2024-03-31 04:00:00-04
+3	2024-03-31 00:00:00-04	2024-03-31	2024-03-31 09:00:00	2024-03-31 09:00:00-04
+4	2024-03-31 00:00:00-04	2024-03-31	2024-03-31 14:00:00	2024-03-31 14:00:00-04
+5	2024-03-31 00:00:00-04	2024-03-31	2024-03-31 19:00:00	2024-03-31 19:00:00-04
+6	2024-04-01 00:00:00-04	2024-04-01	2024-04-01 00:00:00	2024-04-01 00:00:00-04
+7	2024-04-01 00:00:00-04	2024-04-01	2024-04-01 05:00:00	2024-04-01 05:00:00-04
+8	2024-04-01 00:00:00-04	2024-04-01	2024-04-01 10:00:00	2024-04-01 10:00:00-04
+9	2024-04-01 00:00:00-04	2024-04-01	2024-04-01 15:00:00	2024-04-01 15:00:00-04
+
+query II
+EXPLAIN SELECT i, date_trunc('day', tstz), CAST(tstz AS DATE), CAST(tstz AS TIMESTAMP), CAST(tstz AS VARCHAR) FROM s.rp_date_tz ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+SET TimeZone = 'Asia/Kolkata'
+
+query IIIII
+SELECT i, hour(tstz), minute(tstz), date_trunc('hour', tstz), CAST(tstz AS DATE) FROM s.rp_date_tz ORDER BY i
+----
+0	3	30	2024-03-31 03:00:00+05:30	2024-03-31
+1	8	30	2024-03-31 08:00:00+05:30	2024-03-31
+2	13	30	2024-03-31 13:00:00+05:30	2024-03-31
+3	18	30	2024-03-31 18:00:00+05:30	2024-03-31
+4	23	30	2024-03-31 23:00:00+05:30	2024-03-31
+5	4	30	2024-04-01 04:00:00+05:30	2024-04-01
+6	9	30	2024-04-01 09:00:00+05:30	2024-04-01
+7	14	30	2024-04-01 14:00:00+05:30	2024-04-01
+8	19	30	2024-04-01 19:00:00+05:30	2024-04-01
+9	0	30	2024-04-02 00:00:00+05:30	2024-04-02
+
+query II
+EXPLAIN SELECT i, hour(tstz), minute(tstz), date_trunc('hour', tstz), CAST(tstz AS DATE) FROM s.rp_date_tz ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement ok
+SET TimeZone = 'UTC'
+
+# date_trunc - DuckDB truncates dates to a TIMESTAMP
+query IIIIIIII
+SELECT i, date_trunc('month', dt), date_trunc('week', dt), date_trunc('quarter', ts), date_trunc('hour', ts), date_trunc('decade', dt), date_trunc('second', ts), date_trunc('milliseconds', ts) FROM s.rp_date ORDER BY i
+----
+0	2023-12-01 00:00:00	2023-12-25 00:00:00	1969-10-01 00:00:00	1969-12-31 22:00:00	2020-01-01 00:00:00	1969-12-31 22:30:00	1969-12-31 22:30:00.123
+1	2024-01-01 00:00:00	2024-01-08 00:00:00	1970-01-01 00:00:00	1970-01-01 05:00:00	2020-01-01 00:00:00	1970-01-01 05:43:01	1970-01-01 05:43:01.124
+2	2024-01-01 00:00:00	2024-01-22 00:00:00	1970-01-01 00:00:00	1970-01-01 12:00:00	2020-01-01 00:00:00	1970-01-01 12:56:02	1970-01-01 12:56:02.125
+3	2024-02-01 00:00:00	2024-02-12 00:00:00	1970-01-01 00:00:00	1970-01-01 20:00:00	2020-01-01 00:00:00	1970-01-01 20:09:03	1970-01-01 20:09:03.126
+4	2024-03-01 00:00:00	2024-02-26 00:00:00	1970-01-01 00:00:00	1970-01-02 03:00:00	2020-01-01 00:00:00	1970-01-02 03:22:04	1970-01-02 03:22:04.127
+5	2024-03-01 00:00:00	2024-03-18 00:00:00	1970-01-01 00:00:00	1970-01-02 10:00:00	2020-01-01 00:00:00	1970-01-02 10:35:05	1970-01-02 10:35:05.128
+6	2024-04-01 00:00:00	2024-04-01 00:00:00	1970-01-01 00:00:00	1970-01-02 17:00:00	2020-01-01 00:00:00	1970-01-02 17:48:06	1970-01-02 17:48:06.129
+7	2024-04-01 00:00:00	2024-04-22 00:00:00	1970-01-01 00:00:00	1970-01-03 01:00:00	2020-01-01 00:00:00	1970-01-03 01:01:07	1970-01-03 01:01:07.13
+8	2024-05-01 00:00:00	2024-05-06 00:00:00	1970-01-01 00:00:00	1970-01-03 08:00:00	2020-01-01 00:00:00	1970-01-03 08:14:08	1970-01-03 08:14:08.131
+9	2024-05-01 00:00:00	2024-05-20 00:00:00	1970-01-01 00:00:00	1970-01-03 15:00:00	2020-01-01 00:00:00	1970-01-03 15:27:09	1970-01-03 15:27:09.132
+
+query II
+EXPLAIN SELECT i, date_trunc('month', dt), date_trunc('week', dt), date_trunc('quarter', ts), date_trunc('hour', ts), date_trunc('decade', dt), date_trunc('second', ts), date_trunc('milliseconds', ts) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*date_trunc\('month', CAST\("dt" AS TIMESTAMP\)\).*
+
+query I rowsort
+SELECT typeof(date_trunc('month', dt)) FROM s.rp_date LIMIT 1
+----
+TIMESTAMP
+
+query III
+SELECT i, last_day(dt), last_day(ts) FROM s.rp_date ORDER BY i
+----
+0	2023-12-31	1969-12-31
+1	2024-01-31	1970-01-31
+2	2024-01-31	1970-01-31
+3	2024-02-29	1970-01-31
+4	2024-03-31	1970-01-31
+5	2024-03-31	1970-01-31
+6	2024-04-30	1970-01-31
+7	2024-04-30	1970-01-31
+8	2024-05-31	1970-01-31
+9	2024-05-31	1970-01-31
+
+query II
+EXPLAIN SELECT i, last_day(dt), last_day(ts) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# date_diff counts the boundaries crossed
+query IIIIII
+SELECT i, date_diff('day', dt, ts), date_diff('month', ts, dt), date_diff('year', dt, DATE '2030-01-01'), date_diff('quarter', dt, ts), date_diff('week', dt, DATE '2024-06-01') FROM s.rp_date ORDER BY i
+----
+0	-19717	648	7	-216	22
+1	-19733	648	6	-216	20
+2	-19750	648	6	-216	17
+3	-19767	649	6	-216	15
+4	-19783	650	6	-216	13
+5	-19800	650	6	-216	10
+6	-19817	651	6	-217	8
+7	-19833	651	6	-217	5
+8	-19850	652	6	-217	3
+9	-19867	652	6	-217	0
+
+query II
+EXPLAIN SELECT i, date_diff('day', dt, ts), date_diff('month', ts, dt), date_diff('year', dt, DATE '2030-01-01'), date_diff('quarter', dt, ts), date_diff('week', dt, DATE '2024-06-01') FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*CAST\(\(CAST\("ts" AS DATE\) - CAST\("dt" AS DATE\)\) AS BIGINT\).*
+
+query IIIIII
+SELECT i, date_diff('hour', ts, dt), date_diff('minute', dt, ts), date_diff('second', ts, TIMESTAMP '2024-01-01'), date_diff('millisecond', ts, TIMESTAMP '1960-01-01'), date_diff('microsecond', ts, dt) FROM s.rp_date ORDER BY i
+----
+0	473186	-28391130	1704072600	-315613800123	1703467799876544
+1	473587	-28415177	1704046619	-315639781124	1704910618875544
+2	473988	-28439224	1704020638	-315665762125	1706353437874544
+3	474388	-28463271	1703994657	-315691743126	1707796256873544
+4	474789	-28487318	1703968676	-315717724127	1709239075872544
+5	475190	-28511365	1703942695	-315743705128	1710681894871544
+6	475591	-28535412	1703916714	-315769686129	1712124713870544
+7	475991	-28559459	1703890733	-315795667130	1713567532869544
+8	476392	-28583506	1703864752	-315821648131	1715010351868544
+9	476793	-28607553	1703838771	-315847629132	1716453170867544
+
+query II
+EXPLAIN SELECT i, date_diff('hour', ts, dt), date_diff('minute', dt, ts), date_diff('second', ts, TIMESTAMP '2024-01-01'), date_diff('millisecond', ts, TIMESTAMP '1960-01-01'), date_diff('microsecond', ts, dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIII
+SELECT i, datediff('decade', dt, DATE '1999-01-01'), date_diff('century', ts, dt), date_diff('isoyear', dt, ts), datediff('millennium', ts, DATE '2001-01-01') FROM s.rp_date ORDER BY i
+----
+0	-3	1	-53	1
+1	-3	1	-54	1
+2	-3	1	-54	1
+3	-3	1	-54	1
+4	-3	1	-54	1
+5	-3	1	-54	1
+6	-3	1	-54	1
+7	-3	1	-54	1
+8	-3	1	-54	1
+9	-3	1	-54	1
+
+query II
+EXPLAIN SELECT i, datediff('decade', dt, DATE '1999-01-01'), date_diff('century', ts, dt), date_diff('isoyear', dt, ts), datediff('millennium', ts, DATE '2001-01-01') FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# date_diff of TIMESTAMP WITH TIME ZONE values uses calendar arithmetic in DuckDB
+query II
+SELECT i, date_diff('hour', tstz, TIMESTAMPTZ '2024-04-01 00:00:00+00') FROM s.rp_date_tz ORDER BY i
+----
+0	26
+1	21
+2	16
+3	11
+4	6
+5	1
+6	-4
+7	-9
+8	-14
+9	-19
+
+query II
+EXPLAIN SELECT i, date_diff('hour', tstz, TIMESTAMPTZ '2024-04-01 00:00:00+00') FROM s.rp_date_tz ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# other date functions
+query III
+SELECT i, make_date(2024, i + 1, i + 10), to_timestamp(i * 1000000.5) FROM s.rp_date ORDER BY i
+----
+0	2024-01-10	1970-01-01 00:00:00+00
+1	2024-02-11	1970-01-12 13:46:40.5+00
+2	2024-03-12	1970-01-24 03:33:21+00
+3	2024-04-13	1970-02-04 17:20:01.5+00
+4	2024-05-14	1970-02-16 07:06:42+00
+5	2024-06-15	1970-02-27 20:53:22.5+00
+6	2024-07-16	1970-03-11 10:40:03+00
+7	2024-08-17	1970-03-23 00:26:43.5+00
+8	2024-09-18	1970-04-03 14:13:24+00
+9	2024-10-19	1970-04-15 04:00:04.5+00
+
+query II
+EXPLAIN SELECT i, make_date(2024, i + 1, i + 10), to_timestamp(i * 1000000.5) FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# date arithmetic
+query IIIIIIII
+SELECT i, dt + 5, dt - 3, dt + INTERVAL 1 MONTH, ts - INTERVAL '90 minutes', ts - dt, dt - DATE '2024-01-01', tm + INTERVAL 1 HOUR FROM s.rp_date ORDER BY i
+----
+0	2023-12-30	2023-12-22	2024-01-25 00:00:00	1969-12-31 21:00:00.123456	-19716 days -01:29:59.876544	-7	11:15:30
+1	2024-01-16	2024-01-08	2024-02-11 00:00:00	1970-01-01 04:13:01.124456	-19732 days -18:16:58.875544	10	11:22:30
+2	2024-02-02	2024-01-25	2024-02-28 00:00:00	1970-01-01 11:26:02.125456	-19749 days -11:03:57.874544	27	11:29:30
+3	2024-02-19	2024-02-11	2024-03-14 00:00:00	1970-01-01 18:39:03.126456	-19766 days -03:50:56.873544	44	11:36:30
+4	2024-03-07	2024-02-28	2024-04-02 00:00:00	1970-01-02 01:52:04.127456	-19782 days -20:37:55.872544	61	11:43:30
+5	2024-03-24	2024-03-16	2024-04-19 00:00:00	1970-01-02 09:05:05.128456	-19799 days -13:24:54.871544	78	11:50:30
+6	2024-04-10	2024-04-02	2024-05-05 00:00:00	1970-01-02 16:18:06.129456	-19816 days -06:11:53.870544	95	11:57:30
+7	2024-04-27	2024-04-19	2024-05-22 00:00:00	1970-01-02 23:31:07.130456	-19832 days -22:58:52.869544	112	12:04:30
+8	2024-05-14	2024-05-06	2024-06-09 00:00:00	1970-01-03 06:44:08.131456	-19849 days -15:45:51.868544	129	12:11:30
+9	2024-05-31	2024-05-23	2024-06-26 00:00:00	1970-01-03 13:57:09.132456	-19866 days -08:32:50.867544	146	12:18:30
+
+query II
+EXPLAIN SELECT i, dt + 5, dt - 3, dt + INTERVAL 1 MONTH, ts - INTERVAL '90 minutes', ts - dt, dt - DATE '2024-01-01', tm + INTERVAL 1 HOUR FROM s.rp_date ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# date / time functions that depend on the locale or are not available in Postgres
+query I
+SELECT monthname(dt) FROM s.rp_date ORDER BY i
+----
+December
+January
+January
+February
+March
+March
+April
+April
+May
+May
+
+query II
+EXPLAIN SELECT monthname(dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT strftime(dt, '%Y/%m') FROM s.rp_date ORDER BY i
+----
+2023/12
+2024/01
+2024/01
+2024/02
+2024/03
+2024/03
+2024/04
+2024/04
+2024/05
+2024/05
+
+query II
+EXPLAIN SELECT strftime(dt, '%Y/%m') FROM s.rp_date ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT age(ts, TIMESTAMP '2020-01-01') FROM s.rp_date ORDER BY i
+----
+-50 years -01:29:59.876544
+-49 years -11 months -30 days -18:16:58.875544
+-49 years -11 months -30 days -11:03:57.874544
+-49 years -11 months -30 days -03:50:56.873544
+-49 years -11 months -29 days -20:37:55.872544
+-49 years -11 months -29 days -13:24:54.871544
+-49 years -11 months -29 days -06:11:53.870544
+-49 years -11 months -28 days -22:58:52.869544
+-49 years -11 months -28 days -15:45:51.868544
+-49 years -11 months -28 days -08:32:50.867544
+
+query II
+EXPLAIN SELECT age(ts, TIMESTAMP '2020-01-01') FROM s.rp_date ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT yearweek(dt) FROM s.rp_date ORDER BY i
+----
+202352
+202402
+202404
+202407
+202409
+202412
+202414
+202417
+202419
+202421
+
+query II
+EXPLAIN SELECT yearweek(dt) FROM s.rp_date ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

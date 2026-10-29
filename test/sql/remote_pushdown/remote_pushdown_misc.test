@@ -1,0 +1,423 @@
+# name: test/sql/remote_pushdown/remote_pushdown_misc.test
+# description: Test miscellaneous constructs in remote pushdown into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+# DESC: Test miscellaneous constructs in remote pushdown into Postgres
+statement ok
+CREATE OR REPLACE TABLE s.rp_misc AS SELECT i, i % 3 AS g, CASE WHEN i % 4 = 0 THEN NULL ELSE 'v' || (i % 4) END AS v FROM range(10) t(i)
+
+# LIMIT / OFFSET
+query I
+SELECT i FROM s.rp_misc ORDER BY i LIMIT 3 OFFSET 2
+----
+2
+3
+4
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc ORDER BY i LIMIT 3 OFFSET 2
+----
+physical_plan	<REGEX>:(?s).*LIMIT 3 OFFSET 2.*
+
+query I
+SELECT i FROM s.rp_misc ORDER BY i OFFSET 8
+----
+8
+9
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc ORDER BY i OFFSET 8
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT i FROM s.rp_misc ORDER BY i LIMIT 20 PERCENT
+----
+0
+1
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc ORDER BY i LIMIT 20 PERCENT
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# DISTINCT / DISTINCT ON
+query II
+SELECT DISTINCT g, v FROM s.rp_misc ORDER BY g, v
+----
+0	v1
+0	v2
+0	v3
+0	NULL
+1	v1
+1	v3
+1	NULL
+2	v1
+2	v2
+2	NULL
+
+query II
+EXPLAIN SELECT DISTINCT g, v FROM s.rp_misc ORDER BY g
+----
+physical_plan	<REGEX>:(?s).*SELECT DISTINCT "g", "v".*
+
+query I rowsort
+SELECT COUNT(*) FROM (SELECT DISTINCT ON (g) g, i FROM s.rp_misc)
+----
+3
+
+query II
+SELECT DISTINCT ON (g) g, i FROM s.rp_misc ORDER BY g, i DESC
+----
+0	9
+1	7
+2	8
+
+query II
+EXPLAIN SELECT DISTINCT ON (g) g, i FROM s.rp_misc ORDER BY g, i DESC
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# CASE expressions
+query III
+SELECT i, CASE WHEN i < 3 THEN 'low' WHEN i < 6 THEN 'mid' END, CASE g WHEN 0 THEN 'zero' ELSE 'other' END FROM s.rp_misc ORDER BY i
+----
+0	low	zero
+1	low	other
+2	low	other
+3	mid	zero
+4	mid	other
+5	mid	other
+6	NULL	zero
+7	NULL	other
+8	NULL	other
+9	NULL	zero
+
+query II
+EXPLAIN SELECT i, CASE WHEN i < 3 THEN 'low' WHEN i < 6 THEN 'mid' END, CASE g WHEN 0 THEN 'zero' ELSE 'other' END FROM s.rp_misc ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# predicates
+query I
+SELECT i FROM s.rp_misc WHERE v IS DISTINCT FROM 'v1' AND v IS NOT DISTINCT FROM v ORDER BY i
+----
+0
+2
+3
+4
+6
+7
+8
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc WHERE v IS DISTINCT FROM 'v1' AND v IS NOT DISTINCT FROM v ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT i FROM s.rp_misc WHERE i BETWEEN 2 AND 6 AND i NOT BETWEEN 3 AND 4 ORDER BY i
+----
+2
+5
+6
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc WHERE i BETWEEN 2 AND 6 AND i NOT BETWEEN 3 AND 4 ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT i FROM s.rp_misc WHERE (i > 7) IS TRUE OR (v IS NULL) IS NOT FALSE ORDER BY i
+----
+0
+4
+8
+9
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc WHERE (i > 7) IS TRUE OR (v IS NULL) IS NOT FALSE ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III
+SELECT i, NOT (i > 3 AND g = 1), i > 3 OR v IS NULL FROM s.rp_misc ORDER BY i
+----
+0	true	true
+1	true	false
+2	true	false
+3	true	false
+4	false	true
+5	true	true
+6	true	true
+7	false	true
+8	true	true
+9	true	true
+
+query II
+EXPLAIN SELECT i, NOT (i > 3 AND g = 1), i > 3 OR v IS NULL FROM s.rp_misc ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III
+SELECT i, COALESCE(v, 'none'), ifnull(v, '-') FROM s.rp_misc ORDER BY i
+----
+0	none	-
+1	v1	v1
+2	v2	v2
+3	v3	v3
+4	none	-
+5	v1	v1
+6	v2	v2
+7	v3	v3
+8	none	-
+9	v1	v1
+
+query II
+EXPLAIN SELECT i, COALESCE(v, 'none'), ifnull(v, '-') FROM s.rp_misc ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# NULLIF is a macro in DuckDB - macros from local catalogs prevent pushdown
+query II
+SELECT i, NULLIF(g, 0) FROM s.rp_misc ORDER BY i
+----
+0	NULL
+1	1
+2	2
+3	NULL
+4	1
+5	2
+6	NULL
+7	1
+8	2
+9	NULL
+
+query II
+EXPLAIN SELECT i, NULLIF(g, 0) FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# select-list aliases can be used in GROUP BY / ORDER BY, but not in the WHERE clause in Postgres
+query II
+SELECT i % 2 AS parity, COUNT(*) FROM s.rp_misc GROUP BY parity ORDER BY parity
+----
+0	5
+1	5
+
+query II
+EXPLAIN SELECT i % 2 AS parity, COUNT(*) FROM s.rp_misc GROUP BY parity ORDER BY parity
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT i * 2 AS doubled FROM s.rp_misc WHERE doubled > 10 ORDER BY doubled
+----
+12
+14
+16
+18
+
+query II
+EXPLAIN SELECT i * 2 AS doubled FROM s.rp_misc WHERE doubled > 10 ORDER BY doubled
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i * 2 AS doubled, doubled + 1 FROM s.rp_misc ORDER BY i
+----
+0	1
+2	3
+4	5
+6	7
+8	9
+10	11
+12	13
+14	15
+16	17
+18	19
+
+query II
+EXPLAIN SELECT i * 2 AS doubled, doubled + 1 FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# an alias that shadows a real column - whether the WHERE clause references the alias or the column cannot be
+# determined before binding, so the query is conservatively executed locally
+query I
+SELECT g AS i FROM s.rp_misc WHERE i > 5 ORDER BY 1
+----
+0
+0
+1
+2
+
+query II
+EXPLAIN SELECT g AS i FROM s.rp_misc WHERE i > 5 ORDER BY 1
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, g AS i2 FROM s.rp_misc WHERE i > 5 ORDER BY 1
+----
+6	0
+7	1
+8	2
+9	0
+
+query II
+EXPLAIN SELECT i, g AS i2 FROM s.rp_misc WHERE i > 5 ORDER BY 1
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# queries without remote tables are not pushed down
+query I rowsort
+SELECT 42
+----
+42
+
+query II
+EXPLAIN SELECT 42
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# DuckDB-specific constructs are executed locally
+query II
+SELECT * EXCLUDE (v) FROM s.rp_misc ORDER BY i
+----
+0	0
+1	1
+2	2
+3	0
+4	1
+5	2
+6	0
+7	1
+8	2
+9	0
+
+query II
+EXPLAIN SELECT * EXCLUDE (v) FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT COLUMNS('i|g') FROM s.rp_misc ORDER BY i
+----
+0	0
+1	1
+2	2
+3	0
+4	1
+5	2
+6	0
+7	1
+8	2
+9	0
+
+query II
+EXPLAIN SELECT COLUMNS('i|g') FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT i FROM s.rp_misc USING SAMPLE 100%
+----
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+query II
+EXPLAIN SELECT i FROM s.rp_misc USING SAMPLE 100%
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I rowsort
+SELECT TRY(i // 0) FROM s.rp_misc
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+query II
+EXPLAIN SELECT TRY(i // 0) FROM s.rp_misc
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT [i, g] FROM s.rp_misc ORDER BY i
+----
+[0, 0]
+[1, 1]
+[2, 2]
+[3, 0]
+[4, 1]
+[5, 2]
+[6, 0]
+[7, 1]
+[8, 2]
+[9, 0]
+
+query II
+EXPLAIN SELECT [i, g] FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT {'a': i} FROM s.rp_misc ORDER BY i
+----
+{'a': 0}
+{'a': 1}
+{'a': 2}
+{'a': 3}
+{'a': 4}
+{'a': 5}
+{'a': 6}
+{'a': 7}
+{'a': 8}
+{'a': 9}
+
+query II
+EXPLAIN SELECT {'a': i} FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT i::VARCHAR COLLATE nocase FROM s.rp_misc ORDER BY i
+----
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+query II
+EXPLAIN SELECT i::VARCHAR COLLATE nocase FROM s.rp_misc ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

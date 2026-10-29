@@ -1,0 +1,228 @@
+# name: test/sql/remote_pushdown/remote_pushdown_constants.test
+# description: Test serialization of constants in remote pushdown into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require icu
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# setting the time zone also loads ICU when the test runner autoloads extensions instead of loading them with
+# "require" (e.g. with LOCAL_EXTENSION_REPO) - and makes the results independent of the time zone of the machine
+statement ok
+SET TimeZone = 'UTC'
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+# DESC: Test serialization of constants in remote pushdown into Postgres
+statement ok
+CREATE OR REPLACE TABLE s.rp_const AS SELECT 1 AS i
+
+query IIIIIIIIIIII rowsort
+SELECT i, true, false, NULL, 42, -42, 2147483648, -9223372036854775808, 99999999999999999999999999999999999999, 1.5, -0.001, 123456789012345678.123 FROM s.rp_const
+----
+1	true	false	NULL	42	-42	2147483648	-9223372036854775808	99999999999999999999999999999999999999	1.5	-0.001	123456789012345678.123
+
+query II
+EXPLAIN SELECT i, true, false, NULL, 42, -42, 2147483648, -9223372036854775808, 99999999999999999999999999999999999999, 1.5, -0.001, 123456789012345678.123 FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII rowsort
+SELECT typeof(42), typeof(2147483648), typeof(1.5), typeof(99999999999999999999999999999999999999) FROM s.rp_const
+----
+INTEGER	BIGINT	DECIMAL(2,1)	HUGEINT
+
+query IIIIIIIII rowsort
+SELECT i, 1.5::DOUBLE, -0.0::DOUBLE, 'inf'::DOUBLE, '-inf'::DOUBLE, 'nan'::DOUBLE, 1e300::DOUBLE, 1.5::FLOAT, 0.1::FLOAT FROM s.rp_const
+----
+1	1.5	-0.0	inf	-inf	nan	1e+300	1.5	0.1
+
+query II
+EXPLAIN SELECT i, 1.5::DOUBLE, -0.0::DOUBLE, 'inf'::DOUBLE, '-inf'::DOUBLE, 'nan'::DOUBLE, 1e300::DOUBLE, 1.5::FLOAT, 0.1::FLOAT FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII rowsort
+SELECT i, 1.25::DECIMAL(4,2), 99999999999999999999999999999999999999::DECIMAL(38,0), -0.5::DECIMAL(3,2) FROM s.rp_const
+----
+1	1.25	99999999999999999999999999999999999999	-0.50
+
+query II
+EXPLAIN SELECT i, 1.25::DECIMAL(4,2), 99999999999999999999999999999999999999::DECIMAL(38,0), -0.5::DECIMAL(3,2) FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII rowsort
+SELECT i, 'text', '', 'it''s', 'back\slash', 'ünïcödé 🦆' FROM s.rp_const
+----
+1	text	(empty)	it's	back\slash	ünïcödé 🦆
+
+query II
+EXPLAIN SELECT i, 'text', '', 'it''s', 'back\slash', 'ünïcödé 🦆' FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII rowsort
+SELECT i, DATE '2024-02-29', DATE '0001-01-01', DATE '9999-12-31', 'infinity'::DATE, '-infinity'::DATE FROM s.rp_const
+----
+1	2024-02-29	0001-01-01	9999-12-31	infinity	-infinity
+
+query II
+EXPLAIN SELECT i, DATE '2024-02-29', DATE '0001-01-01', DATE '9999-12-31', 'infinity'::DATE, '-infinity'::DATE FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII rowsort
+SELECT i, TIMESTAMP '2024-02-29 12:34:56.789012', TIMESTAMP '2000-01-01', 'infinity'::TIMESTAMP FROM s.rp_const
+----
+1	2024-02-29 12:34:56.789012	2000-01-01 00:00:00	infinity
+
+query II
+EXPLAIN SELECT i, TIMESTAMP '2024-02-29 12:34:56.789012', TIMESTAMP '2000-01-01', 'infinity'::TIMESTAMP FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII rowsort
+SELECT i, TIME '12:34:56.789', TIME '00:00:00', TIME '23:59:59.999999' FROM s.rp_const
+----
+1	12:34:56.789	00:00:00	23:59:59.999999
+
+query II
+EXPLAIN SELECT i, TIME '12:34:56.789', TIME '00:00:00', TIME '23:59:59.999999' FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III rowsort
+SELECT i, TIMESTAMPTZ '2024-02-29 12:34:56+05:30', TIMESTAMPTZ '2000-01-01 00:00:00+00' FROM s.rp_const
+----
+1	2024-02-29 07:04:56+00	2000-01-01 00:00:00+00
+
+query II
+EXPLAIN SELECT i, TIMESTAMPTZ '2024-02-29 12:34:56+05:30', TIMESTAMPTZ '2000-01-01 00:00:00+00' FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIII rowsort
+SELECT i, INTERVAL '1 year 2 months 3 days 04:05:06.789', INTERVAL '-1 day', INTERVAL '36 hours', INTERVAL '0 seconds' FROM s.rp_const
+----
+1	1 year 2 months 3 days 04:05:06.789	-1 day	36:00:00	00:00:00
+
+query II
+EXPLAIN SELECT i, INTERVAL '1 year 2 months 3 days 04:05:06.789', INTERVAL '-1 day', INTERVAL '36 hours', INTERVAL '0 seconds' FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII rowsort
+SELECT i, '\x00\xFF'::BLOB, 'abc'::BLOB, ''::BLOB FROM s.rp_const
+----
+1	\x00\xFF	abc	(empty)
+
+query II
+EXPLAIN SELECT i, '\x00\xFF'::BLOB, 'abc'::BLOB, ''::BLOB FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, UUID '12345678-1234-5678-1234-567812345678' FROM s.rp_const
+----
+1	12345678-1234-5678-1234-567812345678
+
+query II
+EXPLAIN SELECT i, UUID '12345678-1234-5678-1234-567812345678' FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# constants used in expressions
+query IIIII rowsort
+SELECT i + 1.5, i * 2.5::DOUBLE, i || 'x', i = 1, DATE '2024-01-01' + i FROM s.rp_const
+----
+2.5	2.5	1x	true	2024-01-02
+
+query II
+EXPLAIN SELECT i + 1.5, i * 2.5::DOUBLE, i || 'x', i = 1, DATE '2024-01-01' + i FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# constants that cannot be represented in Postgres are not pushed down
+query II rowsort
+SELECT i, DATE '-0044-03-15' FROM s.rp_const
+----
+1	0045-03-15 (BC)
+
+query II
+EXPLAIN SELECT i, DATE '-0044-03-15' FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, TIMESTAMP '10000-01-01 00:00:00' FROM s.rp_const
+----
+1	10000-01-01 00:00:00
+
+query II
+EXPLAIN SELECT i, TIMESTAMP '10000-01-01 00:00:00' FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, [1, 2, 3] FROM s.rp_const
+----
+1	[1, 2, 3]
+
+query II
+EXPLAIN SELECT i, [1, 2, 3] FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, {'a': 1} FROM s.rp_const
+----
+1	{'a': 1}
+
+query II
+EXPLAIN SELECT i, {'a': 1} FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query III rowsort
+SELECT i, 255::UTINYINT, typeof(255::UTINYINT) FROM s.rp_const
+----
+1	255	UTINYINT
+
+query II
+EXPLAIN SELECT i, 255::UTINYINT, typeof(255::UTINYINT) FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, 'a\0b'::VARCHAR FROM s.rp_const
+----
+1	a\0b
+
+query II
+EXPLAIN SELECT i, 'a\0b'::VARCHAR FROM s.rp_const
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, length('a' || chr(0) || 'b' || i) FROM s.rp_const
+----
+1	4
+
+query II
+EXPLAIN SELECT i, length('a' || chr(0) || 'b' || i) FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II rowsort
+SELECT i, TIMETZ '12:00:00+01' FROM s.rp_const
+----
+1	12:00:00+01
+
+query II
+EXPLAIN SELECT i, TIMETZ '12:00:00+01' FROM s.rp_const
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

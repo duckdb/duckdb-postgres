@@ -1,0 +1,461 @@
+# name: test/sql/remote_pushdown/remote_pushdown_functions_math.test
+# description: Test remote pushdown of numeric functions into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_math AS SELECT * FROM (VALUES (1, 0.49999999999999994::DOUBLE, 7, 1.255::DECIMAL(10,3)), (2, 2.675, -7, -2.5), (3, -2.5, 0, 0.5), (4, -0.4, 12, 125.125), (5, 'inf', 3, 1), (6, '-inf', -3, -1.5), (7, 'nan', 5, 2.675), (8, 0.5, 100, NULL), (9, 1.5, NULL, 0), (10, 0.0, 1, 9.999), (11, NULL, 2, 3), (12, 1234.5678, -12, -0.005)) t(id, x, n, dec)
+
+# arithmetic - DuckDB's division always yields a DOUBLE, and division by zero yields inf / nan
+query IIIIIII
+SELECT id, n + 1, n - 1, n * 2, n / 4, n % 5, -n FROM s.rp_math ORDER BY id
+----
+1	8	6	14	1.75	2	-7
+2	-6	-8	-14	-1.75	-2	7
+3	1	-1	0	0.0	0	0
+4	13	11	24	3.0	2	-12
+5	4	2	6	0.75	3	-3
+6	-2	-4	-6	-0.75	-3	3
+7	6	4	10	1.25	0	-5
+8	101	99	200	25.0	0	-100
+9	NULL	NULL	NULL	NULL	NULL	NULL
+10	2	0	2	0.25	1	-1
+11	3	1	4	0.5	2	-2
+12	-11	-13	-24	-3.0	-2	12
+
+query II
+EXPLAIN SELECT id, n + 1, n - 1, n * 2, n / 4, n % 5, -n FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*\(CAST\("n" AS DOUBLE PRECISION\) / 4\).*
+
+query IIIIII
+SELECT id, x / 0, n / 0, dec / 0, 0 / x, x / n FROM s.rp_math ORDER BY id
+----
+1	inf	inf	inf	0.0	0.07142857142857142
+2	inf	-inf	-inf	0.0	-0.3821428571428571
+3	-inf	nan	inf	-0.0	-inf
+4	-inf	inf	inf	-0.0	-0.03333333333333333
+5	inf	inf	inf	0.0	inf
+6	-inf	-inf	-inf	-0.0	inf
+7	nan	inf	inf	nan	nan
+8	inf	inf	NULL	0.0	0.005
+9	inf	NULL	nan	0.0	NULL
+10	nan	inf	inf	nan	0.0
+11	NULL	inf	inf	NULL	NULL
+12	inf	-inf	-inf	0.0	-102.88065
+
+query II
+EXPLAIN SELECT id, x / 0, n / 0, dec / 0, 0 / x, x / n FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIII
+SELECT id, n / dec, dec % 1, dec * dec, dec + n FROM s.rp_math WHERE dec <> 0 ORDER BY id
+----
+1	5.577689243027889	0.255	1.575025	8.255
+2	2.8	-0.500	6.250000	-9.500
+3	0.0	0.500	0.250000	0.500
+4	0.0959040959040959	0.125	15656.265625	137.125
+5	3.0	0.000	1.000000	4.000
+6	2.0	-0.500	2.250000	-4.500
+7	1.869158878504673	0.675	7.155625	7.675
+10	0.1000100010001	0.999	99.980001	10.999
+11	0.6666666666666666	0.000	9.000000	5.000
+12	2400.0	-0.005	0.000025	-12.005
+
+query II
+EXPLAIN SELECT id, n / dec, dec % 1, dec * dec, dec + n FROM s.rp_math WHERE dec <> 0 ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# Postgres has no modulo for doubles
+query II
+SELECT id, x % 2 FROM s.rp_math ORDER BY id
+----
+1	0.49999999999999994
+2	0.6749999999999998
+3	-0.5
+4	-0.4
+5	nan
+6	nan
+7	nan
+8	0.5
+9	1.5
+10	0.0
+11	NULL
+12	0.5678000000000338
+
+query II
+EXPLAIN SELECT id, x % 2 FROM s.rp_math ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# DuckDB's integer division
+query II
+SELECT id, n // 2 FROM s.rp_math ORDER BY id
+----
+1	3
+2	-3
+3	0
+4	6
+5	1
+6	-1
+7	2
+8	50
+9	NULL
+10	0
+11	1
+12	-6
+
+query II
+EXPLAIN SELECT id, n // 2 FROM s.rp_math ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# rounding - DuckDB rounds doubles half away from zero, Postgres to the nearest even number
+query IIIIII
+SELECT id, round(x), round(x, 2), round(x, 1), round(x, -2), round(x, 20) FROM s.rp_math ORDER BY id
+----
+1	0.0	0.5	0.5	0.0	0.49999999999999994
+2	3.0	2.68	2.7	0.0	2.675
+3	-3.0	-2.5	-2.5	-0.0	-2.5
+4	-0.0	-0.4	-0.4	-0.0	-0.4
+5	inf	inf	inf	inf	inf
+6	-inf	-inf	-inf	-inf	-inf
+7	nan	nan	nan	nan	nan
+8	1.0	0.5	0.5	0.0	0.5
+9	2.0	1.5	1.5	0.0	1.5
+10	0.0	0.0	0.0	0.0	0.0
+11	NULL	NULL	NULL	NULL	NULL
+12	1235.0	1234.57	1234.6	1200.0	1234.5678
+
+query II
+EXPLAIN SELECT id, round(x), round(x, 2), round(x, 1), round(x, -2), round(x, 20) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*CASE WHEN abs.*
+
+query IIII
+SELECT id, round_even(x, 0), round_even(x, 1), roundbankers(x, 2) FROM s.rp_math ORDER BY id
+----
+1	0.0	0.5	0.5
+2	3.0	2.7	2.68
+3	-2.0	-2.5	-2.5
+4	-0.0	-0.4	-0.4
+5	inf	inf	inf
+6	-inf	-inf	-inf
+7	nan	nan	nan
+8	0.0	0.5	0.5
+9	2.0	1.5	1.5
+10	0.0	0.0	0.0
+11	NULL	NULL	NULL
+12	1235.0	1234.6	1234.57
+
+query II
+EXPLAIN SELECT id, round_even(x, 0), round_even(x, 1), roundbankers(x, 2) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIII
+SELECT id, round(dec), round(dec, 2), round(dec, -1), round(n, -1), round(n * 5, -1), round(n, 2) FROM s.rp_math ORDER BY id
+----
+1	1	1.26	0	10	40	7
+2	-3	-2.50	0	-10	-40	-7
+3	1	0.50	0	0	0	0
+4	125	125.13	130	10	60	12
+5	1	1.00	0	0	20	3
+6	-2	-1.50	0	0	-20	-3
+7	3	2.68	0	10	30	5
+8	NULL	NULL	NULL	100	500	100
+9	0	0.00	0	NULL	NULL	NULL
+10	10	10.00	10	0	10	1
+11	3	3.00	0	0	10	2
+12	0	-0.01	0	-10	-60	-12
+
+query II
+EXPLAIN SELECT id, round(dec), round(dec, 2), round(dec, -1), round(n, -1), round(n * 5, -1), round(n, 2) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III rowsort
+SELECT typeof(round(dec, 2)), typeof(round(n, -1)), typeof(round(x, 1)) FROM s.rp_math LIMIT 1
+----
+DECIMAL(13,2)	INTEGER	DOUBLE
+
+query IIIIIIIIIII
+SELECT id, ceil(x), floor(x), trunc(x), ceil(dec), floor(dec), trunc(dec), abs(x), abs(n), sign(x), sign(n) FROM s.rp_math ORDER BY id
+----
+1	1.0	0.0	0.0	2	1	1	0.49999999999999994	7	1	1
+2	3.0	2.0	2.0	-2	-3	-2	2.675	7	1	-1
+3	-2.0	-3.0	-2.0	1	0	0	2.5	0	-1	0
+4	-0.0	-1.0	-0.0	126	125	125	0.4	12	-1	1
+5	inf	inf	inf	1	1	1	inf	3	1	1
+6	-inf	-inf	-inf	-1	-2	-1	inf	3	-1	-1
+7	nan	nan	nan	3	2	2	nan	5	0	1
+8	1.0	0.0	0.0	NULL	NULL	NULL	0.5	100	1	1
+9	2.0	1.0	1.0	0	0	0	1.5	NULL	1	NULL
+10	0.0	0.0	0.0	10	9	9	0.0	1	0	1
+11	NULL	NULL	NULL	3	3	3	NULL	2	NULL	1
+12	1235.0	1234.0	1234.0	0	-1	0	1234.5678	12	1	-1
+
+query II
+EXPLAIN SELECT id, ceil(x), floor(x), trunc(x), ceil(dec), floor(dec), trunc(dec), abs(x), abs(n), sign(x), sign(n) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# functions where Postgres raises errors for values that yield nan / inf in DuckDB
+query IIIIIIII
+SELECT id, sqrt(x), ln(x), log(x), log10(x), sqrt(n), ln(dec), cbrt(x) FROM s.rp_math ORDER BY id
+----
+1	0.7071067811865475	-0.6931471805599454	-0.30102999566398125	-0.30102999566398125	2.6457513110645907	0.22713557258374711	0.7937005259840997
+2	1.6355427233796125	0.9839493803479697	0.4273237863572472	0.4273237863572472	nan	nan	1.3881655492727807
+3	nan	nan	nan	nan	0.0	-0.6931471805599453	-1.3572088082974534
+4	nan	nan	nan	nan	3.4641016151377544	4.829313237635384	-0.7368062997280773
+5	inf	inf	inf	inf	1.7320508075688772	0.0	inf
+6	nan	nan	nan	nan	nan	nan	-inf
+7	nan	nan	nan	nan	2.23606797749979	0.9839493803479697	nan
+8	0.7071067811865476	-0.6931471805599453	-0.3010299956639812	-0.3010299956639812	10.0	NULL	0.7937005259840998
+9	1.224744871391589	0.4054651081081644	0.17609125905568124	0.17609125905568124	NULL	-inf	1.1447142425533319
+10	0.0	-inf	-inf	-inf	1.0	2.302485087993712	0.0
+11	NULL	NULL	NULL	NULL	1.4142135623730951	1.0986122886681098	NULL
+12	35.13641700572214	7.118476228297786	3.0915149455092013	3.0915149455092013	nan	nan	10.727659535728732
+
+query II
+EXPLAIN SELECT id, sqrt(x), ln(x), log(x), log10(x), sqrt(n), ln(dec), cbrt(x) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIII
+SELECT id, exp(x), exp(n), exp(n * 100), exp(-1000.0) FROM s.rp_math ORDER BY id
+----
+1	1.648721270700128	1096.6331584284585	1.0142320547350045e+304	0.0
+2	14.512349839590913	0.0009118819655545162	9.85967654375977e-305	0.0
+3	0.0820849986238988	1.0	1.0	0.0
+4	0.6703200460356393	162754.79141900392	inf	0.0
+5	inf	20.085536923187668	1.9424263952412558e+130	0.0
+6	0.0	0.049787068367863944	5.148200222412013e-131	0.0
+7	nan	148.4131591025766	1.4035922178528375e+217	0.0
+8	1.6487212707001282	2.6881171418161356e+43	inf	0.0
+9	4.4816890703380645	NULL	NULL	0.0
+10	1.0	2.718281828459045	2.6881171418161356e+43	0.0
+11	NULL	7.38905609893065	7.225973768125749e+86	0.0
+12	inf	6.14421235332821e-06	0.0	0.0
+
+query II
+EXPLAIN SELECT id, exp(x), exp(n), exp(n * 100), exp(-1000.0) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIII
+SELECT id, pow(x, 2), pow(x, 0.5), pow(x, -1), power(2, n), x ^ 3, n ** 2 FROM s.rp_math WHERE id <> 1 ORDER BY id
+----
+2	7.155624999999999	1.6355427233796125	0.3738317757009346	0.0078125	19.141296874999995	49.0
+3	6.25	nan	-0.4	1.0	-15.625	0.0
+4	0.16000000000000003	nan	-2.5	4096.0	-0.06400000000000002	144.0
+5	inf	inf	0.0	8.0	inf	9.0
+6	inf	inf	-0.0	0.125	-inf	9.0
+7	nan	nan	nan	32.0	nan	25.0
+8	0.25	0.7071067811865476	2.0	1.2676506002282294e+30	0.125	10000.0
+9	2.25	1.224744871391589	0.6666666666666666	NULL	3.375	NULL
+10	0.0	0.0	inf	2.0	0.0	1.0
+11	NULL	NULL	NULL	4.0	NULL	4.0
+12	1524157.65279684	35.13641700572214	0.0008100000664200054	0.000244140625	1881675960.2665586	144.0
+
+query II
+EXPLAIN SELECT id, pow(x, 2), pow(x, 0.5), pow(x, -1), power(2, n), x ^ 3, n ** 2 FROM s.rp_math WHERE id <> 1 ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIII
+SELECT id, isnan(x), isinf(x), isfinite(x), isnan(x / 0), isinf(n / 0) FROM s.rp_math ORDER BY id
+----
+1	false	false	true	false	true
+2	false	false	true	false	true
+3	false	false	true	false	false
+4	false	false	true	false	true
+5	false	true	false	false	true
+6	false	true	false	false	true
+7	true	false	false	true	true
+8	false	false	true	false	true
+9	false	false	true	false	NULL
+10	false	false	true	true	true
+11	NULL	NULL	NULL	NULL	true
+12	false	false	true	false	true
+
+query II
+EXPLAIN SELECT id, isnan(x), isinf(x), isfinite(x), isnan(x / 0), isinf(n / 0) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIIIII
+SELECT id, sin(x), cos(n), tan(dec), atan(x), atan2(n, 2), degrees(n), radians(n), pi() FROM s.rp_math WHERE isfinite(x) ORDER BY id
+----
+1	0.47942553860420295	0.7539022543433046	3.060625934307019	0.4636476090008061	1.2924966677897853	401.07045659157626	0.12217304763960307	3.141592653589793
+2	0.44984578024662736	0.7539022543433046	0.7470222972386602	1.213050246329726	-1.2924966677897853	-401.07045659157626	-0.12217304763960307	3.141592653589793
+3	-0.5984721441039564	1.0	0.5463024898437905	-1.1902899496825317	0.0	0.0	0.0	3.141592653589793
+4	-0.3894183423086505	0.8438539587324921	-0.5976722256236242	-0.3805063771123649	1.4056476493802699	687.5493541569879	0.20943951023931956	3.141592653589793
+8	0.479425538604203	0.8623188722876839	NULL	0.46364760900080615	1.550798992821746	5729.5779513082325	1.7453292519943295	3.141592653589793
+9	0.9974949866040544	NULL	0.0	0.982793723247329	NULL	NULL	NULL	3.141592653589793
+10	0.0	0.5403023058681398	0.646941375540374	0.0	0.4636476090008061	57.29577951308232	0.017453292519943295	3.141592653589793
+12	0.07803344920002027	0.8438539587324921	-0.0050000416670833376	1.5699863269056236	-1.4056476493802699	-687.5493541569879	-0.20943951023931956	3.141592653589793
+
+query II
+EXPLAIN SELECT id, sin(x), cos(n), tan(dec), atan(x), atan2(n, 2), degrees(n), radians(n), pi() FROM s.rp_math WHERE isfinite(x) ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# integer functions
+query IIIIIII
+SELECT id, gcd(n, 6), lcm(n, 4), xor(n, 5), n & 3, n | 8, ~n FROM s.rp_math ORDER BY id
+----
+1	1	28	2	3	15	-8
+2	1	28	-4	1	-7	6
+3	6	0	5	0	8	-1
+4	6	12	9	0	12	-13
+5	3	12	6	3	11	-4
+6	3	12	-8	1	-3	2
+7	1	20	0	1	13	-6
+8	2	100	97	0	108	-101
+9	NULL	NULL	NULL	NULL	NULL	NULL
+10	1	4	4	1	9	-2
+11	2	4	7	2	10	-3
+12	6	12	-15	0	-4	11
+
+query II
+EXPLAIN SELECT id, gcd(n, 6), lcm(n, 4), xor(n, 5), n & 3, n | 8, ~n FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII
+SELECT id, greatest(x, n, 1), least(n, dec), greatest(NULL, n) FROM s.rp_math ORDER BY id
+----
+1	7.0	1.255	7
+2	2.675	-7.000	-7
+3	1.0	0.000	0
+4	12.0	12.000	12
+5	inf	1.000	3
+6	1.0	-3.000	-3
+7	nan	2.675	5
+8	100.0	100.000	100
+9	1.5	0.000	NULL
+10	1.0	1.000	1
+11	2.0	2.000	2
+12	1234.5678	-12.000	-12
+
+query II
+EXPLAIN SELECT id, greatest(x, n, 1), least(n, dec), greatest(NULL, n) FROM s.rp_math ORDER BY id
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# functions that are not available in Postgres
+query II
+SELECT id, log(2, n) FROM s.rp_math WHERE n > 0 ORDER BY id
+----
+1	2.807354922057604
+4	3.5849625007211565
+5	1.584962500721156
+7	2.3219280948873626
+8	6.643856189774724
+10	0.0
+11	1.0
+
+query II
+EXPLAIN SELECT id, log(2, n) FROM s.rp_math WHERE n > 0 ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, log2(n) FROM s.rp_math WHERE n > 0 ORDER BY id
+----
+1	2.807354922057604
+4	3.584962500721156
+5	1.584962500721156
+7	2.321928094887362
+8	6.643856189774724
+10	0.0
+11	1.0
+
+query II
+EXPLAIN SELECT id, log2(n) FROM s.rp_math WHERE n > 0 ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, factorial(n) FROM s.rp_math WHERE n BETWEEN 0 AND 10 ORDER BY id
+----
+1	5040
+3	1
+5	6
+7	120
+10	1
+11	2
+
+query II
+EXPLAIN SELECT id, factorial(n) FROM s.rp_math WHERE n BETWEEN 0 AND 10 ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, even(x) FROM s.rp_math ORDER BY id
+----
+1	2.0
+2	4.0
+3	-4.0
+4	-2.0
+5	inf
+6	-inf
+7	-nan
+8	2.0
+9	2.0
+10	0.0
+11	NULL
+12	1236.0
+
+query II
+EXPLAIN SELECT id, even(x) FROM s.rp_math ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT id, random() > 2 FROM s.rp_math ORDER BY id
+----
+1	false
+2	false
+3	false
+4	false
+5	false
+6	false
+7	false
+8	false
+9	false
+10	false
+11	false
+12	false
+
+query II
+EXPLAIN SELECT id, random() > 2 FROM s.rp_math ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# rounding of FLOAT values happens in single precision in DuckDB
+query II
+SELECT id, round(x::FLOAT, 1) FROM s.rp_math WHERE isfinite(x) ORDER BY id
+----
+1	0.5
+2	2.7
+3	-2.5
+4	-0.4
+8	0.5
+9	1.5
+10	0.0
+12	1234.6
+
+query II
+EXPLAIN SELECT id, round(x::FLOAT, 1) FROM s.rp_math WHERE isfinite(x) ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*

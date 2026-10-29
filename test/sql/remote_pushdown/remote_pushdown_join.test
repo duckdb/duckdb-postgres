@@ -1,0 +1,329 @@
+# name: test/sql/remote_pushdown/remote_pushdown_join.test
+# description: Test remote pushdown of joins into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_j1 AS SELECT i, i % 3 AS g, CASE WHEN i = 4 THEN NULL ELSE 'v' || i END AS v FROM range(6) t(i)
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_j2 AS SELECT i AS k, i * 10 AS w FROM range(2, 9) t(i)
+
+query III
+SELECT i, v, w FROM s.rp_j1 JOIN s.rp_j2 ON i = k ORDER BY i
+----
+2	v2	20
+3	v3	30
+4	NULL	40
+5	v5	50
+
+query II
+EXPLAIN SELECT i, v, w FROM s.rp_j1 JOIN s.rp_j2 ON i = k ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\("public"\."rp_j1" INNER JOIN "public"\."rp_j2" ON \("i" = "k"\)\).*
+
+query II
+SELECT i, w FROM s.rp_j1 LEFT JOIN s.rp_j2 ON i = k ORDER BY i
+----
+0	NULL
+1	NULL
+2	20
+3	30
+4	40
+5	50
+
+query II
+EXPLAIN SELECT i, w FROM s.rp_j1 LEFT JOIN s.rp_j2 ON i = k ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*LEFT JOIN.*
+
+query III
+SELECT i, k, w FROM s.rp_j1 RIGHT JOIN s.rp_j2 ON i = k ORDER BY k
+----
+2	2	20
+3	3	30
+4	4	40
+5	5	50
+NULL	6	60
+NULL	7	70
+NULL	8	80
+
+query II
+EXPLAIN SELECT i, k, w FROM s.rp_j1 RIGHT JOIN s.rp_j2 ON i = k ORDER BY k
+----
+physical_plan	<REGEX>:(?s).*RIGHT JOIN.*
+
+query II
+SELECT i, k FROM s.rp_j1 FULL OUTER JOIN s.rp_j2 ON i = k ORDER BY i, k
+----
+0	NULL
+1	NULL
+2	2
+3	3
+4	4
+5	5
+NULL	6
+NULL	7
+NULL	8
+
+query II
+EXPLAIN SELECT i, k FROM s.rp_j1 FULL OUTER JOIN s.rp_j2 ON i = k ORDER BY i, k
+----
+physical_plan	<REGEX>:(?s).*FULL OUTER JOIN.*
+
+query II rowsort
+SELECT COUNT(*), SUM(i * w) FROM s.rp_j1 CROSS JOIN s.rp_j2
+----
+42	5250
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(i * w) FROM s.rp_j1 CROSS JOIN s.rp_j2
+----
+physical_plan	<REGEX>:(?s).*CROSS JOIN.*
+
+query I rowsort
+SELECT COUNT(*) FROM s.rp_j1, s.rp_j2 WHERE i < k
+----
+32
+
+query II
+EXPLAIN SELECT COUNT(*) FROM s.rp_j1, s.rp_j2 WHERE i < k
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT a.i, b.i FROM s.rp_j1 a JOIN s.rp_j1 b ON a.i = b.g ORDER BY a.i, b.i
+----
+0	0
+0	3
+1	1
+1	4
+2	2
+2	5
+
+query II
+EXPLAIN SELECT a.i, b.i FROM s.rp_j1 a JOIN s.rp_j1 b ON a.i = b.g ORDER BY a.i, b.i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIIIIIII
+SELECT * FROM s.rp_j1 a JOIN s.rp_j2 b ON a.i = b.k JOIN s.rp_j1 c ON c.i = b.k - 2 ORDER BY a.i, c.i
+----
+2	2	v2	2	20	0	0	v0
+3	0	v3	3	30	1	1	v1
+4	1	NULL	4	40	2	2	v2
+5	2	v5	5	50	3	0	v3
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 a JOIN s.rp_j2 b ON a.i = b.k JOIN s.rp_j1 c ON c.i = b.k - 2 ORDER BY a.i, c.i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# join conditions with complex expressions
+query II
+SELECT i, k FROM s.rp_j1 JOIN s.rp_j2 ON i + 2 = k OR (v IS NULL AND k = 8) ORDER BY i, k
+----
+0	2
+1	3
+2	4
+3	5
+4	6
+4	8
+5	7
+
+query II
+EXPLAIN SELECT i, k FROM s.rp_j1 JOIN s.rp_j2 ON i + 2 = k OR (v IS NULL AND k = 8) ORDER BY i, k
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# NATURAL / USING joins - an unqualified star is expanded differently by Postgres
+query IIII
+SELECT rp_j1.*, w FROM s.rp_j1 JOIN (SELECT k AS i, w FROM s.rp_j2) USING (i) ORDER BY i
+----
+2	2	v2	20
+3	0	v3	30
+4	1	NULL	40
+5	2	v5	50
+
+query II
+EXPLAIN SELECT rp_j1.*, w FROM s.rp_j1 JOIN (SELECT k AS i, w FROM s.rp_j2) USING (i) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, w FROM s.rp_j1 NATURAL JOIN (SELECT k AS i, w FROM s.rp_j2) ORDER BY i
+----
+2	20
+3	30
+4	40
+5	50
+
+query II
+EXPLAIN SELECT i, w FROM s.rp_j1 NATURAL JOIN (SELECT k AS i, w FROM s.rp_j2) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query IIII
+SELECT * FROM s.rp_j1 JOIN (SELECT k AS i, w FROM s.rp_j2) USING (i) ORDER BY i
+----
+2	2	v2	20
+3	0	v3	30
+4	1	NULL	40
+5	2	v5	50
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 JOIN (SELECT k AS i, w FROM s.rp_j2) USING (i) ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# SEMI / ANTI joins are serialized as [NOT] EXISTS
+query III
+SELECT * FROM s.rp_j1 SEMI JOIN s.rp_j2 ON i = k ORDER BY i
+----
+2	2	v2
+3	0	v3
+4	1	NULL
+5	2	v5
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 SEMI JOIN s.rp_j2 ON i = k ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*\(SELECT \* FROM "public"\."rp_j1" WHERE EXISTS \(SELECT 1 FROM "public"\."rp_j2" WHERE \("i" = "k"\)\)\) AS "rp_j1".*
+
+query III
+SELECT * FROM s.rp_j1 t ANTI JOIN s.rp_j2 ON t.i = k ORDER BY i
+----
+0	0	v0
+1	1	v1
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 t ANTI JOIN s.rp_j2 ON t.i = k ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*WHERE NOT EXISTS \(SELECT 1 FROM.*
+
+query II
+SELECT q.* FROM (SELECT i, v FROM s.rp_j1 WHERE i > 0) q SEMI JOIN s.rp_j2 ON q.i = k ORDER BY i
+----
+2	v2
+3	v3
+4	NULL
+5	v5
+
+query II
+EXPLAIN SELECT q.* FROM (SELECT i, v FROM s.rp_j1 WHERE i > 0) q SEMI JOIN s.rp_j2 ON q.i = k ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query III
+SELECT * FROM s.rp_j1 ANTI JOIN s.rp_j2 ON i = k AND v IS NOT NULL ORDER BY i
+----
+0	0	v0
+1	1	v1
+4	1	NULL
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 ANTI JOIN s.rp_j2 ON i = k AND v IS NOT NULL ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# ASOF / POSITIONAL joins are DuckDB-specific
+query IIIII
+SELECT * FROM s.rp_j1 POSITIONAL JOIN s.rp_j2 ORDER BY i
+----
+0	0	v0	2	20
+1	1	v1	3	30
+2	2	v2	4	40
+3	0	v3	5	50
+4	1	NULL	6	60
+5	2	v5	7	70
+NULL	NULL	NULL	8	80
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1 POSITIONAL JOIN s.rp_j2 ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, k FROM s.rp_j1 ASOF JOIN s.rp_j2 ON i >= k ORDER BY i
+----
+2	2
+3	3
+4	4
+5	5
+
+query II
+EXPLAIN SELECT i, k FROM s.rp_j1 ASOF JOIN s.rp_j2 ON i >= k ORDER BY i
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# lateral joins - DuckDB detects lateral references automatically
+query IIII
+SELECT * FROM s.rp_j1, LATERAL (SELECT SUM(w) s FROM s.rp_j2 WHERE k <= i) ORDER BY i
+----
+0	0	v0	NULL
+1	1	v1	NULL
+2	2	v2	20
+3	0	v3	50
+4	1	NULL	90
+5	2	v5	140
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1, LATERAL (SELECT SUM(w) s FROM s.rp_j2 WHERE k <= i) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*CROSS JOIN LATERAL \(SELECT.*
+
+query IIII
+SELECT * FROM s.rp_j1, (SELECT SUM(w) s FROM s.rp_j2 WHERE k <= i) ORDER BY i
+----
+0	0	v0	NULL
+1	1	v1	NULL
+2	2	v2	20
+3	0	v3	50
+4	1	NULL	90
+5	2	v5	140
+
+query II
+EXPLAIN SELECT * FROM s.rp_j1, (SELECT SUM(w) s FROM s.rp_j2 WHERE k <= i) ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT i, x FROM s.rp_j1 LEFT JOIN LATERAL (SELECT w AS x FROM s.rp_j2 WHERE k = i) ON true ORDER BY i
+----
+0	NULL
+1	NULL
+2	20
+3	30
+4	40
+5	50
+
+query II
+EXPLAIN SELECT i, x FROM s.rp_j1 LEFT JOIN LATERAL (SELECT w AS x FROM s.rp_j2 WHERE k = i) ON true ORDER BY i
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+# joins with a local table are not pushed down
+statement ok
+CREATE TABLE local_join AS SELECT 1 AS i
+
+query I rowsort
+SELECT COUNT(*) FROM s.rp_j1 JOIN local_join USING (i)
+----
+1
+
+query II
+EXPLAIN SELECT COUNT(*) FROM s.rp_j1 JOIN local_join USING (i)
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# duplicate table names in a join are rejected by both DuckDB and Postgres
+statement error
+SELECT * FROM s.rp_j1 JOIN s.rp_j1 ON true
+----
+duplicate alias

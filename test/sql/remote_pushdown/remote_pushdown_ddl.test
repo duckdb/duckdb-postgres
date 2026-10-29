@@ -1,0 +1,288 @@
+# name: test/sql/remote_pushdown/remote_pushdown_ddl.test
+# description: Test remote pushdown of CREATE / DROP / ALTER statements into Postgres
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl_src AS SELECT i, 'v' || i AS v FROM range(5) t(i)
+
+statement ok
+DROP TABLE IF EXISTS s.rp_ddl_ctas
+
+statement ok
+DROP TABLE IF EXISTS s.rp_ddl_altered
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS rp_ddl_schema CASCADE')
+
+# a regular CREATE TABLE is not pushed down - it issues the same statement, and keeps the table definition (e.g. the
+# column defaults) in the catalog
+query II
+EXPLAIN CREATE TABLE s.rp_ddl (id INTEGER PRIMARY KEY, v VARCHAR NOT NULL, h HUGEINT, d DECIMAL(10,2) DEFAULT 42)
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+DROP TABLE IF EXISTS s.rp_ddl
+
+statement ok
+CREATE TABLE s.rp_ddl (id INTEGER PRIMARY KEY, v VARCHAR NOT NULL, h HUGEINT, d DECIMAL(10,2) DEFAULT 42)
+
+query IIIIII
+DESCRIBE s.rp_ddl
+----
+id	INTEGER	NO	PRI	NULL	NULL
+v	VARCHAR	NO	NULL	NULL	NULL
+h	DOUBLE	YES	NULL	NULL	NULL
+d	DECIMAL(10,2)	YES	NULL	42	NULL
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl (id INTEGER)
+
+# CREATE TABLE AS over a remote table is executed in Postgres as a whole (statements with string ordering only with a
+# byte-wise database collation - see remote_pushdown_collation.test)
+query II
+EXPLAIN CREATE TABLE s.rp_ddl_ctas AS SELECT i, i * 2 AS doubled, SUM(i) OVER () AS total, v FROM s.rp_ddl_src WHERE i IN (2, 3, 4)
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*CREATE TABLE "public"."rp_ddl_ctas"\("i" BIGINT, "doubled" BIGINT, "total" FLOAT, "v" VARCHAR\).*INSERT INTO "public"."rp_ddl_ctas".*FROM "public"."rp_ddl_src".*
+
+query I
+CREATE TABLE s.rp_ddl_ctas AS SELECT i, i * 2 AS doubled, SUM(i) OVER () AS total, v FROM s.rp_ddl_src WHERE i IN (2, 3, 4)
+----
+3
+
+query IIII
+SELECT * FROM s.rp_ddl_ctas ORDER BY i
+----
+2	4	9.0	v2
+3	6	9.0	v3
+4	8	9.0	v4
+
+query IIIIII
+DESCRIBE s.rp_ddl_ctas
+----
+i	BIGINT	YES	NULL	NULL	NULL
+doubled	BIGINT	YES	NULL	NULL	NULL
+total	DOUBLE	YES	NULL	NULL	NULL
+v	VARCHAR	YES	NULL	NULL	NULL
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl_ctas AS SELECT g, COUNT(*) AS cnt FROM (SELECT i % 2 AS g FROM s.rp_ddl_src) GROUP BY g
+
+query II
+SELECT * FROM s.rp_ddl_ctas ORDER BY g
+----
+0	3
+1	2
+
+# CREATE TABLE AS with a query that depends on the types it operates on - only the query is pushed down
+query II
+EXPLAIN CREATE OR REPLACE TABLE s.rp_ddl_ctas AS SELECT i, v || '!' AS v FROM s.rp_ddl_src
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*CREATE TABLE.*
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl_ctas AS SELECT i, v || '!' AS v FROM s.rp_ddl_src
+
+query II
+SELECT * FROM s.rp_ddl_ctas ORDER BY i LIMIT 2
+----
+0	v0!
+1	v1!
+
+# CREATE TABLE AS from a local query is not pushed down
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl_ctas AS SELECT 42 AS answer
+
+query I
+SELECT * FROM s.rp_ddl_ctas
+----
+42
+
+# CREATE VIEW - the query of the view is translated like a pushed down query (views with string ordering only with a
+# byte-wise database collation - see remote_pushdown_collation.test)
+query II
+EXPLAIN CREATE OR REPLACE VIEW s.rp_ddl_view AS SELECT i IN (3, 4) AS g, SUM(i) AS total, COUNT(V) AS cnt FROM s.rp_ddl_src WHERE v LIKE 'v_' GROUP BY g
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*CREATE VIEW "public"."rp_ddl_view" AS SELECT .*CAST\(sum\("i"\) AS NUMERIC\(38,0\)\) AS "total", count\("v"\) AS "cnt" FROM "public"."rp_ddl_src" WHERE \("v" LIKE 'v_' ESCAPE ''\) GROUP BY "g".*
+
+statement ok
+CREATE OR REPLACE VIEW s.rp_ddl_view AS SELECT i IN (3, 4) AS g, SUM(i) AS total, COUNT(V) AS cnt FROM s.rp_ddl_src WHERE v LIKE 'v_' GROUP BY g
+
+query III
+SELECT * FROM s.rp_ddl_view ORDER BY g
+----
+false	3	3
+true	7	2
+
+statement ok
+CREATE OR REPLACE VIEW s.rp_ddl_view (a, b) AS SELECT i, v FROM s.rp_ddl_src WHERE i < 2
+
+query II
+SELECT * FROM s.rp_ddl_view ORDER BY a
+----
+0	v0
+1	v1
+
+statement ok
+DROP VIEW s.rp_ddl_view
+
+# ALTER TABLE
+statement ok
+CREATE OR REPLACE TABLE s.rp_ddl_alter (id INTEGER, v VARCHAR)
+
+statement ok
+INSERT INTO s.rp_ddl_alter VALUES (1, 'a')
+
+query II
+EXPLAIN ALTER TABLE s.rp_ddl_alter ADD COLUMN d DATE
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*ALTER TABLE "public"."rp_ddl_alter" ADD COLUMN "d" DATE.*
+
+statement ok
+ALTER TABLE s.rp_ddl_alter ADD COLUMN d DATE
+
+statement ok
+ALTER TABLE s.rp_ddl_alter ADD COLUMN IF NOT EXISTS d DATE
+
+statement ok
+ALTER TABLE s.rp_ddl_alter RENAME COLUMN V TO value
+
+statement ok
+ALTER TABLE s.rp_ddl_alter ALTER COLUMN value SET NOT NULL
+
+statement error
+INSERT INTO s.rp_ddl_alter VALUES (2, NULL, NULL)
+----
+null value
+
+statement ok
+ALTER TABLE s.rp_ddl_alter ALTER COLUMN value DROP NOT NULL
+
+statement ok
+ALTER TABLE s.rp_ddl_alter DROP COLUMN id
+
+statement ok
+ALTER TABLE s.rp_ddl_alter DROP COLUMN IF EXISTS id
+
+statement ok
+ALTER TABLE s.rp_ddl_alter RENAME TO rp_ddl_altered
+
+query II
+SELECT * FROM s.rp_ddl_altered
+----
+a	NULL
+
+# ADD COLUMN with a DEFAULT is not pushed down - DuckDB fills in the default values itself
+query II
+EXPLAIN ALTER TABLE s.rp_ddl_altered ADD COLUMN n INTEGER DEFAULT 42
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+ALTER TABLE s.rp_ddl_altered ADD COLUMN n INTEGER DEFAULT 42
+
+query III
+SELECT * FROM s.rp_ddl_altered
+----
+a	NULL	42
+
+statement ok
+ALTER TABLE IF EXISTS s.rp_ddl_nonexistent RENAME TO rp_ddl_other
+
+# DROP
+query II
+EXPLAIN DROP TABLE s.rp_ddl_altered
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*DROP TABLE "public"."rp_ddl_altered".*
+
+statement ok
+DROP TABLE s.rp_ddl_altered
+
+statement error
+SELECT * FROM s.rp_ddl_altered
+----
+does not exist
+
+statement ok
+DROP TABLE IF EXISTS s.rp_ddl_altered
+
+# CREATE / DROP SCHEMA - schemas can only be referenced in databases that are attached without a SCHEMA filter, CREATE
+# TABLE AS into another schema is pushed down
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_all (TYPE POSTGRES)
+
+statement ok
+CREATE SCHEMA s_all.rp_ddl_schema
+
+statement ok
+CREATE SCHEMA IF NOT EXISTS s_all.rp_ddl_schema
+
+statement ok
+CREATE TABLE s_all.rp_ddl_schema.tbl AS SELECT 1 AS i
+
+statement error
+DROP SCHEMA s_all.rp_ddl_schema
+----
+other objects depend on it
+
+# schema DDL is executed regularly (schemas are not reloaded when they are removed from the cache)
+query II
+EXPLAIN DROP SCHEMA s_all.rp_ddl_schema CASCADE
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+statement ok
+DROP SCHEMA s_all.rp_ddl_schema CASCADE
+
+statement ok
+DROP SCHEMA IF EXISTS s_all.rp_ddl_schema
+
+# DDL is executed within the DuckDB transaction
+statement ok
+BEGIN
+
+statement ok
+DROP TABLE s.rp_ddl
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM s.rp_ddl
+----
+0
+
+# DDL is never pushed down into read-only databases
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_ro (TYPE POSTGRES, SCHEMA 'public', READ_ONLY)
+
+statement error
+CREATE TABLE s_ro.rp_ddl_ro (i INTEGER)
+----
+read-only
+
+statement error
+DROP TABLE s_ro.rp_ddl
+----
+read-only
+
+statement error
+ALTER TABLE s_ro.rp_ddl ADD COLUMN j INTEGER
+----
+read-only
+
+statement ok
+DROP TABLE s.rp_ddl
+
+statement ok
+DROP TABLE s.rp_ddl_ctas
+
+statement ok
+DROP TABLE s.rp_ddl_src

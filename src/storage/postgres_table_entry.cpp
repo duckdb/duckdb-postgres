@@ -36,7 +36,7 @@ PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 PostgresTableEntry::PostgresTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, PostgresTableInfo &info)
     : TableCatalogEntry(catalog, schema, *info.create_info), columns(std::move(info.create_info->columns)),
       postgres_types(std::move(info.postgres_types)), postgres_names(std::move(info.postgres_names)),
-      column_defaults(std::move(info.column_defaults)) {
+      postgres_type_names(std::move(info.postgres_type_names)), column_defaults(std::move(info.column_defaults)) {
 	if (postgres_types.size() != columns.LogicalColumnCount() ||
 	    column_defaults.size() != columns.LogicalColumnCount()) {
 		throw InternalException("PostgresTableEntry: column count mismatch - %llu columns, %llu types, %llu defaults",
