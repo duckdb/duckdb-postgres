@@ -45,6 +45,42 @@ static string GetColumnDefaultExpression(PostgresVersion version) {
 	return result;
 }
 
+//! Redshift late-binding views (CREATE VIEW ... WITH NO SCHEMA BINDING) have no pg_attribute entries (relnatts = 0),
+//! their columns are only exposed through pg_get_late_binding_view_cols(). The column type is returned formatted
+//! (e.g. "numeric(10,2)" or "character varying(100)"), so it is split into the type name and the type modifier here.
+static string GetRedshiftLateBindingViewQuery() {
+	return R"(
+UNION ALL
+SELECT pg_namespace.oid AS namespace_id, relname, relpages, lbv.col_name AS attname,
+    CASE WHEN lbv.paren > 0 THEN RTRIM(SUBSTRING(lbv.col_type, 1, lbv.paren - 1)) ELSE lbv.col_type END AS type_name,
+    CASE
+        WHEN lbv.paren = 0 THEN -1
+        WHEN lbv.col_type LIKE 'numeric(%' OR lbv.col_type LIKE 'decimal(%'
+            THEN SPLIT_PART(lbv.type_args, ',', 1)::INTEGER * 65536
+                + COALESCE(NULLIF(TRIM(SPLIT_PART(lbv.type_args, ',', 2)), ''), '0')::INTEGER + 4
+        WHEN lbv.col_type LIKE 'character varying(%' OR lbv.col_type LIKE 'character(%'
+            THEN lbv.type_args::INTEGER + 4
+        ELSE -1
+    END AS type_modifier,
+    0 AS ndim, lbv.col_num AS attnum, false AS notnull, NULL constraint_id,
+    NULL constraint_type, NULL constraint_key, NULL AS type_schema,
+    NULL AS column_comment,
+    tbl_desc.description AS table_comment,
+    NULL AS column_default
+FROM (
+    SELECT view_schema, view_name, col_name, col_type, col_num, STRPOS(col_type, '(') AS paren,
+        CASE WHEN STRPOS(col_type, '(') > 0
+            THEN SUBSTRING(col_type, STRPOS(col_type, '(') + 1, STRPOS(col_type, ')') - STRPOS(col_type, '(') - 1)
+        END AS type_args
+    FROM pg_get_late_binding_view_cols()
+        cols(view_schema NAME, view_name NAME, col_name NAME, col_type VARCHAR, col_num INTEGER)
+) lbv
+JOIN pg_namespace ON pg_namespace.nspname = lbv.view_schema
+JOIN pg_class ON pg_class.relnamespace = pg_namespace.oid AND pg_class.relname = lbv.view_name
+LEFT JOIN pg_description tbl_desc ON tbl_desc.objoid=pg_class.oid AND tbl_desc.objsubid=0
+WHERE relkind = 'v' ${CONDITION})";
+}
+
 string PostgresTableSet::GetInitializeQuery(PostgresVersion version, const vector<string> &schemas,
                                             const string &table) {
 	string base_query = R"(
@@ -62,7 +98,7 @@ JOIN pg_type ON atttypid=pg_type.oid
 JOIN pg_namespace type_ns ON pg_type.typnamespace = type_ns.oid
 LEFT JOIN pg_description col_desc ON col_desc.objoid=pg_class.oid AND col_desc.objsubid=pg_attribute.attnum
 LEFT JOIN pg_description tbl_desc ON tbl_desc.objoid=pg_class.oid AND tbl_desc.objsubid=0
-WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') ${CONDITION}
+WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') ${CONDITION}${LATE_BINDING_VIEWS}
 UNION ALL
 SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,
     NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,
@@ -83,6 +119,9 @@ ORDER BY namespace_id, relname, attnum, constraint_id;
 		condition += "AND relname=" + PostgresUtils::WriteLiteral(table);
 	}
 	base_query = StringUtil::Replace(base_query, "${COLUMN_DEFAULT}", GetColumnDefaultExpression(version));
+	base_query = StringUtil::Replace(
+	    base_query, "${LATE_BINDING_VIEWS}",
+	    version.type_v == PostgresInstanceType::REDSHIFT ? GetRedshiftLateBindingViewQuery() : string());
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 

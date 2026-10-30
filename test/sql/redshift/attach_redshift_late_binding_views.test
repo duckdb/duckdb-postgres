@@ -1,0 +1,148 @@
+# name: test/sql/redshift/attach_redshift_late_binding_views.test
+# description: Redshift late-binding views (WITH NO SCHEMA BINDING) are exposed in the attached catalog
+# group: [redshift]
+
+require postgres_scanner
+
+# libpq connection string of a Redshift cluster, for example:
+# REDSHIFT_TEST_DSN='host=localhost port=5439 dbname=dev user=awsuser sslmode=require' (password in PGPASSWORD)
+require-env REDSHIFT_TEST_DSN
+
+statement ok
+ATTACH '{REDSHIFT_TEST_DSN}' AS rs (TYPE POSTGRES)
+
+statement ok
+CALL postgres_execute('rs', 'DROP SCHEMA IF EXISTS duckdb_lbv_test CASCADE')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE SCHEMA duckdb_lbv_test')
+
+statement ok
+CALL postgres_execute('rs', '
+CREATE TABLE duckdb_lbv_test.base_tbl (
+    c_small SMALLINT, c_int INTEGER NOT NULL, c_big BIGINT, c_dec DECIMAL(38,0), c_dec_scale DECIMAL(10,2),
+    c_dec_default DECIMAL, c_real REAL, c_dbl DOUBLE PRECISION, c_bool BOOLEAN, c_char CHAR(10),
+    c_varchar VARCHAR(100), c_varchar_max VARCHAR(MAX), c_date DATE, c_ts TIMESTAMP, c_time TIME
+)')
+
+statement ok
+CALL postgres_execute('rs', '
+INSERT INTO duckdb_lbv_test.base_tbl VALUES
+    (1, 10, 100, 12345678901234567890, 1.50, 42, 0.5, 0.25, true, ''abc'', ''hello'', ''world'',
+     ''2024-01-02'', ''2024-01-02 03:04:05'', ''03:04:05''),
+    (2, 20, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, ''second'', NULL, NULL, NULL, NULL)
+')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE VIEW duckdb_lbv_test.regular_view AS SELECT c_int, c_varchar FROM duckdb_lbv_test.base_tbl')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE VIEW duckdb_lbv_test.late_view AS SELECT * FROM duckdb_lbv_test.base_tbl WITH NO SCHEMA BINDING')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE VIEW duckdb_lbv_test."late view quoted" AS SELECT c_int AS "my id", c_varchar AS "my name" FROM duckdb_lbv_test.base_tbl WITH NO SCHEMA BINDING')
+
+statement ok
+CALL postgres_execute('rs', 'COMMENT ON VIEW duckdb_lbv_test.late_view IS ''late binding view comment''')
+
+# late-binding views have no pg_attribute entries
+query II
+SELECT * FROM postgres_query('rs', 'SELECT relname, relnatts FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid WHERE nspname = ''duckdb_lbv_test'' AND relkind = ''v''') ORDER BY 1
+----
+late view quoted	0
+late_view	0
+regular_view	2
+
+statement ok
+CALL postgres_clear_cache()
+
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'rs' AND schema_name = 'duckdb_lbv_test' ORDER BY 1
+----
+base_tbl
+late view quoted
+late_view
+regular_view
+
+# column types of the late-binding view match the ones of the base table
+query IIII
+SELECT b.column_name, b.data_type, l.data_type, l.column_index
+FROM duckdb_columns() b
+FULL OUTER JOIN (SELECT * FROM duckdb_columns() WHERE database_name = 'rs' AND schema_name = 'duckdb_lbv_test' AND table_name = 'late_view') l USING (column_name)
+WHERE b.database_name = 'rs' AND b.schema_name = 'duckdb_lbv_test' AND b.table_name = 'base_tbl'
+ORDER BY l.column_index
+----
+c_small	SMALLINT	SMALLINT	1
+c_int	INTEGER	INTEGER	2
+c_big	BIGINT	BIGINT	3
+c_dec	DECIMAL(38,0)	DECIMAL(38,0)	4
+c_dec_scale	DECIMAL(10,2)	DECIMAL(10,2)	5
+c_dec_default	DECIMAL(18,0)	DECIMAL(18,0)	6
+c_real	FLOAT	FLOAT	7
+c_dbl	DOUBLE	DOUBLE	8
+c_bool	BOOLEAN	BOOLEAN	9
+c_char	VARCHAR	VARCHAR	10
+c_varchar	VARCHAR	VARCHAR	11
+c_varchar_max	VARCHAR	VARCHAR	12
+c_date	DATE	DATE	13
+c_ts	TIMESTAMP	TIMESTAMP	14
+c_time	TIME	TIME	15
+
+query I
+SELECT comment FROM duckdb_tables() WHERE database_name = 'rs' AND schema_name = 'duckdb_lbv_test' AND table_name = 'late_view'
+----
+late binding view comment
+
+query IIIIIIIIIIIIIII
+SELECT * FROM rs.duckdb_lbv_test.late_view ORDER BY c_int
+----
+1	10	100	12345678901234567890	1.50	42	0.5	0.25	true	abc       	hello	world	2024-01-02	2024-01-02 03:04:05	03:04:05
+2	20	NULL	NULL	NULL	NULL	NULL	NULL	false	NULL	second	NULL	NULL	NULL	NULL
+
+# projection and filter pushdown
+query II
+SELECT c_varchar, c_dec_scale FROM rs.duckdb_lbv_test.late_view WHERE c_int = 10
+----
+hello	1.50
+
+query II
+SELECT "my name", "my id" FROM rs.duckdb_lbv_test."late view quoted" ORDER BY "my id"
+----
+hello	10
+second	20
+
+# the late-binding view can be joined with regular tables and views
+query III
+SELECT r.c_varchar, l.c_big, b.c_bool
+FROM rs.duckdb_lbv_test.regular_view r
+JOIN rs.duckdb_lbv_test.late_view l USING (c_int)
+JOIN rs.duckdb_lbv_test.base_tbl b USING (c_int)
+ORDER BY c_int
+----
+hello	100	true
+second	NULL	false
+
+# a late-binding view created after the catalog has been loaded is found by the single table lookup
+statement ok
+CALL postgres_execute('rs', 'CREATE VIEW duckdb_lbv_test.late_view_2 AS SELECT c_int, c_dec_scale FROM duckdb_lbv_test.base_tbl WITH NO SCHEMA BINDING')
+
+query II
+SELECT c_int, c_dec_scale FROM rs.duckdb_lbv_test.late_view_2 ORDER BY c_int
+----
+10	1.50
+20	NULL
+
+# attaching with a schema filter
+statement ok
+ATTACH '{REDSHIFT_TEST_DSN}' AS rs_schema (TYPE POSTGRES, SCHEMA 'duckdb_lbv_test', READ_ONLY)
+
+query I
+SELECT count(*) FROM rs_schema.duckdb_lbv_test.late_view
+----
+2
+
+statement ok
+DETACH rs_schema
+
+statement ok
+CALL postgres_execute('rs', 'DROP SCHEMA duckdb_lbv_test CASCADE')
