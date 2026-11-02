@@ -385,7 +385,7 @@ static unique_ptr<GlobalTableFunctionState> PostgresInitGlobalState(ClientContex
 		// fire it — and hand back a rowcount result through the materialized-collection
 		// fast path (PostgresScan returns gstate.collection directly, and GetLocalState short-circuits
 		// when a collection is present, so no postgres scan connection is opened).
-		unique_ptr<PostgresResult> pg_res = con.Query(context, bind_data.sql);
+		unique_ptr<PostgresResult> pg_res = con.Query(context, bind_data.sql, bind_data.params);
 		HandleCatalogCache(context, bind_data);
 		vector<LogicalType> rowcount_types {LogicalType::BIGINT};
 		auto materialized = make_uniq<ColumnDataCollection>(Allocator::Get(context), rowcount_types);

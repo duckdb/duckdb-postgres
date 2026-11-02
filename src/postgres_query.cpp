@@ -29,7 +29,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
                                         vector<LogicalType> &return_types, vector<Identifier> &names,
                                         PostgresCatalog &catalog, PostgresConnection &con,
                                         vector<string> preliminary_queries, std::string sql, bool use_transaction,
-                                        uint64_t pinned_connection_id,
+                                        uint64_t pinned_connection_id, PostgresParameters params,
                                         unique_ptr<PostgresPreparedStatement> prepared_statement) {
 	// The statement returns no result columns: it's a command (DDL, or DML without RETURNING).
 	// Instead of failing, run it as a command and return a single-row Success result. We reuse
@@ -57,6 +57,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	result->read_only = false;
 	result->preliminary_queries = std::move(preliminary_queries);
 	result->sql = std::move(sql);
+	result->params = std::move(params);
 	result->use_transaction = use_transaction;
 	result->prepared_statement = std::move(prepared_statement);
 	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
@@ -206,7 +207,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 			throw BinderException("query parameters cannot be used with 'prepare=FALSE'");
 		}
 		return BindDML(context, input, return_types, names, catalog, con, std::move(preliminary_queries),
-		               std::move(sql), use_transaction, pinned_connection_id, nullptr);
+		               std::move(sql), use_transaction, pinned_connection_id, PostgresParameters(), nullptr);
 	}
 
 	auto conn_lock = con.Lock();
@@ -226,10 +227,21 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		throw BinderException("Failed to describe prepared statement: %s", extended_err);
 	}
 	conn_lock.unlock();
+	int nparams = PQnparams(describe_prepared);
+	if (nparams != param_values.size()) {
+		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu, query: \"%s\"",
+		                      nparams, param_values.size(), sql);
+	}
+	vector<Oid> param_types;
+	for (idx_t p = 0; p < nparams; p++) {
+		Oid ptype = PQparamtype(describe_prepared, p);
+		param_types.emplace_back(ptype);
+	}
 	int nfields = PQnfields(describe_prepared);
 	if (nfields <= 0) {
 		return BindDML(context, input, return_types, names, catalog, con, std::move(preliminary_queries),
-		               std::move(sql), use_transaction, pinned_connection_id, std::move(prepared));
+		               std::move(sql), use_transaction, pinned_connection_id,
+		               PostgresParameters(std::move(param_types), std::move(param_values)), std::move(prepared));
 	}
 	auto result = make_uniq<PostgresBindData>(context, catalog.GetName());
 	result->pinned_connection_id = pinned_connection_id;
@@ -248,16 +260,6 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		names.emplace_back(name);
 	}
 	PostgresUtils::DeduplicateColumns(names);
-	int nparams = PQnparams(describe_prepared);
-	if (nparams != param_values.size()) {
-		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu, query: \"%s\"",
-		                      nparams, param_values.size(), sql);
-	}
-	vector<Oid> param_types;
-	for (idx_t p = 0; p < nparams; p++) {
-		Oid ptype = PQparamtype(describe_prepared, p);
-		param_types.emplace_back(ptype);
-	}
 
 	// set up the bind data
 	result->type_config = type_config;
