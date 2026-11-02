@@ -1,0 +1,201 @@
+# name: test/sql/redshift/attach_redshift_types.test
+# description: Reading all Redshift data types through an attached Redshift database
+# group: [redshift]
+
+require postgres_scanner
+
+# libpq connection string of a Redshift cluster, for example:
+# REDSHIFT_TEST_DSN='host=localhost port=5439 dbname=dev user=awsuser sslmode=require' (password in PGPASSWORD)
+require-env REDSHIFT_TEST_DSN
+
+statement ok
+ATTACH '{REDSHIFT_TEST_DSN}' AS rs (TYPE POSTGRES)
+
+statement ok
+CALL postgres_execute('rs', 'DROP SCHEMA IF EXISTS duckdb_types_test CASCADE')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE SCHEMA duckdb_types_test')
+
+# https://docs.aws.amazon.com/redshift/latest/dg/c_Supported_data_types.html
+statement ok
+CALL postgres_execute('rs', '
+CREATE TABLE duckdb_types_test.all_types (
+    id INTEGER,
+    c_smallint SMALLINT, c_int2 INT2, c_integer INTEGER, c_int4 INT4, c_bigint BIGINT, c_int8 INT8,
+    c_decimal DECIMAL(38,10), c_numeric NUMERIC(5,2), c_decimal_default DECIMAL, c_decimal_precision DECIMAL(9),
+    c_real REAL, c_float4 FLOAT4, c_double DOUBLE PRECISION, c_float FLOAT, c_float8 FLOAT8,
+    c_boolean BOOLEAN,
+    c_char CHAR(5), c_nchar NCHAR(3), c_bpchar BPCHAR,
+    c_varchar VARCHAR(20), c_varchar_max VARCHAR(MAX), c_nvarchar NVARCHAR(10), c_text TEXT,
+    c_date DATE, c_time TIME, c_timetz TIMETZ, c_timestamp TIMESTAMP, c_timestamptz TIMESTAMPTZ,
+    c_interval_ym INTERVAL YEAR TO MONTH, c_interval_ds INTERVAL DAY TO SECOND,
+    c_varbyte VARBYTE(16),
+    c_super SUPER,
+    c_geometry GEOMETRY, c_geography GEOGRAPHY,
+    c_hllsketch HLLSKETCH
+)')
+
+statement ok
+CALL postgres_execute('rs', '
+INSERT INTO duckdb_types_test.all_types VALUES (
+    1,
+    -32768, 32767, -2147483648, 2147483647, -9223372036854775808, 9223372036854775807,
+    1234567890123456789012345678.0123456789, -123.45, 42, 123456789,
+    1.5, -2.25, 3.125, -4.5, 1e100,
+    true,
+    ''ab'', ''xyz'', ''q'',
+    ''hello'', ''world wide'', ''nv'', ''some text'',
+    ''2024-02-29'', ''13:14:15.123456'', ''13:14:15+03'', ''2024-02-29 13:14:15.123456'', ''2024-02-29 13:14:15.123456+00'',
+    INTERVAL ''1 year 2 months'', INTERVAL ''3 days 04:05:06.789'',
+    FROM_HEX(''00ff61''),
+    JSON_PARSE(''{"a":[1,2,{"b":null}],"c":"d"}''),
+    ST_SetSRID(ST_GeomFromText(''LINESTRING(1 2,3 4)''), 3857), ST_GeogFromText(''POINT(-71.06 42.36)''),
+    NULL
+)')
+
+statement ok
+CALL postgres_execute('rs', '
+INSERT INTO duckdb_types_test.all_types (id, c_super) VALUES (2, JSON_PARSE(''[1,"two",3.5]'')), (3, ''plain string''), (4, NULL)
+')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE TABLE duckdb_types_test.hll_source (i INTEGER)')
+
+statement ok
+CALL postgres_execute('rs', 'INSERT INTO duckdb_types_test.hll_source VALUES (1), (2), (3), (3)')
+
+statement ok
+CALL postgres_execute('rs', 'UPDATE duckdb_types_test.all_types SET c_hllsketch = (SELECT HLL_CREATE_SKETCH(i) FROM duckdb_types_test.hll_source) WHERE id = 1')
+
+statement ok
+CALL postgres_execute('rs', 'CREATE VIEW duckdb_types_test.all_types_late_view AS SELECT * FROM duckdb_types_test.all_types WITH NO SCHEMA BINDING')
+
+statement ok
+CALL postgres_clear_cache()
+
+# the type mapping is the same for regular tables (pg_attribute) and late-binding views
+# (pg_get_late_binding_view_cols())
+foreach relation all_types all_types_late_view
+
+query II
+SELECT column_name, data_type FROM duckdb_columns()
+WHERE database_name = 'rs' AND schema_name = 'duckdb_types_test' AND table_name = '{relation}'
+ORDER BY column_index
+----
+id	INTEGER
+c_smallint	SMALLINT
+c_int2	SMALLINT
+c_integer	INTEGER
+c_int4	INTEGER
+c_bigint	BIGINT
+c_int8	BIGINT
+c_decimal	DECIMAL(38,10)
+c_numeric	DECIMAL(5,2)
+c_decimal_default	DECIMAL(18,0)
+c_decimal_precision	DECIMAL(9,0)
+c_real	FLOAT
+c_float4	FLOAT
+c_double	DOUBLE
+c_float	DOUBLE
+c_float8	DOUBLE
+c_boolean	BOOLEAN
+c_char	VARCHAR
+c_nchar	VARCHAR
+c_bpchar	VARCHAR
+c_varchar	VARCHAR
+c_varchar_max	VARCHAR
+c_nvarchar	VARCHAR
+c_text	VARCHAR
+c_date	DATE
+c_time	TIME
+c_timetz	TIME WITH TIME ZONE
+c_timestamp	TIMESTAMP
+c_timestamptz	TIMESTAMP WITH TIME ZONE
+c_interval_ym	INTERVAL
+c_interval_ds	INTERVAL
+c_varbyte	BLOB
+c_super	JSON
+c_geometry	GEOMETRY
+c_geography	GEOMETRY('EPSG:4326')
+c_hllsketch	JSON
+
+# numeric types
+query IIIIIIIIIIIIIII
+SELECT c_smallint, c_int2, c_integer, c_int4, c_bigint, c_int8, c_decimal, c_numeric, c_decimal_default,
+    c_decimal_precision, c_real, c_float4, c_double, c_float, c_float8
+FROM rs.duckdb_types_test.{relation} ORDER BY id
+----
+-32768	32767	-2147483648	2147483647	-9223372036854775808	9223372036854775807	1234567890123456789012345678.0123456789	-123.45	42	123456789	1.5	-2.25	3.125	-4.5	1e+100
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+
+# boolean and character types (CHAR values are blank-padded, BPCHAR without a length is CHAR(256))
+query IIIIIIIII
+SELECT c_boolean, c_char, c_nchar, length(c_bpchar), rtrim(c_bpchar), c_varchar, c_varchar_max, c_nvarchar, c_text
+FROM rs.duckdb_types_test.{relation} ORDER BY id
+----
+true	ab   	xyz	256	q	hello	world wide	nv	some text
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+
+# datetime types (Redshift stores TIMETZ values in UTC)
+query IIIIIII
+SELECT c_date, c_time, c_timetz, c_timestamp, c_timestamptz = TIMESTAMPTZ '2024-02-29 13:14:15.123456+00',
+    c_interval_ym, c_interval_ds
+FROM rs.duckdb_types_test.{relation} ORDER BY id
+----
+2024-02-29	13:14:15.123456	10:14:15+00	2024-02-29 13:14:15.123456	true	1 year 2 months	3 days 04:05:06.789
+NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL
+
+# VARBYTE, SUPER, spatial and HLLSKETCH types
+query IIIIII
+SELECT c_varbyte, c_super, c_geometry, c_geography, c_hllsketch::VARCHAR LIKE '{"version":1,%', c_hllsketch IS NULL
+FROM rs.duckdb_types_test.{relation} ORDER BY id
+----
+\x00\xFFa	{"a":[1,2,{"b":null}],"c":"d"}	LINESTRING (1 2, 3 4)	POINT (-71.06 42.36)	true	false
+NULL	[1,"two",3.5]	NULL	NULL	NULL	true
+NULL	"plain string"	NULL	NULL	NULL	true
+NULL	NULL	NULL	NULL	NULL	true
+
+# filters on the Redshift-specific types are pushed down
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_varbyte = '\x00\xFFa'::BLOB
+----
+1
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_varbyte IN ('\x00'::BLOB, '\x00\xFFa'::BLOB)
+----
+1
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_interval_ym = INTERVAL '14 months'
+----
+1
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_super IS NOT NULL ORDER BY id
+----
+1
+2
+3
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_geography IS NOT NULL AND c_geometry IS NOT NULL
+----
+1
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_decimal > 1234567890123456789012345678 AND c_timetz IS NOT NULL
+----
+1
+
+endloop
+
+statement ok
+CALL postgres_execute('rs', 'DROP SCHEMA duckdb_types_test CASCADE')

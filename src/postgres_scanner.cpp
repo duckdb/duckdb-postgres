@@ -108,6 +108,7 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
                                        int64_t approx_num_pages, optional_ptr<PostgresCatalog> pg_catalog) {
 	// resolve the protocol before any decision that depends on it (ctid scan, max threads)
 	// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here
+	bind_data.instance_type = version.type_v;
 	if (pg_catalog) {
 		// for an attached database the mode set at ATTACH time decides
 		bind_data.use_text_protocol = pg_catalog->UseTextProtocol(bind_data.query_mode, bind_data.use_text_protocol);
@@ -266,7 +267,8 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 
 	bool col_names_required = false;
 	string col_names = WriteColumnNames(bind_data, lstate, col_names_required);
-	string filter_string = PostgresFilterPushdown::TransformFilters(lstate.column_ids, lstate.filters, bind_data.names);
+	string filter_string = PostgresFilterPushdown::TransformFilters(lstate.column_ids, lstate.filters, bind_data.names,
+	                                                                bind_data.instance_type);
 
 	string filter;
 

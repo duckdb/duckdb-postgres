@@ -67,6 +67,8 @@ public:
 	bool clear_catalog_cache = false;
 	idx_t max_threads = 1;
 	PostgresTypeConfig type_config;
+	//! The server the scan reads from - set in PrepareBind
+	PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES;
 
 	string limit_clause;
 

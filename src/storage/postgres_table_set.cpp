@@ -168,6 +168,9 @@ void PostgresTableSet::AddColumn(optional_ptr<PostgresTransaction> transaction,
 	if (!result.IsNull(row, type_schema_index)) {
 		type_info.type_schema = result.GetString(row, type_schema_index);
 	}
+	if (schema) {
+		type_info.instance_type = schema->catalog.Cast<PostgresCatalog>().GetPostgresVersion().type_v;
+	}
 	string default_value;
 
 	PostgresType postgres_type;

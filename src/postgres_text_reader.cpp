@@ -277,13 +277,13 @@ void PostgresTextReader::ConvertCTID(Vector &source, Vector &target, idx_t count
 	}
 }
 
-void PostgresTextReader::ConvertBlob(Vector &source, Vector &target, idx_t count) {
-	// ctids have the format (page_index, row_in_page)
+static void ConvertHexBlob(Vector &source, Vector &target, idx_t count, bool has_hex_prefix) {
 	UnifiedVectorFormat vdata;
 	source.ToUnifiedFormat(vdata);
 	auto strings = UnifiedVectorFormat::GetData<string_t>(vdata);
 	auto result = FlatVector::GetDataMutable<string_t>(target);
 
+	idx_t prefix_size = has_hex_prefix ? 2 : 0;
 	for (idx_t i = 0; i < count; i++) {
 		if (!vdata.validity.RowIsValid(i)) {
 			// NULL value - skip
@@ -293,20 +293,25 @@ void PostgresTextReader::ConvertBlob(Vector &source, Vector &target, idx_t count
 		auto blob_str = strings[i];
 		auto str = blob_str.GetData();
 		auto size = blob_str.GetSize();
-		if (size < 2 || str[0] != '\\' || str[1] != 'x') {
+		if (has_hex_prefix && (size < 2 || str[0] != '\\' || str[1] != 'x')) {
 			throw InvalidInputException("Incorrect blob format - expected \\x... for blob");
 		}
 		if (size % 2 != 0) {
 			throw InvalidInputException("Blob size must be modulo 2 (\\xAA)");
 		}
 		string result_blob;
-		for (idx_t i = 2; i < size; i += 2) {
+		for (idx_t i = prefix_size; i < size; i += 2) {
 			int byte_a = Blob::HEX_MAP[static_cast<uint8_t>(str[i])];
 			int byte_b = Blob::HEX_MAP[static_cast<uint8_t>(str[i + 1])];
 			result_blob += UnsafeNumericCast<data_t>((byte_a << 4) + byte_b);
 		}
 		result[i] = StringVector::AddStringOrBlob(target, result_blob);
 	}
+}
+
+void PostgresTextReader::ConvertBlob(Vector &source, Vector &target, idx_t count) {
+	// bytea in the hex format: \x0123...
+	ConvertHexBlob(source, target, count, true);
 }
 
 static void ConvertGeometry(Vector &source, Vector &target, idx_t count) {
@@ -361,6 +366,10 @@ void PostgresTextReader::ConvertVector(Vector &source, Vector &target, const Pos
 	}
 	if (postgres_type.info == PostgresTypeAnnotation::CTID) {
 		ConvertCTID(source, target, count);
+		return;
+	}
+	if (postgres_type.info == PostgresTypeAnnotation::HEX_BLOB) {
+		ConvertHexBlob(source, target, count, false);
 		return;
 	}
 	switch (target.GetType().id()) {

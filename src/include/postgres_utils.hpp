@@ -28,6 +28,8 @@ struct PostgresTypeData {
 	string type_name;
 	string type_schema;
 	idx_t array_dimensions = 0;
+	//! The server the type comes from - some type names (e.g. "geometry") have server-specific semantics
+	PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES;
 };
 
 struct PostgresTypeConfig {
@@ -51,7 +53,9 @@ enum class PostgresTypeAnnotation {
 	GEOM_BOX,
 	GEOM_PATH,
 	GEOM_POLYGON,
-	GEOM_CIRCLE
+	GEOM_CIRCLE,
+	//! hex encoded binary data without the "\\x" prefix (Redshift VARBYTE)
+	HEX_BLOB
 };
 
 struct PostgresType {
