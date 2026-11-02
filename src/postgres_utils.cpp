@@ -198,6 +198,14 @@ string PostgresUtils::DataTypeToTypeName(const string &data_type) {
 		return "timestamptz";
 	} else if (type_name == "bit varying") {
 		return "varbit";
+	} else if (type_name == "binary varying") {
+		// Redshift VARBYTE as reported by pg_get_late_binding_view_cols()
+		return "varbyte";
+	} else if (type_name == "interval year to month") {
+		// Redshift interval types as reported by pg_get_late_binding_view_cols()
+		return "intervaly2m";
+	} else if (type_name == "interval day to second") {
+		return "intervald2s";
 	}
 	return data_type;
 }
@@ -259,11 +267,45 @@ PostgresTypeConfig PostgresTypeConfig::FromContext(optional_ptr<ClientContext> c
 	return result;
 }
 
+//! Redshift-specific types, all of them are read using the text protocol (Redshift does not support binary COPY)
+static bool TryRedshiftTypeToLogicalType(const PostgresTypeData &type_info, PostgresType &postgres_type,
+                                         LogicalType &result) {
+	auto &pgtypename = type_info.type_name;
+	if (pgtypename == "geometry") {
+		// the Redshift type modifier does not follow the PostGIS layout and does not encode the SRID,
+		// the text output is hex EWKB
+		result = LogicalType::GEOMETRY();
+	} else if (pgtypename == "geography") {
+		// the text output is hex EWKB, geography values are always in WGS 84
+		result = LogicalType::GEOMETRY("EPSG:4326");
+	} else if (pgtypename == "intervaly2m" || pgtypename == "intervald2s") {
+		// INTERVAL YEAR TO MONTH / INTERVAL DAY TO SECOND
+		result = LogicalType::INTERVAL;
+	} else if (pgtypename == "varbyte") {
+		postgres_type.info = PostgresTypeAnnotation::HEX_BLOB;
+		result = LogicalType::BLOB;
+	} else if (pgtypename == "super" || pgtypename == "hllsketch") {
+		// the text output is JSON - these types must not be cast to VARCHAR: SUPER::VARCHAR returns NULL for
+		// non-string values, and HLLSKETCH cannot be cast to VARCHAR at all
+		result = LogicalType::JSON();
+	} else {
+		return false;
+	}
+	return true;
+}
+
 LogicalType PostgresUtils::TypeToLogicalType(optional_ptr<PostgresTransaction> transaction,
                                              optional_ptr<PostgresSchemaEntry> schema,
                                              const PostgresTypeConfig &type_config, const PostgresTypeData &type_info,
                                              PostgresType &postgres_type) {
 	auto &pgtypename = type_info.type_name;
+
+	if (type_info.instance_type == PostgresInstanceType::REDSHIFT) {
+		LogicalType result;
+		if (TryRedshiftTypeToLogicalType(type_info, postgres_type, result)) {
+			return result;
+		}
+	}
 
 	// postgres array types start with an _
 	if (StringUtil::StartsWith(pgtypename, "_")) {

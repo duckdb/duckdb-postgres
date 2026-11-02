@@ -20,9 +20,15 @@ static string WriteDistinctFrom(ExpressionType distinct_type, const string &colu
 	}
 }
 
-static dbconnector::table_scan::FilterPushdown::Config CreatePostgresConfig() {
+static dbconnector::table_scan::FilterPushdown::Config
+CreatePostgresConfig(PostgresInstanceType instance_type = PostgresInstanceType::POSTGRES) {
 	using namespace dbconnector;
 
+	if (instance_type == PostgresInstanceType::REDSHIFT) {
+		// Redshift does not understand the '\x...' bytea hex format, '\x41'::BYTEA is read as the bytes "x41"
+		return table_scan::FilterPushdown::CreateConfig('"', '\'', query::QuoteEscapeStyle::DOUBLE_QUOTE, "FROM_HEX('",
+		                                                "')", "C", WriteDistinctFrom);
+	}
 	return table_scan::FilterPushdown::CreateConfig('"', '\'', query::QuoteEscapeStyle::DOUBLE_QUOTE, "'\\x",
 	                                                "'::BYTEA", "C", WriteDistinctFrom);
 }
@@ -36,7 +42,8 @@ bool PostgresFilterPushdown::CanPushExpressionDown(ClientContext &, const Logica
 }
 
 string PostgresFilterPushdown::TransformFilters(const vector<column_t> &column_ids,
-                                                optional_ptr<TableFilterSet> filters, const vector<string> &names) {
+                                                optional_ptr<TableFilterSet> filters, const vector<string> &names,
+                                                PostgresInstanceType instance_type) {
 	using namespace dbconnector;
 	if (!filters || !filters->HasFilters()) {
 		// no filters
@@ -52,7 +59,7 @@ string PostgresFilterPushdown::TransformFilters(const vector<column_t> &column_i
 			column_name = names[column_id];
 		}
 		auto &filter = entry.Filter();
-		auto config = CreatePostgresConfig();
+		auto config = CreatePostgresConfig(instance_type);
 		auto filter_text = table_scan::FilterPushdown::TransformFilter(config, column_name, filter, column_id);
 
 		if (filter_text.empty()) {
