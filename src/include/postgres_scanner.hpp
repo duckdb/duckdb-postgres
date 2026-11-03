@@ -60,6 +60,9 @@ public:
 	bool emit_ctid = false;
 	bool use_transaction = true;
 	bool use_text_protocol = false;
+	//! Plain queries with binary results are used, but a scan falls back to the text protocol when it reads a column
+	//! that can only be read using the text protocol
+	bool text_protocol_fallback = false;
 	//! Set by postgres_query's bind when the statement returns no columns (a command like DDL, or
 	//! DML without RETURNING). InitGlobalState executes it and returns a single-row Success result.
 	bool command_only = false;

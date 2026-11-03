@@ -278,15 +278,21 @@ static bool TryRedshiftTypeToLogicalType(const PostgresTypeData &type_info, Post
 	} else if (pgtypename == "geography") {
 		// the text output is hex EWKB, geography values are always in WGS 84
 		result = LogicalType::GEOMETRY("EPSG:4326");
-	} else if (pgtypename == "intervaly2m" || pgtypename == "intervald2s") {
-		// INTERVAL YEAR TO MONTH / INTERVAL DAY TO SECOND
+	} else if (pgtypename == "intervaly2m") {
+		postgres_type.info = PostgresTypeAnnotation::INTERVAL_YEAR_TO_MONTH;
+		result = LogicalType::INTERVAL;
+	} else if (pgtypename == "intervald2s") {
+		postgres_type.info = PostgresTypeAnnotation::INTERVAL_DAY_TO_SECOND;
 		result = LogicalType::INTERVAL;
 	} else if (pgtypename == "varbyte") {
 		postgres_type.info = PostgresTypeAnnotation::HEX_BLOB;
 		result = LogicalType::BLOB;
-	} else if (pgtypename == "super" || pgtypename == "hllsketch") {
-		// the text output is JSON - these types must not be cast to VARCHAR: SUPER::VARCHAR returns NULL for
-		// non-string values, and HLLSKETCH cannot be cast to VARCHAR at all
+	} else if (pgtypename == "super") {
+		// the output is JSON - SUPER must not be cast to VARCHAR, SUPER::VARCHAR returns NULL for non-string values
+		result = LogicalType::JSON();
+	} else if (pgtypename == "hllsketch") {
+		// the text output is JSON, HLLSKETCH cannot be cast to VARCHAR and has no binary output
+		postgres_type.info = PostgresTypeAnnotation::TEXT_PROTOCOL_ONLY;
 		result = LogicalType::JSON();
 	} else {
 		return false;
@@ -572,6 +578,29 @@ bool PostgresUtils::SupportedPostgresOid(const LogicalType &input) {
 		return true;
 	default:
 		return false;
+	}
+}
+
+string PostgresUtils::RedshiftOidToName(uint32_t oid) {
+	switch (oid) {
+	case 1188:
+		return "intervaly2m";
+	case 1190:
+		return "intervald2s";
+	case 2935:
+		return "hllsketch";
+	case 3000:
+	case 3999:
+		// query results report GEOMETRY columns with OID 3999
+		return "geometry";
+	case 3001:
+		return "geography";
+	case 4000:
+		return "super";
+	case 6551:
+		return "varbyte";
+	default:
+		return string();
 	}
 }
 

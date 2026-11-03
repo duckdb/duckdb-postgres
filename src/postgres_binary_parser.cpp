@@ -403,7 +403,22 @@ void PostgresBinaryParser::ParseValue(const LogicalType &type, const PostgresTyp
 		break;
 	}
 	case LogicalTypeId::INTERVAL: {
-		FlatVector::GetDataMutable<interval_t>(out_vec)[output_offset] = ReadInterval();
+		interval_t interval;
+		if (postgres_type.info == PostgresTypeAnnotation::INTERVAL_YEAR_TO_MONTH) {
+			CheckValueLength(value_len, sizeof(int32_t), type);
+			interval.months = ReadInteger<int32_t>();
+			interval.days = 0;
+			interval.micros = 0;
+		} else if (postgres_type.info == PostgresTypeAnnotation::INTERVAL_DAY_TO_SECOND) {
+			CheckValueLength(value_len, sizeof(int64_t), type);
+			auto micros = ReadInteger<int64_t>();
+			interval.months = 0;
+			interval.days = NumericCast<int32_t>(micros / Interval::MICROS_PER_DAY);
+			interval.micros = micros % Interval::MICROS_PER_DAY;
+		} else {
+			interval = ReadInterval();
+		}
+		FlatVector::GetDataMutable<interval_t>(out_vec)[output_offset] = interval;
 		break;
 	}
 	case LogicalTypeId::UUID: {

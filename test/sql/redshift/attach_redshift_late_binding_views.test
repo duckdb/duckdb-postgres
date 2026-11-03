@@ -93,10 +93,11 @@ SELECT comment FROM duckdb_tables() WHERE database_name = 'rs' AND schema_name =
 ----
 late binding view comment
 
+# CHAR values are not blank-padded with the (default) binary results
 query IIIIIIIIIIIIIII
 SELECT * FROM rs.duckdb_lbv_test.late_view ORDER BY c_int
 ----
-1	10	100	12345678901234567890	1.50	42	0.5	0.25	true	abc       	hello	world	2024-01-02	2024-01-02 03:04:05	03:04:05
+1	10	100	12345678901234567890	1.50	42	0.5	0.25	true	abc	hello	world	2024-01-02	2024-01-02 03:04:05	03:04:05
 2	20	NULL	NULL	NULL	NULL	NULL	NULL	false	NULL	second	NULL	NULL	NULL	NULL
 
 # projection and filter pushdown

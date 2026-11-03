@@ -34,6 +34,8 @@ struct PostgresLocalState : public LocalTableFunctionState {
 	vector<column_t> column_ids;
 	TableFilterSet *filters;
 	string col_names;
+	//! Whether this scan reads using the text protocol (see PostgresBindData::text_protocol_fallback)
+	bool use_text_protocol = false;
 	//! Connection owned by the global state (pinned or transaction connection), if this thread uses it
 	optional_ptr<PostgresConnection> global_connection;
 	//! Pool connection ID of global_connection
@@ -109,7 +111,14 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 	// resolve the protocol before any decision that depends on it (ctid scan, max threads)
 	// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here
 	bind_data.instance_type = version.type_v;
-	if (pg_catalog) {
+	if (pg_catalog &&
+	    pg_catalog->UseBinaryPlainQueryWithTextFallback(bind_data.query_mode, bind_data.use_text_protocol)) {
+		// Redshift does not support the binary COPY protocol, but plain query results in the binary format are
+		// faster to transfer than the text ones
+		bind_data.query_mode = PostgresQueryMode::PLAIN_QUERY_BINARY;
+		bind_data.use_text_protocol = false;
+		bind_data.text_protocol_fallback = true;
+	} else if (pg_catalog) {
 		// for an attached database the mode set at ATTACH time decides
 		bind_data.use_text_protocol = pg_catalog->UseTextProtocol(bind_data.query_mode, bind_data.use_text_protocol);
 	} else if (version.type_v == PostgresInstanceType::REDSHIFT) {
@@ -211,6 +220,16 @@ static bool ContainsCastToVarchar(const PostgresType &type) {
 	return false;
 }
 
+static bool RequiresTextProtocol(const PostgresBindData &bind_data, const vector<column_t> &column_ids) {
+	for (auto column_id : column_ids) {
+		if (column_id < bind_data.postgres_types.size() &&
+		    bind_data.postgres_types[column_id].info == PostgresTypeAnnotation::TEXT_PROTOCOL_ONLY) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static string WriteColumnNames(const PostgresBindData &bind_data, const PostgresLocalState &lstate,
                                bool &col_names_required) {
 	string col_names;
@@ -234,6 +253,12 @@ static string WriteColumnNames(const PostgresBindData &bind_data, const Postgres
 			col_names_required = true;
 		} else {
 			col_names += PostgresUtils::WriteIdentifier(bind_data.names[column_id]);
+			if (bind_data.postgres_types[column_id].info == PostgresTypeAnnotation::TEXT_PROTOCOL_ONLY &&
+			    !lstate.use_text_protocol) {
+				throw NotImplementedException("Error reading table \"%s\" - column \"%s\" can only be read using the "
+				                              "text protocol, use pg_query_mode = 'PLAIN_QUERY_TEXT'",
+				                              bind_data.table_name, bind_data.names[column_id]);
+			}
 			if (bind_data.postgres_types[column_id].info == PostgresTypeAnnotation::CAST_TO_VARCHAR) {
 				col_names += "::VARCHAR";
 				col_names_required = true;
@@ -265,6 +290,8 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 
 	auto &bind_data = bind_data_p->Cast<PostgresBindData>();
 
+	lstate.use_text_protocol = bind_data.use_text_protocol ||
+	                           (bind_data.text_protocol_fallback && RequiresTextProtocol(bind_data, lstate.column_ids));
 	bool col_names_required = false;
 	string col_names = WriteColumnNames(bind_data, lstate, col_names_required);
 	string filter_string = PostgresFilterPushdown::TransformFilters(lstate.column_ids, lstate.filters, bind_data.names,
@@ -305,7 +332,7 @@ static void PostgresInitInternal(ClientContext &context, const PostgresBindData 
 	if (!bind_data.limit_clause.empty()) {
 		query += bind_data.limit_clause;
 	}
-	if (!(bind_data.use_text_protocol || bind_data.query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY)) {
+	if (!(lstate.use_text_protocol || bind_data.query_mode == PostgresQueryMode::PLAIN_QUERY_BINARY)) {
 		query = StringUtil::Format("COPY (%s) TO STDOUT (FORMAT \"binary\");", query);
 	}
 	lstate.sql = std::move(query);
@@ -560,7 +587,7 @@ void PostgresLocalState::ScanChunk(ClientContext &context, const PostgresBindDat
 		    bind_data.prepared_statement->GetPoolConnectionId() == global_connection_id) {
 			prepared_statement = bind_data.prepared_statement.get();
 		}
-		if (bind_data.use_text_protocol) {
+		if (use_text_protocol) {
 			reader = make_uniq<PostgresTextReader>(context, GetConnection(), column_ids, bind_data, prepared_statement);
 		} else {
 			reader = make_uniq<PostgresBinaryReader>(GetConnection(), column_ids, bind_data, prepared_statement);

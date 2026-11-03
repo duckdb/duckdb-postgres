@@ -56,7 +56,10 @@ INSERT INTO duckdb_types_test.all_types VALUES (
 
 statement ok
 CALL postgres_execute('rs', '
-INSERT INTO duckdb_types_test.all_types (id, c_super) VALUES (2, JSON_PARSE(''[1,"two",3.5]'')), (3, ''plain string''), (4, NULL)
+INSERT INTO duckdb_types_test.all_types (id, c_super, c_interval_ym, c_interval_ds) VALUES
+    (2, JSON_PARSE(''[1,"two",3.5]''), INTERVAL ''-1 year -2 months'', INTERVAL ''-3 days 04:05:06.789''),
+    (3, ''plain string'', NULL, NULL),
+    (4, NULL, NULL, NULL)
 ')
 
 statement ok
@@ -120,6 +123,12 @@ c_geometry	GEOMETRY
 c_geography	GEOMETRY('EPSG:4326')
 c_hllsketch	JSON
 
+# AUTO uses plain queries with binary results on Redshift
+foreach query_mode PLAIN_QUERY_TEXT AUTO PLAIN_QUERY_BINARY
+
+statement ok
+SET pg_query_mode = '{query_mode}'
+
 # numeric types
 query IIIIIIIIIIIIIII
 SELECT c_smallint, c_int2, c_integer, c_int4, c_bigint, c_int8, c_decimal, c_numeric, c_decimal_default,
@@ -131,15 +140,15 @@ NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 
-# boolean and character types (CHAR values are blank-padded, BPCHAR without a length is CHAR(256))
-query IIIIIIIII
-SELECT c_boolean, c_char, c_nchar, length(c_bpchar), rtrim(c_bpchar), c_varchar, c_varchar_max, c_nvarchar, c_text
+# boolean and character types
+query IIIIIIII
+SELECT c_boolean, rtrim(c_char), c_nchar, rtrim(c_bpchar), c_varchar, c_varchar_max, c_nvarchar, c_text
 FROM rs.duckdb_types_test.{relation} ORDER BY id
 ----
-true	ab   	xyz	256	q	hello	world wide	nv	some text
-NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+true	ab	xyz	q	hello	world wide	nv	some text
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 
 # datetime types (Redshift stores TIMETZ values in UTC)
 query IIIIIII
@@ -148,19 +157,19 @@ SELECT c_date, c_time, c_timetz, c_timestamp, c_timestamptz = TIMESTAMPTZ '2024-
 FROM rs.duckdb_types_test.{relation} ORDER BY id
 ----
 2024-02-29	13:14:15.123456	10:14:15+00	2024-02-29 13:14:15.123456	true	1 year 2 months	3 days 04:05:06.789
-NULL	NULL	NULL	NULL	NULL	NULL	NULL
+NULL	NULL	NULL	NULL	NULL	-1 year -2 months	-2 days -19:54:53.211
 NULL	NULL	NULL	NULL	NULL	NULL	NULL
 NULL	NULL	NULL	NULL	NULL	NULL	NULL
 
-# VARBYTE, SUPER, spatial and HLLSKETCH types
-query IIIIII
-SELECT c_varbyte, c_super, c_geometry, c_geography, c_hllsketch::VARCHAR LIKE '{"version":1,%', c_hllsketch IS NULL
+# VARBYTE, SUPER and spatial types
+query IIII
+SELECT c_varbyte, c_super, c_geometry, c_geography
 FROM rs.duckdb_types_test.{relation} ORDER BY id
 ----
-\x00\xFFa	{"a":[1,2,{"b":null}],"c":"d"}	LINESTRING (1 2, 3 4)	POINT (-71.06 42.36)	true	false
-NULL	[1,"two",3.5]	NULL	NULL	NULL	true
-NULL	"plain string"	NULL	NULL	NULL	true
-NULL	NULL	NULL	NULL	NULL	true
+\x00\xFFa	{"a":[1,2,{"b":null}],"c":"d"}	LINESTRING (1 2, 3 4)	POINT (-71.06 42.36)
+NULL	[1,"two",3.5]	NULL	NULL
+NULL	"plain string"	NULL	NULL
+NULL	NULL	NULL	NULL
 
 # filters on the Redshift-specific types are pushed down
 query I
@@ -177,6 +186,11 @@ query I
 SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_interval_ym = INTERVAL '14 months'
 ----
 1
+
+query I
+SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_interval_ds < INTERVAL '0 seconds'
+----
+2
 
 query I
 SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_super IS NOT NULL ORDER BY id
@@ -196,6 +210,99 @@ SELECT id FROM rs.duckdb_types_test.{relation} WHERE c_decimal > 123456789012345
 1
 
 endloop
+
+# Redshift returns CHAR values blank-padded, the padding is only preserved by the text protocol
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_TEXT'
+
+query III
+SELECT c_char, length(c_bpchar), rtrim(c_bpchar) FROM rs.duckdb_types_test.{relation} WHERE id = 1
+----
+ab   	256	q
+
+# HLLSKETCH has no binary output, it can only be read using the text protocol
+query II
+SELECT c_hllsketch::VARCHAR LIKE '{"version":1,%', count(*) FROM rs.duckdb_types_test.{relation} GROUP BY ALL ORDER BY ALL
+----
+true	1
+NULL	3
+
+# AUTO falls back to the text protocol (for the whole query) when HLLSKETCH is read,
+# CHAR padding shows which protocol was used
+statement ok
+RESET pg_query_mode
+
+query II
+SELECT c_char, c_hllsketch::VARCHAR LIKE '{"version":1,%' FROM rs.duckdb_types_test.{relation} WHERE id = 1
+----
+ab   	true
+
+query I
+SELECT c_char FROM rs.duckdb_types_test.{relation} WHERE id = 1
+----
+ab
+
+query I
+SELECT count(*) FROM rs.duckdb_types_test.{relation} WHERE c_hllsketch IS NOT NULL
+----
+1
+
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_BINARY'
+
+statement error
+SELECT c_hllsketch FROM rs.duckdb_types_test.{relation}
+----
+column "c_hllsketch" can only be read using the text protocol, use pg_query_mode = 'PLAIN_QUERY_TEXT'
+
+statement ok
+RESET pg_query_mode
+
+endloop
+
+# postgres_query maps the Redshift-specific types by their OIDs
+foreach query_mode PLAIN_QUERY_TEXT AUTO PLAIN_QUERY_BINARY
+
+statement ok
+SET pg_query_mode = '{query_mode}'
+
+query IIIIIIIII
+SELECT typeof(c_interval_ym), c_interval_ym, typeof(c_interval_ds), c_interval_ds, typeof(c_varbyte), c_varbyte,
+    typeof(c_super), c_super, typeof(c_geography)
+FROM postgres_query('rs', 'SELECT * FROM duckdb_types_test.all_types WHERE id = 1')
+----
+INTERVAL	1 year 2 months	INTERVAL	3 days 04:05:06.789	BLOB	\x00\xFFa	JSON	{"a":[1,2,{"b":null}],"c":"d"}	GEOMETRY('EPSG:4326')
+
+query IIII
+SELECT typeof(c_geometry), c_geometry, c_geography, c_super
+FROM postgres_query('rs', 'SELECT c_geometry, c_geography, c_super FROM duckdb_types_test.all_types ORDER BY id')
+----
+GEOMETRY	LINESTRING (1 2, 3 4)	POINT (-71.06 42.36)	{"a":[1,2,{"b":null}],"c":"d"}
+GEOMETRY	NULL	NULL	[1,"two",3.5]
+GEOMETRY	NULL	NULL	"plain string"
+GEOMETRY	NULL	NULL	NULL
+
+endloop
+
+statement ok
+RESET pg_query_mode
+
+query II
+SELECT typeof(c_hllsketch), c_hllsketch::VARCHAR LIKE '{"version":1,%'
+FROM postgres_query('rs', 'SELECT c_hllsketch FROM duckdb_types_test.all_types WHERE id = 1')
+----
+JSON	true
+
+statement ok
+SET pg_query_mode = 'PLAIN_QUERY_BINARY'
+
+statement error
+SELECT * FROM postgres_query('rs', 'SELECT c_hllsketch FROM duckdb_types_test.all_types')
+----
+column "c_hllsketch" can only be read using the text protocol
+
+statement ok
+RESET pg_query_mode
 
 statement ok
 CALL postgres_execute('rs', 'DROP SCHEMA duckdb_types_test CASCADE')
