@@ -138,5 +138,30 @@ FROM postgres_query('s1', 'SELECT $1::INTEGER, $2::TEXT',
 statement ok
 RESET pg_query_mode
 
+# statements without result columns
+statement ok
+CALL postgres_execute('s1', 'DROP TABLE IF EXISTS execute_params_tbl')
+
+statement ok
+CALL postgres_execute('s1', 'CREATE TABLE execute_params_tbl (i INTEGER)')
+
+query I
+FROM postgres_execute('s1', 'INSERT INTO execute_params_tbl VALUES ($1)', params=row(42))
+----
+1
+
+query I
+FROM postgres_query('s1', 'SELECT i FROM execute_params_tbl')
+----
+42
+
+statement error
+CALL postgres_execute('s1', 'INSERT INTO execute_params_tbl VALUES ($1)', params=row(42, 43))
+----
+Incorrect number of parameters specified, expected: 1, actual: 2
+
+statement ok
+CALL postgres_execute('s1', 'DROP TABLE execute_params_tbl')
+
 statement ok
 DETACH s1
