@@ -250,7 +250,13 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		PostgresType postgres_type;
 		postgres_type.oid = PQftype(describe_prepared, c);
 		PostgresTypeData type_data;
-		type_data.type_name = PostgresUtils::PostgresOidToName(postgres_type.oid);
+		type_data.instance_type = catalog.GetPostgresVersion().type_v;
+		if (type_data.instance_type == PostgresInstanceType::REDSHIFT) {
+			type_data.type_name = PostgresUtils::RedshiftOidToName(postgres_type.oid);
+		}
+		if (type_data.type_name.empty()) {
+			type_data.type_name = PostgresUtils::PostgresOidToName(postgres_type.oid);
+		}
 		type_data.type_modifier = PQfmod(describe_prepared, c);
 		auto converted_type = PostgresUtils::TypeToLogicalType(nullptr, nullptr, type_config, type_data, postgres_type);
 		result->postgres_types.push_back(postgres_type);

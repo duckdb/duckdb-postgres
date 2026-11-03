@@ -89,6 +89,10 @@ public:
 	}
 
 	bool UseTextProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
+	//! Whether scans should use plain queries with binary results, falling back to the text protocol for queries
+	//! that read columns that can only be read using the text protocol. Used for Redshift, which does not support
+	//! the binary COPY protocol.
+	bool UseBinaryPlainQueryWithTextFallback(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
 
 	//! Label all postgres scans in the sub-tree as requiring materialization
 	//! This is used for e.g. insert queries that have both (1) a scan from a postgres table, and (2) a sink into one

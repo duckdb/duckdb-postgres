@@ -55,7 +55,13 @@ enum class PostgresTypeAnnotation {
 	GEOM_POLYGON,
 	GEOM_CIRCLE,
 	//! hex encoded binary data without the "\\x" prefix (Redshift VARBYTE)
-	HEX_BLOB
+	HEX_BLOB,
+	//! Redshift INTERVAL YEAR TO MONTH - the binary format is the number of months (int32)
+	INTERVAL_YEAR_TO_MONTH,
+	//! Redshift INTERVAL DAY TO SECOND - the binary format is the number of microseconds (int64)
+	INTERVAL_DAY_TO_SECOND,
+	//! Redshift HLLSKETCH - can only be read using the text protocol
+	TEXT_PROTOCOL_ONLY
 };
 
 struct PostgresType {
@@ -93,6 +99,8 @@ public:
 	                                     PostgresType &postgres_type);
 	static string TypeToString(const LogicalType &input);
 	static string PostgresOidToName(uint32_t oid);
+	//! Maps the OIDs of the Redshift-specific types to the type names, returns an empty string for other OIDs
+	static string RedshiftOidToName(uint32_t oid);
 	static uint32_t ToPostgresOid(const LogicalType &input);
 	static uint32_t TypeNameToPostgresOid(const string &type_name);
 	static bool SupportedPostgresOid(const LogicalType &input);
