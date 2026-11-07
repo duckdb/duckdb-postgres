@@ -10,7 +10,8 @@ void PostgresConnection::BeginCopyFrom(ClientContext &context, const string &que
 	auto result = pg_res.res;
 	if (!result || PQresultStatus(result) != expected_result) {
 		auto error = PostgresUtils::GetErrorMessage(result, GetConn());
-		throw std::runtime_error("Failed to prepare COPY: " + string(error));
+		throw Exception(PostgresUtils::GetErrorInfo(result), ExceptionType::INVALID,
+		                "Failed to prepare COPY: " + string(error));
 	}
 }
 

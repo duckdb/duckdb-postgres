@@ -77,5 +77,49 @@ SELECT i * i, v || 'secret_value' FROM s.rp_error_sql WHERE v <> 'other_secret_v
 ----
 <!REGEX>:(?s).*secret_value.*
 
+# the SQLSTATE is also part of the extra info of the error
+statement ok
+SET errors_as_json = true
+
+statement error
+FROM postgres_query('s', 'SELECT nosuchcol FROM rp_error_sql')
+----
+<REGEX>:.*"sqlstate":\s*"42703".*
+
+statement error
+CALL postgres_execute('s', 'INSERT INTO rp_error_sql SELECT 1 / i, ''secret_value'' FROM rp_error_sql')
+----
+<REGEX>:.*"sqlstate":\s*"22012".*
+
+# reading with COPY
+statement error
+FROM postgres_query('s', 'SELECT 1 / i FROM rp_error_sql', query_mode='COPY_BINARY')
+----
+<REGEX>:(?s).*"exception_type":\s*"IO".*"sqlstate":\s*"22012".*
+
+# writing with COPY - the INSERT reads from a local table, as an INSERT of constants is pushed down as a query
+statement ok
+CREATE OR REPLACE TABLE s.rp_error_pk (i INTEGER PRIMARY KEY)
+
+statement ok
+CREATE TEMPORARY TABLE rp_error_pk_local AS SELECT 1 AS i
+
+statement ok
+INSERT INTO s.rp_error_pk SELECT i FROM rp_error_pk_local
+
+statement error
+INSERT INTO s.rp_error_pk SELECT i FROM rp_error_pk_local
+----
+<REGEX>:(?s).*Failed to copy data.*"sqlstate":\s*"23505".*
+
+statement ok
+RESET errors_as_json
+
+statement ok
+DROP TABLE rp_error_pk_local
+
+statement ok
+DROP TABLE s.rp_error_pk
+
 statement ok
 DROP TABLE s.rp_error_sql
