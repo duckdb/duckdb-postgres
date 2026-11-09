@@ -11,10 +11,12 @@ PostgresPreparedStatement::PostgresPreparedStatement(PGconn *conn, uint64_t pool
       prepare_result(prepare_result_p) {
 	if (!prepare_result.res) {
 		const char *error = conn ? PQerrorMessage(conn) : "";
-		throw BinderException("Failed to prepare query \"%s\" (no result returned): %s", query, error);
+		// the query is not part of the message - it can contain the values of filters and parameters,
+		// pg_debug_show_queries shows it
+		throw BinderException("Failed to prepare query (no result returned): %s", error);
 	}
 	if (PQresultStatus(prepare_result.res) != PGRES_COMMAND_OK) {
-		throw BinderException("Failed to prepare query \"%s\": %s", query, PQresultErrorMessage(prepare_result.res));
+		throw BinderException("Failed to prepare query: %s", PostgresUtils::GetErrorMessage(prepare_result.res, conn));
 	}
 }
 
@@ -50,7 +52,7 @@ void PostgresPreparedStatement::Destroy(PostgresConnection &con) {
 	auto conn = con.GetConn();
 	PostgresResult close_result(PQclosePrepared(conn, name.c_str()));
 	if (!close_result.res || PQresultStatus(close_result.res) != PGRES_COMMAND_OK) {
-		auto error = close_result.res ? PQresultErrorMessage(close_result.res) : PQerrorMessage(conn);
+		auto error = PostgresUtils::GetErrorMessage(close_result.res, conn);
 		throw std::runtime_error(
 		    StringUtil::Format("Failed to close prepared statement \"%s\": %s", name, string(error)));
 	}

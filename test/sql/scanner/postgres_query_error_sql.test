@@ -1,0 +1,81 @@
+# name: test/sql/scanner/postgres_query_error_sql.test
+# description: Test that error messages do not include the SQL sent to Postgres (it can contain filter and parameter values)
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_error_sql (i INTEGER, v VARCHAR)
+
+statement ok
+INSERT INTO s.rp_error_sql VALUES (0, 'a')
+
+# failure when preparing - the query is not shown around the position of the error (the DuckDB error only shows the
+# beginning of the statement)
+statement error
+FROM postgres_query('s', 'SELECT 1 AS aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, nosuchcol, ''secret_value'' FROM rp_error_sql')
+----
+Failed to prepare query: ERROR:  column "nosuchcol" does not exist
+
+statement error
+FROM postgres_query('s', 'SELECT 1 AS aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, nosuchcol, ''secret_value'' FROM rp_error_sql')
+----
+<!REGEX>:(?s).*secret_value.*
+
+# failure when executing
+statement error
+FROM postgres_query('s', 'SELECT 1 / i FROM rp_error_sql WHERE v <> ''secret_value''')
+----
+division by zero
+
+statement error
+FROM postgres_query('s', 'SELECT 1 / i FROM rp_error_sql WHERE v <> ''secret_value''')
+----
+<!REGEX>:(?s).*secret_value.*
+
+statement error
+CALL postgres_execute('s', 'INSERT INTO rp_error_sql SELECT 1 / i, ''secret_value'' FROM rp_error_sql')
+----
+Failed to execute query: ERROR:  division by zero
+
+statement error
+CALL postgres_execute('s', 'INSERT INTO rp_error_sql SELECT 1 / i, ''secret_value'' FROM rp_error_sql')
+----
+<!REGEX>:(?s).*secret_value.*
+
+statement error
+FROM postgres_query('s', 'SELECT * FROM rp_error_sql WHERE v = $1', params=ROW('secret_value', 'x'))
+----
+Incorrect number of parameters specified, expected: 1, actual: 2
+
+statement error
+FROM postgres_query('s', 'SELECT * FROM rp_error_sql WHERE v = $1', params=ROW('secret_value', 'x'))
+----
+<!REGEX>:(?s).*secret_value.*
+
+# a pushed down query
+statement ok
+INSERT INTO s.rp_error_sql VALUES (2147483647, 'b')
+
+query II
+EXPLAIN SELECT i * i, v || 'secret_value' FROM s.rp_error_sql WHERE v <> 'other_secret_value' ORDER BY v
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*
+
+statement error
+SELECT i * i, v || 'secret_value' FROM s.rp_error_sql WHERE v <> 'other_secret_value' ORDER BY v
+----
+integer out of range
+
+statement error
+SELECT i * i, v || 'secret_value' FROM s.rp_error_sql WHERE v <> 'other_secret_value' ORDER BY v
+----
+<!REGEX>:(?s).*secret_value.*
+
+statement ok
+DROP TABLE s.rp_error_sql

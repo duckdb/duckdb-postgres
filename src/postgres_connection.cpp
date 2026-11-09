@@ -98,8 +98,10 @@ unique_ptr<PostgresResult> PostgresConnection::TryQuery(optional_ptr<ClientConte
 
 	if (ResultHasError(result)) {
 		if (error_message) {
-			auto error = result ? PQresultErrorMessage(result) : PQerrorMessage(GetConn());
-			*error_message = StringUtil::Format("Failed to execute query \"" + query + "\": " + string(error));
+			auto error = PostgresUtils::GetErrorMessage(result, GetConn());
+			// the query is not part of the message - it can contain the values of filters and parameters,
+			// pg_debug_show_queries shows it
+			*error_message = "Failed to execute query: " + string(error);
 		}
 		PQclear(result);
 		return nullptr;
@@ -141,9 +143,9 @@ unique_ptr<PostgresResult> PostgresConnection::QueryStmt(optional_ptr<ClientCont
 	}
 
 	if (ResultHasError(result)) {
-		auto error = result ? PQresultErrorMessage(result) : PQerrorMessage(conn);
-		auto error_message = StringUtil::Format("Failed to execute prepared statement \"%s\" for query \"%s\": %s",
-		                                        stmt.GetName(), query, string(error));
+		auto error = PostgresUtils::GetErrorMessage(result, conn);
+		auto error_message =
+		    StringUtil::Format("Failed to execute prepared statement \"%s\": %s", stmt.GetName(), string(error));
 		PQclear(result);
 		throw std::runtime_error(error_message);
 	}
@@ -165,7 +167,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 	lock_guard<mutex> guard(connection_lock);
 	auto res = PQsendQuery(GetConn(), queries.c_str());
 	if (res == 0) {
-		throw std::runtime_error("Failed to execute query \"" + queries + "\": " + string(PQerrorMessage(GetConn())));
+		throw std::runtime_error("Failed to execute query: " + string(PQerrorMessage(GetConn())));
 	}
 	vector<unique_ptr<PostgresResult>> results;
 	string error_message;
@@ -177,7 +179,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 		auto result = make_uniq<PostgresResult>(res);
 		if (ResultHasError(res)) {
 			if (error_message.empty()) {
-				error_message = "Failed to execute query \"" + queries + "\": " + string(PQresultErrorMessage(res));
+				error_message = "Failed to execute query: " + PostgresUtils::GetErrorMessage(res, GetConn());
 			}
 			continue;
 		}

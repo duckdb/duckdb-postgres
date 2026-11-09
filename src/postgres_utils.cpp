@@ -19,6 +19,28 @@ bool PostgresUtils::libpq_connect_succeeded_at_least_once = false;
 static void PGNoticeProcessor(void *arg, const char *message) {
 }
 
+string PostgresUtils::GetErrorMessage(PGresult *result, PGconn *conn) {
+	auto primary = result ? PQresultErrorField(result, PG_DIAG_MESSAGE_PRIMARY) : nullptr;
+	if (!primary) {
+		if (result) {
+			return PQresultErrorMessage(result);
+		}
+		return conn ? PQerrorMessage(conn) : "";
+	}
+	// the format of PQresultErrorMessage - severity, message, detail and hint
+	auto severity = PQresultErrorField(result, PG_DIAG_SEVERITY);
+	string message = string(severity ? severity : "ERROR") + ":  " + primary + "\n";
+	auto detail = PQresultErrorField(result, PG_DIAG_MESSAGE_DETAIL);
+	if (detail) {
+		message += "DETAIL:  " + string(detail) + "\n";
+	}
+	auto hint = PQresultErrorField(result, PG_DIAG_MESSAGE_HINT);
+	if (hint) {
+		message += "HINT:  " + string(hint) + "\n";
+	}
+	return message;
+}
+
 PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 	bool lock_needed = true;
 	{

@@ -87,6 +87,9 @@ enum class PostgresConnectCheck { THROW_ON_CONNECTION_BAD, RETURN_ON_CONNECTION_
 class PostgresUtils {
 public:
 	static PGconn *PGConnect(const string &dsn, const string &attach_path);
+	//! The error message of a failed result (or of the connection if there is no result) - without the excerpt
+	//! of the query that libpq adds for errors with a position, as the query can contain the values of filters
+	static string GetErrorMessage(PGresult *result, PGconn *conn);
 
 	static bool UseInformationSchemaIntrospection(optional_ptr<ClientContext> context);
 	static bool StalenessQueryEnabled(ClientContext &context);
