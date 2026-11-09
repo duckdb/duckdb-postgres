@@ -133,6 +133,17 @@ SELECT * FROM s.rp_ddl_view ORDER BY a
 statement ok
 DROP VIEW s.rp_ddl_view
 
+# a view whose query cannot be bound reports the error DuckDB reports for it
+statement error
+CREATE OR REPLACE VIEW s.rp_ddl_view AS SELECT nosuchcol FROM s.rp_ddl_src
+----
+Binder Error: Referenced column "nosuchcol" not found in FROM clause!
+
+statement error
+CREATE OR REPLACE VIEW s.rp_ddl_view AS SELECT i FROM s.rp_ddl_nosuchtable
+----
+Catalog Error: Table with name rp_ddl_nosuchtable does not exist!
+
 # ALTER TABLE
 statement ok
 CREATE OR REPLACE TABLE s.rp_ddl_alter (id INTEGER, v VARCHAR)
