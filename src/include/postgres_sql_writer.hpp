@@ -105,11 +105,12 @@ public:
 	static PostgresWriterResult WriteStatement(ClientContext &context, PostgresCatalog &catalog,
 	                                           SQLStatement &statement);
 
-	//! Collect the names of all CTEs defined anywhere in the query
-	static void CollectCTENames(QueryNode &node, identifier_set_t &cte_names);
+	//! Call the callback for all base table references of the query that are not references to a CTE that is
+	//! visible at their position
+	static void EnumerateTables(QueryNode &node, const std::function<void(BaseTableRef &ref)> &callback);
 	//! Qualify all base table references with the catalog name again (the optimizer strips it before
 	//! pushdown), so that the query can be bound by DuckDB itself
-	static void QualifyTables(QueryNode &node, const Identifier &catalog_name, const identifier_set_t &cte_names);
+	static void QualifyTables(QueryNode &node, const Identifier &catalog_name);
 
 private:
 	//! Collect the Postgres spelling of all identifiers referenced by the query

@@ -45,6 +45,7 @@
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/tableref/basetableref.hpp"
 #include "duckdb/parser/tableref/joinref.hpp"
+#include "duckdb/parser/tableref/pivotref.hpp"
 #include "duckdb/parser/tableref/emptytableref.hpp"
 #include "duckdb/parser/tableref/expressionlistref.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
@@ -83,34 +84,204 @@ PostgresWriterResult PostgresSQLWriter::WriteQuery(ClientContext &context, Postg
 //===--------------------------------------------------------------------===//
 // Local binding
 //===--------------------------------------------------------------------===//
-static void PostgresCollectCTENamesExpr(ParsedExpression &expr, identifier_set_t &cte_names) {
+using PostgresTableCallback = std::function<void(BaseTableRef &ref)>;
+
+static void PostgresEnumerateTablesNode(QueryNode &node, const identifier_set_t &outer_ctes,
+                                        const PostgresTableCallback &callback);
+
+static void PostgresEnumerateTablesExpr(ParsedExpression &expr, const identifier_set_t &ctes,
+                                        const PostgresTableCallback &callback) {
 	if (expr.GetExpressionClass() == ExpressionClass::SUBQUERY) {
-		PostgresSQLWriter::CollectCTENames(*expr.Cast<SubqueryExpression>().SubqueryMutable()->node, cte_names);
+		PostgresEnumerateTablesNode(*expr.Cast<SubqueryExpression>().SubqueryMutable()->node, ctes, callback);
 	}
 	ParsedExpressionIterator::EnumerateChildren(
-	    expr, [&](ParsedExpression &child) { PostgresCollectCTENamesExpr(child, cte_names); });
+	    expr, [&](ParsedExpression &child) { PostgresEnumerateTablesExpr(child, ctes, callback); });
 }
 
-void PostgresSQLWriter::CollectCTENames(QueryNode &node, identifier_set_t &cte_names) {
+static void PostgresEnumerateTablesRef(TableRef &ref, const identifier_set_t &ctes,
+                                       const PostgresTableCallback &callback) {
+	auto expr_callback = [&](unique_ptr<ParsedExpression> &child) {
+		PostgresEnumerateTablesExpr(*child, ctes, callback);
+	};
+	switch (ref.type) {
+	case TableReferenceType::BASE_TABLE: {
+		auto &base = ref.Cast<BaseTableRef>();
+		auto &name = base.GetQualifiedName();
+		if (name.Path().size() == 1 && ctes.count(name.Name()) > 0) {
+			// a reference to a CTE that is visible at this position
+			return;
+		}
+		callback(base);
+		return;
+	}
+	case TableReferenceType::JOIN: {
+		auto &join = ref.Cast<JoinRef>();
+		PostgresEnumerateTablesRef(*join.left, ctes, callback);
+		PostgresEnumerateTablesRef(*join.right, ctes, callback);
+		if (join.condition) {
+			expr_callback(join.condition);
+		}
+		return;
+	}
+	case TableReferenceType::SUBQUERY:
+		PostgresEnumerateTablesNode(*ref.Cast<SubqueryRef>().subquery->node, ctes, callback);
+		return;
+	case TableReferenceType::PIVOT: {
+		auto &pivot = ref.Cast<PivotRef>();
+		PostgresEnumerateTablesRef(*pivot.source, ctes, callback);
+		for (auto &aggregate : pivot.aggregates) {
+			expr_callback(aggregate);
+		}
+		return;
+	}
+	default:
+		// the remaining table references do not contain other table references
+		ParsedExpressionIterator::EnumerateTableRefChildren(ref, expr_callback);
+		return;
+	}
+}
+
+//! Enumerates the base table references of a query node, with the CTEs that are visible at each position -
+//! a CTE is visible in the query that defines it, in the CTEs defined after it, and in itself if it is recursive
+static void PostgresEnumerateTablesNode(QueryNode &node, const identifier_set_t &outer_ctes,
+                                        const PostgresTableCallback &callback) {
+	identifier_set_t ctes = outer_ctes;
 	for (auto &cte : node.cte_map.map) {
-		cte_names.insert(cte.first);
+		if (cte.second->query_node) {
+			auto cte_ctes = ctes;
+			if (cte.second->query_node->type == QueryNodeType::RECURSIVE_CTE_NODE) {
+				cte_ctes.insert(cte.first);
+			}
+			PostgresEnumerateTablesNode(*cte.second->query_node, cte_ctes, callback);
+		}
+		ctes.insert(cte.first);
 	}
-	ParsedExpressionIterator::EnumerateQueryNodeChildren(
-	    node, [&](unique_ptr<ParsedExpression> &child) { PostgresCollectCTENamesExpr(*child, cte_names); });
+	auto expr_callback = [&](unique_ptr<ParsedExpression> &child) {
+		PostgresEnumerateTablesExpr(*child, ctes, callback);
+	};
+	auto ref_callback = [&](unique_ptr<TableRef> &ref) {
+		if (ref) {
+			PostgresEnumerateTablesRef(*ref, ctes, callback);
+		}
+	};
+	auto set_info_callback = [&](unique_ptr<UpdateSetInfo> &set_info) {
+		if (!set_info) {
+			return;
+		}
+		for (auto &expr : set_info->expressions) {
+			expr_callback(expr);
+		}
+		if (set_info->condition) {
+			expr_callback(set_info->condition);
+		}
+	};
+	switch (node.type) {
+	case QueryNodeType::SELECT_NODE: {
+		auto &select = node.Cast<SelectNode>();
+		for (auto &expr : select.select_list) {
+			expr_callback(expr);
+		}
+		for (auto &expr : select.groups.group_expressions) {
+			expr_callback(expr);
+		}
+		if (select.where_clause) {
+			expr_callback(select.where_clause);
+		}
+		if (select.having) {
+			expr_callback(select.having);
+		}
+		if (select.qualify) {
+			expr_callback(select.qualify);
+		}
+		ref_callback(select.from_table);
+		break;
+	}
+	case QueryNodeType::SET_OPERATION_NODE:
+		for (auto &child : node.Cast<SetOperationNode>().children) {
+			PostgresEnumerateTablesNode(*child, ctes, callback);
+		}
+		break;
+	case QueryNodeType::RECURSIVE_CTE_NODE: {
+		auto &recursive = node.Cast<RecursiveCTENode>();
+		PostgresEnumerateTablesNode(*recursive.left, ctes, callback);
+		PostgresEnumerateTablesNode(*recursive.right, ctes, callback);
+		break;
+	}
+	case QueryNodeType::UPDATE_QUERY_NODE: {
+		auto &update = node.Cast<UpdateQueryNode>();
+		ref_callback(update.table);
+		ref_callback(update.from_table);
+		set_info_callback(update.set_info);
+		for (auto &expr : update.returning_list) {
+			expr_callback(expr);
+		}
+		break;
+	}
+	case QueryNodeType::DELETE_QUERY_NODE: {
+		auto &del = node.Cast<DeleteQueryNode>();
+		ref_callback(del.table);
+		for (auto &using_clause : del.using_clauses) {
+			ref_callback(using_clause);
+		}
+		if (del.condition) {
+			expr_callback(del.condition);
+		}
+		for (auto &expr : del.returning_list) {
+			expr_callback(expr);
+		}
+		break;
+	}
+	case QueryNodeType::INSERT_QUERY_NODE: {
+		auto &insert = node.Cast<InsertQueryNode>();
+		if (insert.select_statement) {
+			PostgresEnumerateTablesNode(*insert.select_statement->node, ctes, callback);
+		}
+		ref_callback(insert.table_ref);
+		for (auto &expr : insert.returning_list) {
+			expr_callback(expr);
+		}
+		if (insert.on_conflict_info) {
+			set_info_callback(insert.on_conflict_info->set_info);
+			if (insert.on_conflict_info->condition) {
+				expr_callback(insert.on_conflict_info->condition);
+			}
+		}
+		break;
+	}
+	case QueryNodeType::MERGE_QUERY_NODE: {
+		auto &merge = node.Cast<MergeQueryNode>();
+		ref_callback(merge.target);
+		ref_callback(merge.source);
+		if (merge.join_condition) {
+			expr_callback(merge.join_condition);
+		}
+		for (auto &entry : merge.actions) {
+			for (auto &action : entry.second) {
+				if (action->condition) {
+					expr_callback(action->condition);
+				}
+				set_info_callback(action->update_info);
+				for (auto &expr : action->expressions) {
+					expr_callback(expr);
+				}
+			}
+		}
+		for (auto &expr : merge.returning_list) {
+			expr_callback(expr);
+		}
+		break;
+	}
+	default:
+		throw NotImplementedException("PostgresSQLWriter: query node type not supported for table enumeration");
+	}
+	ParsedExpressionIterator::EnumerateQueryNodeModifiers(node, expr_callback);
 }
 
-static void PostgresQualifyTablesExpr(ParsedExpression &expr, const Identifier &catalog_name,
-                                      const identifier_set_t &cte_names) {
-	if (expr.GetExpressionClass() == ExpressionClass::SUBQUERY) {
-		PostgresSQLWriter::QualifyTables(*expr.Cast<SubqueryExpression>().SubqueryMutable()->node, catalog_name,
-		                                 cte_names);
-	}
-	ParsedExpressionIterator::EnumerateChildren(
-	    expr, [&](ParsedExpression &child) { PostgresQualifyTablesExpr(child, catalog_name, cte_names); });
+void PostgresSQLWriter::EnumerateTables(QueryNode &node, const std::function<void(BaseTableRef &ref)> &callback) {
+	PostgresEnumerateTablesNode(node, identifier_set_t(), callback);
 }
 
-void PostgresSQLWriter::QualifyTables(QueryNode &node, const Identifier &catalog_name,
-                                      const identifier_set_t &cte_names) {
+void PostgresSQLWriter::QualifyTables(QueryNode &node, const Identifier &catalog_name) {
 	if (node.type == QueryNodeType::INSERT_QUERY_NODE) {
 		auto &insert = node.Cast<InsertQueryNode>();
 		vector<Identifier> schema_path;
@@ -124,27 +295,17 @@ void PostgresSQLWriter::QualifyTables(QueryNode &node, const Identifier &catalog
 			insert.table_ref->Cast<BaseTableRef>().SetQualifiedName(insert.qualified_name);
 		}
 	}
-	ParsedExpressionIterator::EnumerateQueryNodeChildren(
-	    node, [&](unique_ptr<ParsedExpression> &child) { PostgresQualifyTablesExpr(*child, catalog_name, cte_names); },
-	    [&](TableRef &ref) {
-		    if (ref.type != TableReferenceType::BASE_TABLE) {
-			    return;
-		    }
-		    auto &base = ref.Cast<BaseTableRef>();
-		    auto &name = base.GetQualifiedName();
-		    if (name.Path().size() == 1 && cte_names.count(name.Name()) > 0) {
-			    // (possibly) a CTE reference
-			    return;
-		    }
-		    if (name.Path().size() > 2) {
-			    return;
-		    }
-		    vector<Identifier> schema_path;
-		    if (!name.Schema().empty()) {
-			    schema_path.push_back(name.Schema());
-		    }
-		    base.SetQualifiedName(QualifiedName::FromCatalogSchema(catalog_name, std::move(schema_path), name.Name()));
-	    });
+	EnumerateTables(node, [&](BaseTableRef &base) {
+		auto &name = base.GetQualifiedName();
+		if (name.Path().size() > 2) {
+			return;
+		}
+		vector<Identifier> schema_path;
+		if (!name.Schema().empty()) {
+			schema_path.push_back(name.Schema());
+		}
+		base.SetQualifiedName(QualifiedName::FromCatalogSchema(catalog_name, std::move(schema_path), name.Name()));
+	});
 }
 
 void PostgresSQLWriter::CollectScopeTables(const TableRef &ref, vector<reference<const BaseTableRef>> &tables,
@@ -283,9 +444,7 @@ LogicalType PostgresSQLWriter::InferTypeInternal(const ParsedExpression &expr) {
 			probe->cte_map.map.insert(cte.first, cte.second->Copy());
 		}
 	}
-	identifier_set_t cte_names;
-	CollectCTENames(*probe, cte_names);
-	QualifyTables(*probe, catalog.GetName(), cte_names);
+	QualifyTables(*probe, catalog.GetName());
 	LogicalType result = LogicalType::INVALID;
 	try {
 		auto binder = Binder::CreateBinder(context);
@@ -313,9 +472,7 @@ vector<LogicalType> PostgresSQLWriter::InferQueryTypes(const QueryNode &node) {
 			}
 		}
 	}
-	identifier_set_t cte_names;
-	CollectCTENames(*probe, cte_names);
-	QualifyTables(*probe, catalog.GetName(), cte_names);
+	QualifyTables(*probe, catalog.GetName());
 	try {
 		auto binder = Binder::CreateBinder(context);
 		return binder->Bind(*probe).types;
@@ -2982,9 +3139,7 @@ static vector<LogicalType> PostgresBindQueryTypes(ClientContext &context, const 
 	for (auto &cte : cte_map.map) {
 		bind_node->cte_map.map.insert(cte.first, cte.second->Copy());
 	}
-	identifier_set_t cte_names;
-	PostgresSQLWriter::CollectCTENames(*bind_node, cte_names);
-	PostgresSQLWriter::QualifyTables(*bind_node, catalog_name, cte_names);
+	PostgresSQLWriter::QualifyTables(*bind_node, catalog_name);
 	try {
 		auto binder = Binder::CreateBinder(context);
 		return binder->Bind(*bind_node).types;
@@ -3467,9 +3622,7 @@ void PostgresSQLWriter::WriteCreateTable(CreateStatement &statement, PostgresWri
 	bind_info.SetQualifiedName(
 	    QualifiedName::FromCatalogSchema(catalog.GetName(), std::move(schema_path), info.GetQualifiedName().Name()));
 	if (bind_info.query) {
-		identifier_set_t cte_names;
-		CollectCTENames(*bind_info.query->node, cte_names);
-		QualifyTables(*bind_info.query->node, catalog.GetName(), cte_names);
+		QualifyTables(*bind_info.query->node, catalog.GetName());
 	}
 	auto binder = Binder::CreateBinder(context);
 	auto bound = binder->Bind(*bind_statement);
@@ -3546,25 +3699,14 @@ void PostgresSQLWriter::WriteCreateView(CreateViewInfo &info, PostgresWriterResu
 	auto result_types = PostgresBindQueryTypes(context, catalog.GetName(), query, CommonTableExpressionMap());
 	CollectNames(query);
 	// all tables must be tables of this database
-	identifier_set_t cte_names;
 	auto query_copy = query.Copy();
-	CollectCTENames(*query_copy, cte_names);
-	ParsedExpressionIterator::EnumerateQueryNodeChildren(
-	    *query_copy, [&](unique_ptr<ParsedExpression> &) {},
-	    [&](TableRef &ref) {
-		    if (ref.type != TableReferenceType::BASE_TABLE) {
-			    return;
-		    }
-		    auto &base = ref.Cast<BaseTableRef>();
-		    if (base.GetQualifiedName().Path().size() == 1 && cte_names.count(base.Table()) > 0) {
-			    return;
-		    }
-		    if (!LookupTable(base)) {
-			    throw BinderException("Views in Postgres can only reference tables of the same database - table \"%s\" "
-			                          "is not a table of database \"%s\"",
-			                          base.Table(), catalog.GetName());
-		    }
-	    });
+	EnumerateTables(*query_copy, [&](BaseTableRef &base) {
+		if (!LookupTable(base)) {
+			throw BinderException("Views in Postgres can only reference tables of the same database - table \"%s\" "
+			                      "is not a table of database \"%s\"",
+			                      base.Table(), catalog.GetName());
+		}
+	});
 	CollectResultNodes(query);
 	this->result_types = &result_types;
 	auto entry_name = ResolveEntryName(info.GetQualifiedName());
