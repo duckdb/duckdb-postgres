@@ -327,6 +327,16 @@ static const case_insensitive_set_t &PostgresRewrittenAggregateFunctions() {
 	return AGGREGATES;
 }
 
+//! Whether an aggregate can be pushed down with the given number of arguments - aggregates that take a single argument
+//! in Postgres can have more in DuckDB (e.g. min(x, n) returns the n smallest values)
+static bool PostgresSupportsAggregateArgumentCount(const string &name, idx_t argument_count) {
+	static const case_insensitive_set_t SINGLE_ARGUMENT_AGGREGATES = {
+	    "sum",         "avg",       "min",      "max",      "stddev",   "variance", "stddev_pop",
+	    "stddev_samp", "var_pop",   "var_samp", "bool_and", "bool_or",  "bit_and",  "bit_or",
+	    "bit_xor",     "array_agg", "list",     "median",   "any_value"};
+	return SINGLE_ARGUMENT_AGGREGATES.count(name) == 0 || argument_count == 1;
+}
+
 static bool PostgresIsAggregateFunction(const string &name) {
 	return PostgresAggregateFunctions().count(name) > 0 || PostgresRewrittenAggregateFunctions().count(name) > 0;
 }
@@ -906,6 +916,9 @@ bool PostgresCapabilities::SupportsWindow(const WindowExpression &window) {
 		}
 	}
 	auto &function_name = window.FunctionName().GetIdentifierName();
+	if (!PostgresSupportsAggregateArgumentCount(function_name, children.size())) {
+		return false;
+	}
 	if (window.Filter() && PostgresAggregateFunctions().count(function_name) == 0) {
 		// Postgres only supports FILTER for aggregate window functions
 		return false;
@@ -1032,9 +1045,6 @@ bool PostgresCapabilities::SupportsPushdown(const ParsedExpression &expr) {
 				}
 			}
 		}
-		if (function_name == "median" && children.size() != 1) {
-			return false;
-		}
 		static const case_insensitive_set_t QUANTILE_FUNCTIONS = {"quantile", "quantile_cont", "quantile_disc"};
 		if (QUANTILE_FUNCTIONS.count(function_name) > 0) {
 			// only a single literal quantile is supported (DuckDB returns a list for a list of quantiles)
@@ -1047,6 +1057,9 @@ bool PostgresCapabilities::SupportsPushdown(const ParsedExpression &expr) {
 			    DoubleValue::Get(*quantile_value) > 1) {
 				return false;
 			}
+		}
+		if (!PostgresSupportsAggregateArgumentCount(function_name, children.size())) {
+			return false;
 		}
 		static const case_insensitive_set_t ARG_FUNCTIONS = {"arg_min", "arg_max", "min_by", "max_by"};
 		if (ARG_FUNCTIONS.count(function_name) > 0 && (children.size() != 2 || func.Distinct())) {

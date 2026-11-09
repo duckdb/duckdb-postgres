@@ -320,3 +320,33 @@ query II
 EXPLAIN SELECT entropy(g) FROM s.rp_agg
 ----
 physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# min / max with a second argument return the n smallest / largest values in DuckDB
+query II
+SELECT min(i, 2), max(i, 3) FROM s.rp_agg
+----
+[0, 1]	[11, 10, 9]
+
+query II
+EXPLAIN SELECT min(i, 2), max(i, 3) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query II
+SELECT g, min(i, 2) FROM s.rp_agg GROUP BY g ORDER BY g
+----
+0	[0, 3]
+1	[1, 4]
+2	[2, 5]
+
+query II
+SELECT DISTINCT g, max(i, 2) OVER (PARTITION BY g) FROM s.rp_agg ORDER BY g
+----
+0	[9, 6]
+1	[10, 7]
+2	[11, 8]
+
+query II
+EXPLAIN SELECT g, max(i, 2) OVER (PARTITION BY g) FROM s.rp_agg
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
