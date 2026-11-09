@@ -33,7 +33,7 @@ void PostgresBinaryReader::BeginCopy(ClientContext &context, const string &sql) 
 		DestroyPreparedStatement();
 		con.BeginCopyFrom(context, sql, PGRES_COPY_OUT);
 		if (!FetchNextBuffer()) {
-			throw IOException("Failed to fetch header for COPY \"%s\"", sql);
+			throw IOException("Failed to fetch header for COPY");
 		}
 		parser.CheckHeader();
 	}
@@ -79,7 +79,8 @@ bool PostgresBinaryReader::FetchNextBuffer() {
 				break;
 			}
 			if (PQresultStatus(final_result) != PGRES_COMMAND_OK) {
-				throw IOException("Failed to fetch header for COPY: %s", string(PQresultErrorMessage(final_result)));
+				throw IOException("Failed to fetch header for COPY: %s",
+				                  PostgresUtils::GetErrorMessage(final_result, con.GetConn()));
 			}
 		}
 		return false;

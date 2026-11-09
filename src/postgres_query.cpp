@@ -242,14 +242,14 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	auto describe_prepared = PQdescribePrepared(conn, prepared->GetName().c_str());
 	PostgresResult describe_wrapper(describe_prepared);
 	if (!describe_prepared || PQresultStatus(describe_prepared) != PGRES_COMMAND_OK) {
-		auto extended_err = describe_prepared ? PQresultErrorMessage(describe_prepared) : PQerrorMessage(conn);
+		auto extended_err = PostgresUtils::GetErrorMessage(describe_prepared, conn);
 		throw BinderException("Failed to describe prepared statement: %s", extended_err);
 	}
 	conn_lock.unlock();
 	int nparams = PQnparams(describe_prepared);
 	if (nparams != param_values.size()) {
-		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu, query: \"%s\"",
-		                      nparams, param_values.size(), sql);
+		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu", nparams,
+		                      param_values.size());
 	}
 	vector<Oid> param_types;
 	for (idx_t p = 0; p < nparams; p++) {
