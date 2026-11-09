@@ -214,6 +214,18 @@ static bool PostgresIsTrivialQuery(const QueryNode &node, const identifier_set_t
 	return !select.where_clause || PostgresIsSimpleFilter(*select.where_clause);
 }
 
+static bool PostgresIsDML(const QueryNode &node) {
+	switch (node.type) {
+	case QueryNodeType::UPDATE_QUERY_NODE:
+	case QueryNodeType::DELETE_QUERY_NODE:
+	case QueryNodeType::INSERT_QUERY_NODE:
+	case QueryNodeType::MERGE_QUERY_NODE:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static bool PostgresIsDMLWithoutReturning(const QueryNode &node) {
 	switch (node.type) {
 	case QueryNodeType::UPDATE_QUERY_NODE:
@@ -283,6 +295,10 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, uniq
 		    ExpressionType::COMPARE_EQUAL, make_uniq<ColumnRefExpression>("preliminary_queries"),
 		    ConstantExpression::FromValue(Value::LIST(LogicalType::VARCHAR, std::move(preliminary_values)))));
 	}
+	// let DuckDB check that the transaction can read from / write to the database
+	args.push_back(make_uniq<ComparisonExpression>(
+	    ExpressionType::COMPARE_EQUAL, make_uniq<ColumnRefExpression>("modifies_database"),
+	    ConstantExpression::FromValue(Value::BOOLEAN(PostgresIsDML(*node)))));
 	if (PostgresIsDMLWithoutReturning(*node)) {
 		// the statement yields the number of changed rows
 		args.push_back(make_uniq<ComparisonExpression>(ExpressionType::COMPARE_EQUAL,
@@ -343,6 +359,8 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, uniq
 	}
 	// the statement can depend on the preliminary queries (e.g. INSERT into a table that is created by them)
 	named_parameter("prepare", Value::BOOLEAN(false));
+	// let DuckDB check that the transaction can write to the database
+	named_parameter("modifies_database", Value::BOOLEAN(true));
 	// remove the catalog entries that are modified by the statement from the cache
 	for (auto &invalidation : query.invalidations) {
 		InvalidateCacheEntry(context, invalidation);

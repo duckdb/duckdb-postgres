@@ -1,0 +1,151 @@
+# name: test/sql/remote_pushdown/remote_pushdown_transactions.test
+# description: Test that pushed down statements are subject to the DuckDB transaction checks
+# group: [remote_pushdown]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES, SCHEMA 'public')
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_txn (i INTEGER, v VARCHAR)
+
+statement ok
+INSERT INTO s.rp_txn VALUES (1, 'a'), (7, 'b'), (10, 'c')
+
+# writes are rejected in a read-only transaction
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+statement error
+INSERT INTO s.rp_txn VALUES (99, 'ro')
+----
+transaction is launched in read-only mode
+
+statement ok
+ROLLBACK
+
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+statement error
+INSERT INTO s.rp_txn SELECT i + 100, v FROM s.rp_txn RETURNING i
+----
+transaction is launched in read-only mode
+
+statement ok
+ROLLBACK
+
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+statement error
+UPDATE s.rp_txn SET v = v || 'x' WHERE i > 5 RETURNING i
+----
+transaction is launched in read-only mode
+
+statement ok
+ROLLBACK
+
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+statement error
+CREATE TABLE s.rp_txn_ctas AS SELECT i * 2 AS j FROM s.rp_txn
+----
+transaction is launched in read-only mode
+
+statement ok
+ROLLBACK
+
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+statement error
+DROP TABLE s.rp_txn
+----
+transaction is launched in read-only mode
+
+statement ok
+ROLLBACK
+
+# reads are allowed in a read-only transaction
+statement ok
+BEGIN TRANSACTION READ ONLY
+
+query I
+SELECT i * 2 FROM s.rp_txn ORDER BY 1
+----
+2
+14
+20
+
+statement ok
+ROLLBACK
+
+query I
+SELECT count(*) FROM s.rp_txn
+----
+3
+
+# a transaction can only write to a single database
+statement ok
+ATTACH ':memory:' AS m
+
+statement ok
+CREATE TABLE m.t (i INTEGER)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO m.t VALUES (1)
+
+statement error
+INSERT INTO s.rp_txn VALUES (100, 'multi')
+----
+a single transaction can only write to a single attached database
+
+statement ok
+ROLLBACK
+
+statement ok
+BEGIN
+
+statement ok
+DELETE FROM s.rp_txn WHERE i + 1 = 11
+
+statement error
+INSERT INTO m.t VALUES (2)
+----
+a single transaction can only write to a single attached database
+
+statement ok
+ROLLBACK
+
+query I
+SELECT count(*) FROM s.rp_txn
+----
+3
+
+# prepared statements are rebound after the tables they read change
+statement ok
+PREPARE p AS SELECT i + 1 AS x FROM s.rp_txn ORDER BY i LIMIT 1
+
+query I
+EXECUTE p
+----
+2
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_txn AS SELECT 1.5::DOUBLE AS i, 'a' AS v
+
+query R
+EXECUTE p
+----
+2.5
+
+statement ok
+DROP TABLE s.rp_txn

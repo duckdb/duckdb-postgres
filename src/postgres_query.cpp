@@ -4,6 +4,7 @@
 
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+#include "duckdb/planner/binder.hpp"
 #include "postgres_parameters.hpp"
 #include "postgres_prepared_statement.hpp"
 #include "postgres_scanner.hpp"
@@ -23,6 +24,23 @@ static bool ExtractFlag(TableFunctionBindInput &input, const string &name, bool 
 		}
 	}
 	return default_val;
+}
+
+static void RegisterDatabaseAccess(ClientContext &context, TableFunctionBindInput &input, PostgresCatalog &catalog) {
+	// "modifies_database" is set for queries and statements that are executed remotely in place of DuckDB queries /
+	// statements - arbitrary postgres_query / postgres_execute calls are not registered, as their prepared Postgres
+	// statements are reused across executions, and it is unknown whether they write to the database
+	auto it = input.named_parameters.find(Identifier("modifies_database"));
+	if (!input.binder || it == input.named_parameters.end() || it->second.IsNull()) {
+		return;
+	}
+	// let DuckDB check the transaction (e.g. that a read-only transaction does not write, or that a transaction only
+	// writes to a single database), and rebind prepared statements when the catalog may have changed
+	auto &properties = input.binder->GetStatementProperties();
+	properties.RegisterDBRead(catalog, context);
+	if (BooleanValue::Get(it->second)) {
+		properties.RegisterDBModify(catalog, context, DatabaseModificationType::UPDATE_DATA);
+	}
 }
 
 static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBindInput &input,
@@ -61,6 +79,7 @@ static unique_ptr<FunctionData> BindDML(ClientContext &context, TableFunctionBin
 	result->use_transaction = use_transaction;
 	result->prepared_statement = std::move(prepared_statement);
 	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
+	RegisterDatabaseAccess(context, input, catalog);
 	return std::move(result);
 }
 
@@ -283,6 +302,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->prepared_statement = std::move(prepared);
 	result->clear_catalog_cache = ExtractFlag(input, "clear_catalog_cache", false);
 	PostgresScanFunction::PrepareBind(catalog.GetPostgresVersion(), context, *result, 0, catalog);
+	RegisterDatabaseAccess(context, input, catalog);
 	return std::move(result);
 }
 
@@ -312,6 +332,7 @@ static FunctionSignature PostgresQuerySignature(bool suppress_dml_output) {
 		    options.Add("preliminary_queries", LogicalType::LIST(LogicalType::VARCHAR));
 		    options.Add("clear_catalog_cache", LogicalType::BOOLEAN);
 		    options.Add("return_changed_rows", LogicalType::BOOLEAN);
+		    options.Add("modifies_database", LogicalType::BOOLEAN);
 	    });
 	return signature;
 }
