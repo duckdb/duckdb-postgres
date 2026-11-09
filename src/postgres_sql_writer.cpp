@@ -6,6 +6,7 @@
 #include "duckdb/catalog/entry_lookup_info.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/main/settings.hpp"
 #include "duckdb/parser/expression/between_expression.hpp"
 #include "duckdb/parser/expression/case_expression.hpp"
 #include "duckdb/parser/expression/cast_expression.hpp"
@@ -3612,6 +3613,11 @@ static optional_ptr<LogicalCreateTable> PostgresFindCreateTable(LogicalOperator 
 
 void PostgresSQLWriter::WriteCreateTable(CreateStatement &statement, PostgresWriterResult &result) {
 	auto &info = statement.info->Cast<CreateTableInfo>();
+	if (info.query && !Settings::Get<DefaultCollationSetting>(context).empty()) {
+		// DuckDB compares the strings in the query with the collation - only the global setting is checked
+		// before the statement is pushed down
+		throw PostgresPushdownNotSupported("default_collation is set");
+	}
 	// bind the statement to resolve the column types (and the types of the query of a CREATE TABLE AS)
 	auto bind_statement = statement.Copy();
 	auto &bind_info = bind_statement->Cast<CreateStatement>().info->Cast<CreateTableInfo>();

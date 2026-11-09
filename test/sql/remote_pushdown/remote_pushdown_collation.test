@@ -386,6 +386,78 @@ DROP TABLE s.rp_coll_ctas
 statement ok
 DROP TABLE s.rp_coll_dml
 
+# with default_collation set, DuckDB compares strings with the collation - queries and statements are not pushed down
+statement ok
+SET default_collation = 'nocase'
+
+query I
+SELECT id FROM s.rp_coll WHERE v = 'b' ORDER BY id
+----
+2
+4
+
+query II
+EXPLAIN SELECT id FROM s.rp_coll WHERE v = 'b' ORDER BY id
+----
+physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+query I
+SELECT count(DISTINCT v) FROM s.rp_coll WHERE v IN ('a', 'A', 'b', 'B')
+----
+2
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_coll_ctas AS SELECT DISTINCT v FROM s.rp_coll WHERE v IN ('a', 'A', 'b', 'B')
+
+query I
+SELECT count(*) FROM s.rp_coll_ctas
+----
+2
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_coll_upd AS SELECT id, v FROM s.rp_coll
+
+query I
+UPDATE s.rp_coll_upd SET id = id + 100 WHERE v = 'a'
+----
+2
+
+query I
+SELECT id FROM s.rp_coll_upd WHERE id > 100 ORDER BY id
+----
+101
+105
+
+statement ok
+RESET default_collation
+
+# a session-local default_collation is only known when the statement is serialized
+statement ok
+SET SESSION default_collation = 'nocase'
+
+query I
+SELECT id FROM s.rp_coll WHERE v = 'b' ORDER BY id
+----
+2
+4
+
+statement error
+CREATE OR REPLACE TABLE s.rp_coll_ctas AS SELECT DISTINCT v FROM s.rp_coll WHERE v IN ('a', 'A', 'b', 'B')
+----
+default_collation is set
+
+statement ok
+SET SESSION default_collation = ''
+
+statement ok
+RESET default_collation
+
+statement ok
+DROP TABLE s.rp_coll_ctas
+
+statement ok
+DROP TABLE s.rp_coll_upd
+
 statement ok
 DROP TABLE s.rp_coll_list
 
