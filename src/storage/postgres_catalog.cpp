@@ -27,6 +27,9 @@
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/settings.hpp"
+#include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/statement/create_statement.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 
 #include "postgres_connection_string.hpp"
@@ -124,7 +127,25 @@ bool PostgresCatalog::SupportsPushdown(const QueryNode &node) {
 	return PostgresCheckPushdown(remote_pushdown_enabled, capabilities, node, "query");
 }
 
+static bool PostgresIsCreateTableAs(const SQLStatement &statement) {
+	if (statement.type != StatementType::CREATE_STATEMENT) {
+		return false;
+	}
+	auto &info = *statement.Cast<CreateStatement>().info;
+	return info.type == CatalogType::TABLE_ENTRY && info.Cast<CreateTableInfo>().query;
+}
+
 bool PostgresCatalog::SupportsPushdown(const SQLStatement &statement) {
+	if (remote_pushdown_enabled && PostgresIsCreateTableAs(statement) &&
+	    !Settings::Get<DefaultCollationSetting>(GetDatabase()).empty()) {
+		// DuckDB compares the strings in the query with the collation - the statement is executed locally then,
+		// the query is pushed down on its own (and executed locally as well)
+		if (PostgresConnection::DebugPrintQueries()) {
+			Printer::Print("Remote pushdown: statement not supported, default_collation is set: " +
+			               statement.ToString());
+		}
+		return false;
+	}
 	return PostgresCheckPushdown(remote_pushdown_enabled, capabilities, statement, "statement");
 }
 
@@ -242,6 +263,13 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, uniq
 	auto local_node = node->Copy();
 	PostgresSQLWriter::QualifyTables(*local_node, GetName(), cte_names);
 	if (parallel_scans_supported && PostgresIsTrivialQuery(*node, cte_names)) {
+		return PostgresExecuteLocally(std::move(local_node));
+	}
+	if (!Settings::Get<DefaultCollationSetting>(context).empty()) {
+		// DuckDB compares strings with the collation
+		if (PostgresConnection::DebugPrintQueries()) {
+			Printer::Print("Remote pushdown: executing locally, default_collation is set");
+		}
 		return PostgresExecuteLocally(std::move(local_node));
 	}
 	BoundStatement bound;
