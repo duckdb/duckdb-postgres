@@ -3133,9 +3133,11 @@ string PostgresSQLWriter::WriteDeleteNode(const DeleteQueryNode &node) {
 	return result;
 }
 
-//! The types of the result columns of a query, as bound by DuckDB
+//! The types of the result columns of a query, as bound by DuckDB - "unsupported_reason" is the reason pushdown is
+//! not supported when the query cannot be bound, the binder error is thrown when it is not set
 static vector<LogicalType> PostgresBindQueryTypes(ClientContext &context, const Identifier &catalog_name,
-                                                  const QueryNode &node, const CommonTableExpressionMap &cte_map) {
+                                                  const QueryNode &node, const CommonTableExpressionMap &cte_map,
+                                                  const char *unsupported_reason) {
 	auto bind_node = node.Copy();
 	for (auto &cte : cte_map.map) {
 		bind_node->cte_map.map.insert(cte.first, cte.second->Copy());
@@ -3145,7 +3147,10 @@ static vector<LogicalType> PostgresBindQueryTypes(ClientContext &context, const 
 		auto binder = Binder::CreateBinder(context);
 		return binder->Bind(*bind_node).types;
 	} catch (std::exception &) {
-		throw PostgresPushdownNotSupported("cannot determine the types of the inserted values");
+		if (!unsupported_reason) {
+			throw;
+		}
+		throw PostgresPushdownNotSupported(unsupported_reason);
 	}
 }
 
@@ -3266,7 +3271,8 @@ string PostgresSQLWriter::WriteInsertNode(const InsertQueryNode &node) {
 			}
 		}
 		auto &select = *node.select_statement->node;
-		auto source_types = PostgresBindQueryTypes(context, catalog.GetName(), select, node.cte_map);
+		auto source_types = PostgresBindQueryTypes(context, catalog.GetName(), select, node.cte_map,
+		                                           "cannot determine the types of the inserted values");
 		if (source_types.size() != columns.size()) {
 			throw PostgresPushdownNotSupported("INSERT column count mismatch");
 		}
@@ -3701,8 +3707,9 @@ void PostgresSQLWriter::WriteCreateTable(CreateStatement &statement, PostgresWri
 
 void PostgresSQLWriter::WriteCreateView(CreateViewInfo &info, PostgresWriterResult &result) {
 	auto &query = *info.query->node;
-	// bind the query to determine the types DuckDB binds the result to - the view returns these types
-	auto result_types = PostgresBindQueryTypes(context, catalog.GetName(), query, CommonTableExpressionMap());
+	// bind the query to determine the types DuckDB binds the result to - the view returns these types. The query does
+	// not reference an outer query, so DuckDB reports the same error for it as for the view when it cannot be bound
+	auto result_types = PostgresBindQueryTypes(context, catalog.GetName(), query, CommonTableExpressionMap(), nullptr);
 	CollectNames(query);
 	// all tables must be tables of this database
 	auto query_copy = query.Copy();
