@@ -185,7 +185,7 @@ static bool PostgresIsSimpleFilter(const ParsedExpression &expr) {
 
 //! Whether a query is a plain scan of a single table - when parallel scans are possible, those are executed through
 //! a regular (parallel) table scan, which pushes down projections and simple filters as well
-static bool PostgresIsTrivialQuery(const QueryNode &node, const identifier_set_t &cte_names) {
+static bool PostgresIsTrivialQuery(const QueryNode &node) {
 	if (node.type != QueryNodeType::SELECT_NODE || !node.cte_map.map.empty()) {
 		return false;
 	}
@@ -202,7 +202,7 @@ static bool PostgresIsTrivialQuery(const QueryNode &node, const identifier_set_t
 		return false;
 	}
 	auto &base = select.from_table->Cast<BaseTableRef>();
-	if (base.sample || cte_names.count(base.Table()) > 0) {
+	if (base.sample) {
 		return false;
 	}
 	for (auto &expr : select.select_list) {
@@ -237,11 +237,9 @@ static unique_ptr<TableRef> PostgresExecuteLocally(unique_ptr<QueryNode> node) {
 
 unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) {
 	// bind the query locally to figure out the result types and names DuckDB would produce
-	identifier_set_t cte_names;
-	PostgresSQLWriter::CollectCTENames(*node, cte_names);
 	auto local_node = node->Copy();
-	PostgresSQLWriter::QualifyTables(*local_node, GetName(), cte_names);
-	if (parallel_scans_supported && PostgresIsTrivialQuery(*node, cte_names)) {
+	PostgresSQLWriter::QualifyTables(*local_node, GetName());
+	if (parallel_scans_supported && PostgresIsTrivialQuery(*node)) {
 		return PostgresExecuteLocally(std::move(local_node));
 	}
 	BoundStatement bound;

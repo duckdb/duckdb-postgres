@@ -178,3 +178,53 @@ query II
 EXPLAIN WITH RECURSIVE r(n, v) USING KEY (n) AS (SELECT 1, 1 UNION SELECT n, v + 1 FROM r WHERE v < 3) SELECT r.* FROM r JOIN s.rp_cte t ON t.i = r.n
 ----
 physical_plan	<!REGEX>:(?s).*Postgres Query.*
+
+# a CTE shadows a table only where it is visible
+statement ok
+CREATE OR REPLACE TABLE s.rp_cte_shadow (i INTEGER)
+
+statement ok
+INSERT INTO s.rp_cte_shadow VALUES (42)
+
+query II
+SELECT (WITH rp_cte_shadow AS (SELECT 1 AS i) SELECT i FROM rp_cte_shadow) AS a, (SELECT max(i) FROM s.rp_cte_shadow) AS b FROM s.rp_cte ORDER BY 1 LIMIT 1
+----
+1	42
+
+query II
+EXPLAIN SELECT (WITH rp_cte_shadow AS (SELECT 1 AS i) SELECT i FROM rp_cte_shadow) AS a, (SELECT max(i) FROM s.rp_cte_shadow) AS b FROM s.rp_cte ORDER BY 1 LIMIT 1
+----
+physical_plan	<REGEX>:(?s).*Postgres Query.*FROM "public"."rp_cte_shadow".*
+
+query II
+WITH x AS (SELECT * FROM s.rp_cte_shadow) SELECT * FROM x, (WITH x AS (SELECT 7 AS i) SELECT * FROM x) y
+----
+42	7
+
+# a local table with the name of the CTE is not used either
+statement ok
+CREATE TABLE rp_cte_shadow AS SELECT 'local' AS i
+
+query II
+SELECT (WITH rp_cte_shadow AS (SELECT 1 AS i) SELECT i FROM rp_cte_shadow) AS a, (SELECT max(i) + 1 FROM s.rp_cte_shadow) AS b FROM s.rp_cte ORDER BY 1 LIMIT 1
+----
+1	43
+
+statement ok
+CREATE OR REPLACE TABLE s.rp_cte_upd AS SELECT i FROM range(3) t(i)
+
+statement ok
+UPDATE s.rp_cte_upd SET i = i + (WITH rp_cte_shadow AS (SELECT 100 AS i) SELECT i FROM rp_cte_shadow) WHERE i IN (SELECT i - 42 FROM s.rp_cte_shadow)
+
+query I
+SELECT i FROM s.rp_cte_upd ORDER BY i
+----
+1
+2
+100
+
+statement ok
+DROP TABLE s.rp_cte_upd
+
+statement ok
+DROP TABLE s.rp_cte_shadow
