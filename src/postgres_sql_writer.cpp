@@ -3715,8 +3715,8 @@ void PostgresSQLWriter::WriteCreateView(CreateViewInfo &info, PostgresWriterResu
 	auto query_copy = query.Copy();
 	EnumerateTables(*query_copy, [&](BaseTableRef &base) {
 		if (!LookupTable(base)) {
-			throw BinderException("Views in Postgres can only reference tables of the same database - table \"%s\" "
-			                      "is not a table of database \"%s\"",
+			throw BinderException("Views in Postgres can only reference tables of the same database - table %s "
+			                      "is not a table of database %s",
 			                      base.Table(), catalog.GetName());
 		}
 	});
