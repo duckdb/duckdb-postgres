@@ -35,7 +35,7 @@ SourceResultType PostgresCreateIndex::GetDataInternal(ExecutionContext &context,
 		case OnCreateConflict::IGNORE_ON_CONFLICT:
 			return SourceResultType::FINISHED;
 		case OnCreateConflict::ERROR_ON_CONFLICT:
-			throw BinderException("Index with name \"%s\" already exists in schema \"%s\"", info->GetIndexName(),
+			throw BinderException("Index with name %s already exists in schema %s", info->GetIndexName(),
 			                      table.schema.name);
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
 			DropInfo drop_info;

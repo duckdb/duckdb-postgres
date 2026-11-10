@@ -613,7 +613,7 @@ optional_ptr<CatalogEntry> PostgresCatalog::CreateSchema(CatalogTransaction tran
 			return entry;
 		case OnCreateConflict::ERROR_ON_CONFLICT:
 		default:
-			throw BinderException("Failed to create schema \"%s\": schema already exists",
+			throw BinderException("Failed to create schema %s: schema already exists",
 			                      info.GetQualifiedName().Schema());
 		}
 	}
