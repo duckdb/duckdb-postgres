@@ -79,7 +79,7 @@ bool PostgresBinaryReader::FetchNextBuffer() {
 				break;
 			}
 			if (PQresultStatus(final_result) != PGRES_COMMAND_OK) {
-				throw IOException("Failed to fetch header for COPY: %s",
+				throw IOException(PostgresUtils::GetErrorInfo(final_result), "Failed to fetch header for COPY: %s",
 				                  PostgresUtils::GetErrorMessage(final_result, con.GetConn()));
 			}
 		}

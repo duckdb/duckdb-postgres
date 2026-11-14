@@ -243,7 +243,8 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	PostgresResult describe_wrapper(describe_prepared);
 	if (!describe_prepared || PQresultStatus(describe_prepared) != PGRES_COMMAND_OK) {
 		auto extended_err = PostgresUtils::GetErrorMessage(describe_prepared, conn);
-		throw BinderException("Failed to describe prepared statement: %s", extended_err);
+		throw BinderException(PostgresUtils::GetErrorInfo(describe_prepared),
+		                      "Failed to describe prepared statement: " + extended_err);
 	}
 	conn_lock.unlock();
 	int nparams = PQnparams(describe_prepared);

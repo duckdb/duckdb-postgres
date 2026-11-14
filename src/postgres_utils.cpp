@@ -41,6 +41,17 @@ string PostgresUtils::GetErrorMessage(PGresult *result, PGconn *conn) {
 	return message;
 }
 
+unordered_map<string, string> PostgresUtils::GetErrorInfo(PGresult *result) {
+	unordered_map<string, string> info;
+	// the SQLSTATE tells errors apart in any language of the server
+	// the key is absent if the server sent no SQLSTATE, for example for connection-level or client-generated errors
+	auto sqlstate = result ? PQresultErrorField(result, PG_DIAG_SQLSTATE) : nullptr;
+	if (sqlstate) {
+		info["sqlstate"] = sqlstate;
+	}
+	return info;
+}
+
 PGconn *PostgresUtils::PGConnect(const string &dsn, const string &attach_path) {
 	bool lock_needed = true;
 	{

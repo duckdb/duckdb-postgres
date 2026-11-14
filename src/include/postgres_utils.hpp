@@ -90,6 +90,8 @@ public:
 	//! The error message of a failed result (or of the connection if there is no result) - without the excerpt
 	//! of the query that libpq adds for errors with a position, as the query can contain the values of filters
 	static string GetErrorMessage(PGresult *result, PGconn *conn);
+	//! The extra_info of the exception for a failed result - its SQLSTATE, if the server sent one
+	static unordered_map<string, string> GetErrorInfo(PGresult *result);
 
 	static bool UseInformationSchemaIntrospection(optional_ptr<ClientContext> context);
 	static bool StalenessQueryEnabled(ClientContext &context);
