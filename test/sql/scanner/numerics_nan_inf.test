@@ -68,10 +68,10 @@ SELECT column_type FROM (
 ----
 DECIMAL(4,3)
 
-query I
+statement error
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(4,3)')
 ----
-NULL
+Unsupported NUMERIC value: NaN
 
 statement error
 FROM postgres_query('s', 'SELECT ''Infinity''::NUMERIC(4,3)')
@@ -84,12 +84,12 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC(4,3)')
 A field with precision 4, scale 3 cannot hold an infinite value.
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
-statement error
+query I
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(4,3)')
 ----
-Unsupported NUMERIC value: NaN
+NULL
 
 statement ok
 RESET pg_numeric_nan_as_null
@@ -103,10 +103,10 @@ SELECT column_type FROM (
 ----
 DECIMAL(9,3)
 
-query I
+statement error
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(9,3)')
 ----
-NULL
+Unsupported NUMERIC value: NaN
 
 statement error
 FROM postgres_query('s', 'SELECT ''Infinity''::NUMERIC(9,3)')
@@ -119,12 +119,12 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC(9,3)')
 A field with precision 9, scale 3 cannot hold an infinite value.
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
-statement error
+query I
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(9,3)')
 ----
-Unsupported NUMERIC value: NaN
+NULL
 
 statement ok
 RESET pg_numeric_nan_as_null
@@ -138,10 +138,10 @@ SELECT column_type FROM (
 ----
 DECIMAL(18,3)
 
-query I
+statement error
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(18,3)')
 ----
-NULL
+Unsupported NUMERIC value: NaN
 
 statement error
 FROM postgres_query('s', 'SELECT ''Infinity''::NUMERIC(18,3)')
@@ -154,12 +154,12 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC(18,3)')
 A field with precision 18, scale 3 cannot hold an infinite value.
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
-statement error
+query I
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(18,3)')
 ----
-Unsupported NUMERIC value: NaN
+NULL
 
 statement ok
 RESET pg_numeric_nan_as_null
@@ -173,10 +173,10 @@ SELECT column_type FROM (
 ----
 DECIMAL(38,19)
 
-query I
+statement error
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(38,19)')
 ----
-NULL
+Unsupported NUMERIC value: NaN
 
 statement error
 FROM postgres_query('s', 'SELECT ''Infinity''::NUMERIC(38,19)')
@@ -189,12 +189,15 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC(38,19)')
 A field with precision 38, scale 19 cannot hold an infinite value.
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
-statement error
+query I
 FROM postgres_query('s', 'SELECT ''NaN''::NUMERIC(38,19)')
 ----
-Unsupported NUMERIC value: NaN
+NULL
+
+statement ok
+RESET pg_numeric_nan_as_null
 
 # plain scan
 
@@ -213,10 +216,18 @@ SELECT divide(col1, 1), col2 FROM s.out_of_bounds_numeric_test
 Unsupported NUMERIC value: NaN
 
 statement ok
-CALL postgres_execute('s', 'DROP TABLE out_of_bounds_numeric_test')
+SET pg_numeric_nan_as_null = TRUE
+
+query II
+SELECT divide(col1, 1), col2 FROM s.out_of_bounds_numeric_test
+----
+42	NULL
 
 statement ok
 RESET pg_numeric_nan_as_null
+
+statement ok
+CALL postgres_execute('s', 'DROP TABLE out_of_bounds_numeric_test')
 
 # NUMERIC as DOUBLE
 
@@ -257,7 +268,7 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC')
 -Infinity
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
 query I
 SELECT column_type FROM (
@@ -326,7 +337,7 @@ FROM postgres_query('s', 'SELECT ''-Infinity''::NUMERIC')
 -Infinity
 
 statement ok
-SET pg_numeric_nan_as_null = FALSE
+SET pg_numeric_nan_as_null = TRUE
 
 query I
 SELECT column_type FROM (

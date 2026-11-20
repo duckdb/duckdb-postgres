@@ -189,7 +189,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting);
 	config.AddExtensionOption(
 	    "pg_numeric_nan_as_null", "Read Postgres numeric NaN value as NULL instead of throwing an error",
-	    LogicalType::BOOLEAN, Value::BOOLEAN(true), PostgresClearCacheFunction::ClearCacheOnSetting);
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false), PostgresClearCacheFunction::ClearCacheOnSetting);
 	config.AddExtensionOption(
 	    "pg_connection_cache",
 	    "Whether or not to use the connection pooling."

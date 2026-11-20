@@ -35,7 +35,7 @@ struct PostgresTypeData {
 struct PostgresTypeConfig {
 	bool array_as_varchar = false;
 	bool numeric_as_varchar = false;
-	bool numeric_nan_as_null = true;
+	bool numeric_nan_as_null = false;
 
 	static PostgresTypeConfig FromContext(optional_ptr<ClientContext> context);
 };
