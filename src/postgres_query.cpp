@@ -229,10 +229,17 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		               std::move(sql), use_transaction, pinned_connection_id, PostgresParameters(), nullptr);
 	}
 
+	auto query_mode = ResolveQueryMode(context, input, param_values);
+	// as in PostgresScanFunction::PrepareBind, ResolveQueryMode has already applied pg_use_text_protocol
+	bool use_text_protocol = catalog.UseTextProtocol(query_mode, false);
+	bool reads_with_copy = !use_text_protocol && query_mode != PostgresQueryMode::PLAIN_QUERY_BINARY;
 	auto conn_lock = con.Lock();
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
-	string stmt_name = PostgresPreparedStatement::GenerateName();
+	// COPY never executes the statement, so describe the unnamed one: nothing to close. Only within a transaction,
+	// where a pooler keeps the server connection from the prepare to the describe
+	bool use_unnamed_statement = reads_with_copy && PQtransactionStatus(conn) == PQTRANS_INTRANS;
+	string stmt_name = use_unnamed_statement ? string() : PostgresPreparedStatement::GenerateName();
 	if (PostgresConnection::DebugPrintQueries()) {
 		Printer::Print("PREPARE " + stmt_name + ": " + sql + "\n");
 	}
@@ -246,6 +253,9 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		throw BinderException("Failed to describe prepared statement: %s", extended_err);
 	}
 	conn_lock.unlock();
+	if (use_unnamed_statement) {
+		prepared.reset();
+	}
 	int nparams = PQnparams(describe_prepared);
 	if (nparams != param_values.size()) {
 		throw BinderException("Incorrect number of parameters specified, expected: %d, actual: %zu", nparams,
@@ -296,7 +306,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->read_only = false;
 	result->preliminary_queries = std::move(preliminary_queries);
 	result->sql = std::move(sql);
-	result->query_mode = ResolveQueryMode(context, input, param_values);
+	result->query_mode = query_mode;
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
 	result->prepared_statement = std::move(prepared);
