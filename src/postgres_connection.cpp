@@ -92,7 +92,8 @@ PGresult *PostgresConnection::PQExecute(optional_ptr<ClientContext> context, con
 
 unique_ptr<PostgresResult> PostgresConnection::TryQuery(optional_ptr<ClientContext> context, const string &query,
                                                         optional_ptr<string> error_message,
-                                                        const PostgresParameters &params, int format) {
+                                                        const PostgresParameters &params, int format,
+                                                        optional_ptr<unordered_map<string, string>> error_info) {
 	lock_guard<mutex> guard(connection_lock);
 	auto result = PQExecute(context, query.c_str(), params, format);
 
@@ -103,6 +104,9 @@ unique_ptr<PostgresResult> PostgresConnection::TryQuery(optional_ptr<ClientConte
 			// pg_debug_show_queries shows it
 			*error_message = "Failed to execute query: " + string(error);
 		}
+		if (error_info) {
+			*error_info = PostgresUtils::GetErrorInfo(result);
+		}
 		PQclear(result);
 		return nullptr;
 	}
@@ -112,9 +116,10 @@ unique_ptr<PostgresResult> PostgresConnection::TryQuery(optional_ptr<ClientConte
 unique_ptr<PostgresResult> PostgresConnection::Query(optional_ptr<ClientContext> context, const string &query,
                                                      const PostgresParameters &params, int format) {
 	string error_msg;
-	auto result = TryQuery(context, query, &error_msg, params, format);
+	unordered_map<string, string> error_info;
+	auto result = TryQuery(context, query, &error_msg, params, format, &error_info);
 	if (!result) {
-		throw std::runtime_error(error_msg);
+		throw Exception(error_info, ExceptionType::INVALID, error_msg);
 	}
 	return result;
 }
@@ -146,8 +151,9 @@ unique_ptr<PostgresResult> PostgresConnection::QueryStmt(optional_ptr<ClientCont
 		auto error = PostgresUtils::GetErrorMessage(result, conn);
 		auto error_message =
 		    StringUtil::Format("Failed to execute prepared statement \"%s\": %s", stmt.GetName(), string(error));
+		auto error_info = PostgresUtils::GetErrorInfo(result);
 		PQclear(result);
-		throw std::runtime_error(error_message);
+		throw Exception(error_info, ExceptionType::INVALID, error_message);
 	}
 	return make_uniq<PostgresResult>(result);
 }
@@ -171,6 +177,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 	}
 	vector<unique_ptr<PostgresResult>> results;
 	string error_message;
+	unordered_map<string, string> error_info;
 	while (true) {
 		auto res = PQgetResult(GetConn());
 		if (!res) {
@@ -180,6 +187,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 		if (ResultHasError(res)) {
 			if (error_message.empty()) {
 				error_message = "Failed to execute query: " + PostgresUtils::GetErrorMessage(res, GetConn());
+				error_info = PostgresUtils::GetErrorInfo(res);
 			}
 			continue;
 		}
@@ -189,7 +197,7 @@ vector<unique_ptr<PostgresResult>> PostgresConnection::ExecuteQueries(ClientCont
 		results.push_back(std::move(result));
 	}
 	if (!error_message.empty()) {
-		throw std::runtime_error(error_message);
+		throw Exception(error_info, ExceptionType::INVALID, error_message);
 	}
 	int64_t end_time = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now())
 	                       .time_since_epoch()
