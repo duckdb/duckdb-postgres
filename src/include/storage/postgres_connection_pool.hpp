@@ -37,6 +37,7 @@ public:
 protected:
 	std::unique_ptr<PostgresConnection> CreateNewConnection() override;
 	bool CheckConnectionHealthy(PostgresConnection &conn) override;
+	bool CheckConnectionAliveNoRoundTrip(PostgresConnection &conn) override;
 	void ResetConnection(PostgresConnection &conn) override;
 
 private:

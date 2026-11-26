@@ -180,11 +180,12 @@ FROM postgres_configure_pool(catalog_name='s')
 ----
 s	1
 
-query II
-SELECT catalog_name, health_check_query
-FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT_FAIL')
+# the health check is not run within the alive bypass window
+query III
+SELECT catalog_name, health_check_query, alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT_FAIL', alive_bypass_window_millis=0)
 ----
-s	SELECT_FAIL
+s	SELECT_FAIL	0
 
 query II
 SELECT catalog_name, available_connections
@@ -192,16 +193,46 @@ FROM postgres_configure_pool(catalog_name='s')
 ----
 s	1
 
+statement ok
+SET VARIABLE cache_misses_before = (SELECT cache_misses FROM postgres_configure_pool(catalog_name='s'))
+
 query I
 FROM postgres_query('s', 'SELECT 42')
 ----
 42
 
-query II
-SELECT catalog_name, available_connections
+# the connection failed the health check when it was taken from the pool, it was discarded and a new one was opened
+query III
+SELECT catalog_name, available_connections, cache_misses - getvariable('cache_misses_before') > 0
 FROM postgres_configure_pool(catalog_name='s')
 ----
-s	0
+s	1	TRUE
+
+statement ok
+DETACH s
+
+# alive bypass window
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES);
+
+query II
+SELECT catalog_name, alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	500
+
+query II
+SELECT catalog_name, alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s', alive_bypass_window_millis=42)
+----
+s	42
+
+query II
+SELECT catalog_name, alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	42
 
 statement ok
 DETACH s

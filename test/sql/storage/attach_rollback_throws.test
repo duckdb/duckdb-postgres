@@ -25,11 +25,16 @@ CALL postgres_execute('s', 'SELECT pg_terminate_backend(pg_backend_pid())')
 ----
 terminating connection due to administrator command
 
-# connection must have been discarded, as it cannot pass the health check on returning it to the pool
-query II
-SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+# connection must not be leaked: when it is returned to the pool, its reset fails and it is reconnected
+query III
+SELECT catalog_name, total_connections, available_connections FROM postgres_configure_pool(catalog_name='s')
 ----
-s	0
+s	1	1
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
 
 statement ok
 DETACH s
@@ -75,10 +80,16 @@ COMMIT
 ----
 closed
 
-query II
-SELECT catalog_name, total_connections FROM postgres_configure_pool(catalog_name='s')
+# connection must not be leaked: when it is returned to the pool, its reset fails and it is reconnected
+query III
+SELECT catalog_name, total_connections, available_connections FROM postgres_configure_pool(catalog_name='s')
 ----
-s	0
+s	1	1
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
 
 statement ok
 DETACH s1
