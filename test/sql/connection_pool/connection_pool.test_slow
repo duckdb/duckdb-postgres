@@ -84,9 +84,10 @@ s	1	FALSE
 statement ok
 RESET GLOBAL pg_pool_enable_thread_local_cache
 
+# the health check is not run within the alive bypass window
 statement ok
 SELECT catalog_name, health_check_query
-FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT FAIL')
+FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT FAIL', alive_bypass_window_millis=0)
 
 query II
 SELECT catalog_name, health_check_query
@@ -95,17 +96,21 @@ FROM postgres_configure_pool(catalog_name='s')
 s	SELECT FAIL
 
 statement ok
+SET VARIABLE cache_misses_before = (SELECT cache_misses FROM postgres_configure_pool(catalog_name='s'))
+
+statement ok
 CREATE OR REPLACE TABLE duckdb_connection_pool_test1(col1 INT)
 
 statement ok
 SELECT catalog_name, available_connections
 FROM postgres_configure_pool(catalog_name='s', enable_thread_local_cache=FALSE)
 
-query II
-SELECT catalog_name, available_connections
+# the connection failed the health check when it was taken from the pool, it was discarded and a new one was opened
+query III
+SELECT catalog_name, available_connections, cache_misses - getvariable('cache_misses_before') > 0
 FROM postgres_configure_pool(catalog_name='s')
 ----
-s	0
+s	1	TRUE
 
 statement ok
 SELECT catalog_name, health_check_query

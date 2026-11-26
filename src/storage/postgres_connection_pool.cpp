@@ -41,6 +41,10 @@ bool PostgresConnectionPool::CheckConnectionHealthy(PostgresConnection &conn) {
 	return conn.PingServer(query);
 }
 
+bool PostgresConnectionPool::CheckConnectionAliveNoRoundTrip(PostgresConnection &conn) {
+	return conn.IsAliveNoRoundTrip();
+}
+
 void PostgresConnectionPool::ResetConnection(PostgresConnection &conn) {
 	std::string query = GetHealthCheckQuery();
 	conn.Reset(query);
@@ -95,6 +99,12 @@ dbconnector::pool::ConnectionPoolConfig PostgresConnectionPool::CreateConfig(Cli
 		Value val;
 		if (ctx.TryGetCurrentSetting("pg_pool_health_check_query", val) && !val.IsNull()) {
 			config.health_check_query = StringValue::Get(val);
+		}
+	}
+	{
+		Value val;
+		if (ctx.TryGetCurrentSetting("pg_pool_alive_bypass_window_millis", val) && !val.IsNull()) {
+			config.alive_bypass_window_millis = UBigIntValue::Get(val);
 		}
 	}
 

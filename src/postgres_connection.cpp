@@ -250,6 +250,27 @@ bool PostgresConnection::PingServerInternal(const std::string &health_check_quer
 	return PQresultStatus(res) == PGRES_TUPLES_OK;
 }
 
+bool PostgresConnection::IsAliveNoRoundTrip() {
+	lock_guard<mutex> guard(connection_lock);
+	if (!IsOpen()) {
+		return false;
+	}
+	PGconn *conn = GetConn();
+	if (PQstatus(conn) != CONNECTION_OK) {
+		return false;
+	}
+	// PQconsumeInput does not block, it fails (and sets CONNECTION_BAD) when it reads EOF from the server. Before
+	// closing the connection the server sends an error message (for example, on pg_terminate_backend), the call that
+	// reads it succeeds and only the next one reads the EOF, so it is called a few times. On the idle connection that
+	// is alive every call is a single non-blocking read that returns no data
+	for (idx_t i = 0; i < 3; i++) {
+		if (!PQconsumeInput(conn)) {
+			return false;
+		}
+	}
+	return PQstatus(conn) == CONNECTION_OK;
+}
+
 void PostgresConnection::Reset(const std::string &health_check_query) {
 	lock_guard<mutex> guard(connection_lock);
 	if (!IsOpen()) {

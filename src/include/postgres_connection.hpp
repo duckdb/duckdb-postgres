@@ -69,6 +69,9 @@ public:
 	bool IsOpen();
 	void Close();
 	bool PingServer(const std::string &health_check_query);
+	//! Checks the connection without a round trip to the server: reads (without blocking) the data that is
+	//! already received, that detects the connection closed by the server (for example a terminated backend)
+	bool IsAliveNoRoundTrip();
 	void Reset(const std::string &health_check_query);
 
 	string GetDSN() {

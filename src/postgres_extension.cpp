@@ -294,6 +294,17 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "an empty string disables the health check. " +
 	                              CreatePoolNote("health_check_query=SELECT 42"),
 	                          LogicalType::VARCHAR, default_pool_config.health_check_query, nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption(
+	    "pg_pool_alive_bypass_window_millis",
+	    "Number of milliseconds after returning the connection to the pool, during which the connection is "
+	    "considered to be alive and the health check query ('pg_pool_health_check_query' option) is not run when the "
+	    "connection is taken from the pool. Only a check that does not need a round trip to the server is done "
+	    "instead, it detects the connections closed by the server, but not the network failures. Setting this option "
+	    "to 0 disables the bypass, so the health check query is run every time the connection is taken from the "
+	    "pool. " +
+	        CreatePoolNote("alive_bypass_window_millis=0"),
+	    LogicalType::UBIGINT, Value::UBIGINT(default_pool_config.alive_bypass_window_millis), nullptr,
+	    SetScope::GLOBAL);
 
 	OptimizerExtension postgres_optimizer;
 	postgres_optimizer.optimize_function = PostgresOptimizer::Optimize;

@@ -1,0 +1,117 @@
+# name: test/sql/connection_pool/connection_pool_alive_bypass.test
+# description: Test connection pool alive bypass window and the check without a round trip within it
+# group: [connection_pool]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+require-env POSTGRES_CONNECTION_IS_DIRECT
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s1 (TYPE POSTGRES)
+
+query II
+SELECT catalog_name, alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s')
+----
+s	500
+
+# use a long window, so the test does not depend on timing
+
+statement ok
+SELECT alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s', alive_bypass_window_millis=600000)
+
+# within the window the health check query is not run
+
+statement ok
+SELECT health_check_query FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT_FAIL')
+
+statement ok
+SET VARIABLE cache_misses_before = (SELECT cache_misses FROM postgres_configure_pool(catalog_name='s'))
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+query I
+FROM postgres_query('s', 'SELECT 43')
+----
+43
+
+query II
+SELECT total_connections, cache_misses - getvariable('cache_misses_before')
+FROM postgres_configure_pool(catalog_name='s')
+----
+1	0
+
+statement ok
+SELECT health_check_query FROM postgres_configure_pool(catalog_name='s', health_check_query='SELECT 1')
+
+# within the window the connection closed by the server is detected without a round trip, it is discarded
+# and a new one is opened
+
+statement ok
+SET VARIABLE killed_pid = (SELECT pid FROM postgres_query('s', 'SELECT pg_backend_pid() AS pid'))
+
+statement ok
+SET VARIABLE cache_misses_before = (SELECT cache_misses FROM postgres_configure_pool(catalog_name='s'))
+
+statement ok
+SET pg_use_text_protocol=TRUE
+
+# the timeout makes pg_terminate_backend to wait for the backend to exit
+query I
+FROM postgres_query('s1', 'SELECT pg_terminate_backend($1, 10000) AS terminated', params=row(getvariable('killed_pid')))
+----
+true
+
+statement ok
+RESET pg_use_text_protocol
+
+query I
+SELECT pid <> getvariable('killed_pid') FROM postgres_query('s', 'SELECT pg_backend_pid() AS pid')
+----
+true
+
+query II
+SELECT total_connections, cache_misses - getvariable('cache_misses_before')
+FROM postgres_configure_pool(catalog_name='s')
+----
+1	1
+
+# window disabled, the health check query is run every time
+
+statement ok
+SELECT alive_bypass_window_millis
+FROM postgres_configure_pool(catalog_name='s', alive_bypass_window_millis=0, health_check_query='SELECT_FAIL')
+
+statement ok
+SET VARIABLE cache_misses_before = (SELECT cache_misses FROM postgres_configure_pool(catalog_name='s'))
+
+query I
+FROM postgres_query('s', 'SELECT 42')
+----
+42
+
+query I
+FROM postgres_query('s', 'SELECT 43')
+----
+43
+
+query II
+SELECT total_connections, cache_misses - getvariable('cache_misses_before') >= 2
+FROM postgres_configure_pool(catalog_name='s')
+----
+1	true
+
+statement ok
+DETACH s1
+
+statement ok
+DETACH s
