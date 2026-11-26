@@ -94,3 +94,41 @@ RESET VARIABLE conn
 
 statement ok
 DETACH s
+# connections can be pinned with the connection pool disabled
+
+statement ok
+SET pg_pool_max_connections = 0
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s_no_pool (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s_no_pool')
+
+statement ok
+CALL postgres_execute('s_no_pool', 'CREATE TEMPORARY TABLE temp1(col1 INT)', connection=getvariable('conn'))
+
+statement ok
+CALL postgres_execute('s_no_pool', 'INSERT INTO temp1 values(42)', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('s_no_pool', 'SELECT * FROM temp1', connection=getvariable('conn'))
+----
+42
+
+statement ok
+SELECT postgres_close_pinned_connection('s_no_pool', getvariable('conn'))
+
+statement error
+SELECT postgres_close_pinned_connection('s_no_pool', getvariable('conn'))
+----
+not found in the specified attached database
+
+statement ok
+RESET VARIABLE conn
+
+statement ok
+DETACH s_no_pool
+
+statement ok
+RESET pg_pool_max_connections

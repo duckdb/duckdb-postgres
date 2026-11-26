@@ -9,6 +9,7 @@
 #pragma once
 
 #include "dbconnector/attached.hpp"
+#include "dbconnector/connect.hpp"
 
 #include <memory>
 #include "duckdb/main/attached_database.hpp"
@@ -120,6 +121,12 @@ public:
 	unique_ptr<TableRef> RemoteExecute(ClientContext &context, const string &sql) override;
 	string GetConnectDisplay() override;
 
+	//! Returns the ID of the pinned connection that runs the statements the client issues while CONNECT-ed to this
+	//! database, pinning a connection first if there is none yet. All the statements of the CONNECT session run on
+	//! this connection, so that the transactions the client issues (BEGIN / COMMIT / ROLLBACK) and the Postgres
+	//! session state span them
+	uint64_t GetConnectSessionConnection(ClientContext &context);
+
 	PostgresConnectionPool &GetConnectionPool() {
 		return *connection_pool;
 	}
@@ -173,6 +180,8 @@ private:
 	SecretStorageTable secret_storage_table;
 	//! Overrides what the shell prompt displays for this catalog - see GetConnectDisplay
 	string connect_display;
+	//! The CONNECT sessions of the clients
+	std::shared_ptr<dbconnector::connect::ConnectSessions<PostgresConnection>> connect_sessions;
 
 	PostgresAwsRdsTokenConfig rds_token_config;
 	std::mutex rds_token_mutex;
