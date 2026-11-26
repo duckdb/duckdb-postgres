@@ -1,0 +1,91 @@
+# name: test/sql/scanner/postgres_query_copy_describe.test
+# description: Test postgres_query reads that use COPY: they describe the query with the unnamed statement
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+query I
+FROM postgres_query('s', 'SELECT 42 AS m_copy_unnamed', connection=getvariable('conn'))
+----
+42
+
+# a failed Parse reports the error of Postgres, and the connection can be used afterwards
+
+statement error
+FROM postgres_query('s', 'SELECT nosuchcol FROM pg_class', connection=getvariable('conn'))
+----
+Failed to prepare query: ERROR:  column "nosuchcol" does not exist
+
+query I
+FROM postgres_query('s', 'SELECT 43 AS a', connection=getvariable('conn'))
+----
+43
+
+# a preliminary query runs between the bind and the COPY and replaces the unnamed statement
+
+query I
+FROM postgres_query('s', 'SELECT 44 AS a', preliminary_queries=['SELECT 1'], connection=getvariable('conn'))
+----
+44
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+# in a transaction: a command, several reads on the same connection, and a projection that modifies the query
+
+statement ok
+BEGIN
+
+# a command is described with the unnamed statement and executed as a plain query
+
+statement ok
+CALL postgres_execute('s', 'CREATE TEMPORARY TABLE m_copy_command (i INTEGER) ON COMMIT DROP')
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM m_copy_command')
+----
+0
+
+query II
+FROM postgres_query('s', 'SELECT 45 AS a, 46 AS b')
+----
+45	46
+
+query I
+SELECT b FROM postgres_query('s', 'SELECT 45 AS a, 47 AS b')
+----
+47
+
+query I
+FROM postgres_query('s', 'SELECT 48 AS a', query_mode='COPY_BINARY')
+----
+48
+
+statement ok
+COMMIT
+
+# a failed Parse in a transaction aborts the transaction, as before
+
+statement ok
+BEGIN
+
+statement error
+FROM postgres_query('s', 'SELECT nosuchcol FROM pg_class')
+----
+Failed to prepare query: ERROR:  column "nosuchcol" does not exist
+
+statement ok
+ROLLBACK
+
+query I
+FROM postgres_query('s', 'SELECT 49 AS a')
+----
+49

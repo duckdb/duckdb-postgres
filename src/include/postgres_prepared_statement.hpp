@@ -38,6 +38,9 @@ public:
 	//! Closes the statement on the server, con must be the connection the statement was prepared on
 	void Destroy(PostgresConnection &con);
 	bool IsDestroyed() const;
+	//! Whether this is the unnamed statement. It is only used to describe the result, never executed: the next
+	//! Parse or simple query on the connection replaces it, so it needs no Close
+	bool IsUnnamed() const;
 
 private:
 	uint64_t pool_connection_id;

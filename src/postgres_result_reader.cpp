@@ -7,7 +7,9 @@
 namespace duckdb {
 
 unique_ptr<PostgresResult> PostgresResultReader::Query(ClientContext &context, const string &sql, int format) {
-	if (prepared_statement && !prepared_statement->IsDestroyed() && prepared_statement->GetQuery() == sql) {
+	// the unnamed statement may have been replaced since bind (by a preliminary query, for example), never execute it
+	if (prepared_statement && !prepared_statement->IsDestroyed() && !prepared_statement->IsUnnamed() &&
+	    prepared_statement->GetQuery() == sql) {
 		auto result = con.QueryStmt(context, *prepared_statement, bind_data.params, format);
 		prepared_statement->Destroy(con);
 		return result;

@@ -174,6 +174,86 @@ static uint64_t ExtractPinnedConnId(TableFunctionBindInput &input) {
 	return pinned_connection_id;
 }
 
+//! Whether the result will be read with a binary COPY, which runs the query text and never executes the prepared
+//! statement. Mirrors the protocol choice in PostgresScanFunction::PrepareBind and PostgresBinaryReader.
+static bool ReadsWithBinaryCopy(ClientContext &context, PostgresCatalog &catalog, PostgresQueryMode query_mode,
+                                const vector<Value> &params) {
+	if (!params.empty() || catalog.GetPostgresVersion().type_v != PostgresInstanceType::POSTGRES) {
+		return false;
+	}
+	if (query_mode != PostgresQueryMode::AUTO && query_mode != PostgresQueryMode::COPY_BINARY) {
+		return false;
+	}
+	bool use_text_protocol_setting = false;
+	Value text_protocol;
+	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_protocol) && !text_protocol.IsNull()) {
+		use_text_protocol_setting = BooleanValue::Get(text_protocol);
+	}
+	return !catalog.UseTextProtocol(query_mode, use_text_protocol_setting);
+}
+
+//! Parses and describes the query as the unnamed statement behind a single Sync, in libpq pipeline mode: one round
+//! trip, where PQprepare and PQdescribePrepared take one each. Returns false, having sent nothing, if the
+//! connection cannot enter pipeline mode. Otherwise the results of the Parse and the Describe are returned
+//! (either can be NULL or an error) and the connection has left pipeline mode.
+static bool PrepareAndDescribeUnnamed(PGconn *conn, const string &sql, PGresult *&prepare_result,
+                                      PGresult *&describe_result) {
+	prepare_result = nullptr;
+	describe_result = nullptr;
+	if (!PQenterPipelineMode(conn)) {
+		return false;
+	}
+
+	if (PQsendPrepare(conn, "", sql.c_str(), 0, nullptr)) {
+		PQsendDescribePrepared(conn, "");
+	}
+
+	// end with a Sync even if a command could not be queued, so the results can be read up to it and the pipeline
+	// left. A missing result is reported as the error of the Parse or the Describe
+	bool sent = PQpipelineSync(conn);
+	// read up to the synchronization point: each command's results end with a NULL. If the Parse fails, the
+	// Describe reports PGRES_PIPELINE_ABORTED
+	bool synced = false;
+	idx_t command = 0;
+	bool command_has_result = false;
+	while (sent && PQstatus(conn) == CONNECTION_OK) {
+		PGresult *res = PQgetResult(conn);
+		if (!res) {
+			if (!command_has_result) {
+				// nothing left to read, do not wait for results that will not come
+				break;
+			}
+			command++;
+			command_has_result = false;
+			continue;
+		}
+		if (PQresultStatus(res) == PGRES_PIPELINE_SYNC) {
+			PQclear(res);
+			synced = true;
+			break;
+		}
+		command_has_result = true;
+		if (command == 0 && !prepare_result) {
+			prepare_result = res;
+		} else if (command == 1 && !describe_result) {
+			describe_result = res;
+		} else {
+			PQclear(res);
+		}
+	}
+
+	if (!synced || !PQexitPipelineMode(conn)) {
+		// the results are incomplete and the connection is broken: report its error. A connection that is still in
+		// pipeline mode fails every further query, so it is never used as if nothing happened, and the pool
+		// resets it when it is returned
+		PQclear(prepare_result);
+		PQclear(describe_result);
+		prepare_result = nullptr;
+		describe_result = nullptr;
+	}
+	return true;
+}
+
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types, vector<Identifier> &names) {
 	if (input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
@@ -232,14 +312,31 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	auto conn_lock = con.Lock();
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
-	string stmt_name = PostgresPreparedStatement::GenerateName();
-	if (PostgresConnection::DebugPrintQueries()) {
-		Printer::Print("PREPARE " + stmt_name + ": " + sql + "\n");
+	unique_ptr<PostgresPreparedStatement> prepared;
+	PGresult *describe_prepared = nullptr;
+	if (ReadsWithBinaryCopy(context, catalog, ResolveQueryMode(context, input, param_values), param_values)) {
+		// COPY does not execute the statement, so it is only needed for the description: use the unnamed statement,
+		// which needs no Close, and send Parse and Describe together
+		if (PostgresConnection::DebugPrintQueries()) {
+			Printer::Print("PREPARE <unnamed>: " + sql + "\n");
+		}
+		PGresult *prepared_res_ptr;
+		if (PrepareAndDescribeUnnamed(conn, sql, prepared_res_ptr, describe_prepared)) {
+			PostgresResult describe_owner(describe_prepared);
+			prepared = make_uniq<PostgresPreparedStatement>(conn, pool_connection_id, string(), sql, prepared_res_ptr);
+			describe_owner.res = nullptr;
+		}
 	}
-	PGresult *prepared_res_ptr = PQprepare(conn, stmt_name.c_str(), sql.c_str(), 0, nullptr);
-	auto prepared = make_uniq<PostgresPreparedStatement>(conn, pool_connection_id, stmt_name, sql, prepared_res_ptr);
-	// use describe_prepared
-	auto describe_prepared = PQdescribePrepared(conn, prepared->GetName().c_str());
+	if (!prepared) {
+		string stmt_name = PostgresPreparedStatement::GenerateName();
+		if (PostgresConnection::DebugPrintQueries()) {
+			Printer::Print("PREPARE " + stmt_name + ": " + sql + "\n");
+		}
+		PGresult *prepared_res_ptr = PQprepare(conn, stmt_name.c_str(), sql.c_str(), 0, nullptr);
+		prepared = make_uniq<PostgresPreparedStatement>(conn, pool_connection_id, stmt_name, sql, prepared_res_ptr);
+		// use describe_prepared
+		describe_prepared = PQdescribePrepared(conn, prepared->GetName().c_str());
+	}
 	PostgresResult describe_wrapper(describe_prepared);
 	if (!describe_prepared || PQresultStatus(describe_prepared) != PGRES_COMMAND_OK) {
 		auto extended_err = PostgresUtils::GetErrorMessage(describe_prepared, conn);

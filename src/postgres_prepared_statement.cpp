@@ -48,6 +48,11 @@ void PostgresPreparedStatement::Destroy(PostgresConnection &con) {
 	}
 	// mark the statement as destroyed even if closing fails, so it is never executed again
 	destroyed = true;
+	if (IsUnnamed()) {
+		// the server drops the unnamed statement at the next Parse or simple query, closing it costs a round trip
+		return;
+	}
+
 	auto conn_lock = con.Lock();
 	auto conn = con.GetConn();
 	PostgresResult close_result(PQclosePrepared(conn, name.c_str()));
@@ -60,6 +65,10 @@ void PostgresPreparedStatement::Destroy(PostgresConnection &con) {
 
 bool PostgresPreparedStatement::IsDestroyed() const {
 	return destroyed;
+}
+
+bool PostgresPreparedStatement::IsUnnamed() const {
+	return name.empty();
 }
 
 } // namespace duckdb
