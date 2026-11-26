@@ -861,6 +861,14 @@ PostgresQueryMode PostgresUtils::ExtractQueryMode(Value &value) {
 	}
 }
 
+bool PostgresUtils::ExtractUseTextProtocol(ClientContext &ctx) {
+	Value val;
+	if (ctx.TryGetCurrentSetting("pg_use_text_protocol", val) && !val.IsNull()) {
+		return BooleanValue::Get(val);
+	}
+	return false;
+}
+
 PostgresCatalog &PostgresUtils::GetCatalogByName(ClientContext &context, const std::string &name) {
 	auto &db_manager = DatabaseManager::Get(context);
 	auto db = db_manager.GetDatabase(context, Identifier(name));

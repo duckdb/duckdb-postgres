@@ -111,16 +111,32 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 	// resolve the protocol before any decision that depends on it (ctid scan, max threads)
 	// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here
 	bind_data.instance_type = version.type_v;
-	if (pg_catalog &&
-	    pg_catalog->UseBinaryPlainQueryWithTextFallback(bind_data.query_mode, bind_data.use_text_protocol)) {
-		// Redshift does not support the binary COPY protocol, but plain query results in the binary format are
-		// faster to transfer than the text ones
-		bind_data.query_mode = PostgresQueryMode::PLAIN_QUERY_BINARY;
-		bind_data.use_text_protocol = false;
-		bind_data.text_protocol_fallback = true;
-	} else if (pg_catalog) {
-		// for an attached database the mode set at ATTACH time decides
-		bind_data.use_text_protocol = pg_catalog->UseTextProtocol(bind_data.query_mode, bind_data.use_text_protocol);
+	if (pg_catalog) {
+		// for an attached database the catalog decides. A COPY is used when the reader is neither in the text
+		// protocol nor in the PLAIN_QUERY_BINARY query mode (see PostgresInitInternal and PostgresBinaryReader)
+		switch (pg_catalog->GetReadProtocol(bind_data.query_mode, bind_data.use_text_protocol)) {
+		case PostgresReadProtocol::COPY_BINARY:
+		case PostgresReadProtocol::PLAIN_QUERY_BINARY:
+			bind_data.use_text_protocol = false;
+			break;
+		case PostgresReadProtocol::PLAIN_QUERY_BINARY_WITH_TEXT_FALLBACK:
+			bind_data.query_mode = PostgresQueryMode::PLAIN_QUERY_BINARY;
+			bind_data.use_text_protocol = false;
+			bind_data.text_protocol_fallback = true;
+			break;
+		case PostgresReadProtocol::PLAIN_QUERY_TEXT:
+			bind_data.use_text_protocol = true;
+			break;
+		case PostgresReadProtocol::COPY_BINARY_UNSUPPORTED:
+			if (!bind_data.command_only) {
+				throw BinderException("Redshift does not support the binary COPY protocol (requested with the "
+				                      "'COPY_BINARY' query mode or the USE_TEXT_PROTOCOL FALSE attach option), use "
+				                      "query mode 'PLAIN_QUERY_BINARY' or 'PLAIN_QUERY_TEXT'");
+			}
+			// a command is executed as a plain query and reads no result
+			bind_data.use_text_protocol = false;
+			break;
+		}
 	} else if (version.type_v == PostgresInstanceType::REDSHIFT) {
 		// no attached database (postgres_scan over a dsn) - Redshift does not support the binary COPY protocol
 		bind_data.use_text_protocol = true;
@@ -158,13 +174,8 @@ void PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &c
 }
 
 PostgresBindData::PostgresBindData(ClientContext &context, const Identifier &catalog_name_p)
-    : catalog_name(catalog_name_p), query_mode(PostgresUtils::ExtractQueryMode(context)) {
-	Value text_protocol;
-	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_protocol)) {
-		if (BooleanValue::Get(text_protocol)) {
-			use_text_protocol = true;
-		}
-	}
+    : catalog_name(catalog_name_p), query_mode(PostgresUtils::ExtractQueryMode(context)),
+      use_text_protocol(PostgresUtils::ExtractUseTextProtocol(context)) {
 }
 
 void PostgresBindData::SetTablePages(idx_t approx_num_pages) {
