@@ -37,7 +37,7 @@ jobs:
           extra_toolchains: parser_tools
       runners: ${{ needs.prepare.outputs.runners }}
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw'
-      opt_in_archs: 'linux_amd64_musl;linux_arm64_musl;windows_arm64'
+      opt_in_archs: 'windows_arm64'
 
   deploy:
     name: Deploy extension
