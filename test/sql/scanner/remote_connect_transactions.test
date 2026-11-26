@@ -1,0 +1,315 @@
+# name: test/sql/scanner/remote_connect_transactions.test
+# description: Test transactions and the session state issued while CONNECT-ed
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+# con2 observes the changes made by con1 from another Postgres session
+statement ok con2
+ATTACH 'dbname=postgresscanner' AS observer (TYPE POSTGRES)
+
+statement ok con2
+CALL postgres_execute('observer', 'DROP TABLE IF EXISTS connect_tx_t')
+
+statement ok con1
+CONNECT 'dbname=postgresscanner' (TYPE POSTGRES)
+
+# rolled back DDL and DML
+
+statement ok con1
+BEGIN
+
+statement ok con1
+CREATE TABLE connect_tx_t(i INT)
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (7)
+
+statement ok con1
+UPDATE connect_tx_t SET i = 8
+
+query II con1
+SELECT count(*), max(i) FROM connect_tx_t
+----
+1	8
+
+# the transaction is not committed yet
+query I con2
+FROM postgres_query('observer', 'SELECT count(*) FROM pg_class WHERE relname = ''connect_tx_t''')
+----
+0
+
+statement ok con1
+ROLLBACK
+
+query I con1
+SELECT count(*) FROM pg_class WHERE relname = 'connect_tx_t'
+----
+0
+
+query I con2
+FROM postgres_query('observer', 'SELECT count(*) FROM pg_class WHERE relname = ''connect_tx_t''')
+----
+0
+
+# committed DDL and DML
+
+statement ok con1
+BEGIN
+
+statement ok con1
+CREATE TABLE connect_tx_t(i INT)
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (42)
+
+statement ok con1
+COMMIT
+
+query I con2
+FROM postgres_query('observer', 'SELECT i FROM connect_tx_t')
+----
+42
+
+# rolled back DML on an existing table
+
+statement ok con1
+BEGIN
+
+statement ok con1
+DELETE FROM connect_tx_t
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (43)
+
+statement ok con1
+ROLLBACK
+
+query I con1
+SELECT i FROM connect_tx_t
+----
+42
+
+# statements outside of a transaction are committed right away
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (44)
+
+query I con2
+FROM postgres_query('observer', 'SELECT i FROM connect_tx_t ORDER BY i')
+----
+42
+44
+
+# an error aborts the transaction until it is rolled back
+
+statement ok con1
+BEGIN
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (45)
+
+statement error con1
+SELECT 1 / 0
+----
+division by zero
+
+statement error con1
+SELECT 42
+----
+current transaction is aborted
+
+statement ok con1
+ROLLBACK
+
+query I con1
+SELECT i FROM connect_tx_t ORDER BY i
+----
+42
+44
+
+# the session state is kept between the statements
+
+statement ok con1
+CREATE TEMPORARY TABLE connect_tx_temp(i INT)
+
+statement ok con1
+INSERT INTO connect_tx_temp VALUES (1)
+
+query I con1
+SELECT i FROM connect_tx_temp
+----
+1
+
+statement ok con1
+SET application_name = 'connect_tx_session'
+
+query I con1
+SELECT current_setting('application_name')
+----
+connect_tx_session
+
+# the transactions use the isolation level the client requests (the isolation level the database is attached with
+# does not apply to the session)
+
+statement ok con1
+BEGIN ISOLATION LEVEL SERIALIZABLE
+
+query I con1
+SELECT current_setting('transaction_isolation')
+----
+serializable
+
+statement ok con1
+COMMIT
+
+# DISCONNECT rolls back an open transaction and ends the session
+
+statement ok con1
+BEGIN
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (46)
+
+statement ok con1
+DISCONNECT
+
+query I con2
+FROM postgres_query('observer', 'SELECT i FROM connect_tx_t ORDER BY i')
+----
+42
+44
+
+query I con2
+FROM postgres_query('observer', 'SELECT count(*) FROM pg_stat_activity WHERE application_name = ''connect_tx_session''')
+----
+0
+
+# a session to an attached database ends with DISCONNECT, a new CONNECT starts a new session
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS pg (TYPE POSTGRES)
+
+statement ok con1
+CONNECT pg
+
+statement ok con1
+CREATE TEMPORARY TABLE connect_tx_temp(i INT)
+
+statement ok con1
+BEGIN
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (47)
+
+statement ok con1
+DISCONNECT
+
+statement ok con1
+CONNECT pg
+
+query I con1
+SELECT count(*) FROM pg_class WHERE relname = 'connect_tx_temp' AND relpersistence = 't' AND pg_table_is_visible(oid)
+----
+0
+
+query I con1
+SELECT i FROM connect_tx_t ORDER BY i
+----
+42
+44
+
+statement ok con1
+DISCONNECT
+
+statement ok con1
+DETACH pg
+
+# the access mode of the attached database applies to the session
+
+statement ok con1
+ATTACH 'dbname=postgresscanner' AS pg_ro (TYPE POSTGRES, READ_ONLY)
+
+statement ok con1
+CONNECT pg_ro
+
+statement error con1
+INSERT INTO connect_tx_t VALUES (48)
+----
+read-only transaction
+
+statement error con1
+BEGIN; CREATE TABLE connect_tx_ro(i INT)
+----
+read-only transaction
+
+statement ok con1
+ROLLBACK
+
+# a new transaction is read-only as well
+statement error con1
+BEGIN; CREATE TABLE connect_tx_ro(i INT)
+----
+read-only transaction
+
+statement ok con1
+ROLLBACK
+
+statement ok con1
+DISCONNECT
+
+statement ok con1
+DETACH pg_ro
+
+# the session works without the connection pool
+
+statement ok con1
+SET pg_pool_max_connections = 0
+
+statement ok con1
+CONNECT 'dbname=postgresscanner' (TYPE POSTGRES)
+
+statement ok con1
+BEGIN
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (49)
+
+query I con1
+SELECT i FROM connect_tx_t ORDER BY i
+----
+42
+44
+49
+
+statement ok con1
+ROLLBACK
+
+query I con1
+SELECT i FROM connect_tx_t ORDER BY i
+----
+42
+44
+
+statement ok con1
+BEGIN
+
+statement ok con1
+INSERT INTO connect_tx_t VALUES (50)
+
+statement ok con1
+DISCONNECT
+
+statement ok con1
+RESET pg_pool_max_connections
+
+query I con2
+FROM postgres_query('observer', 'SELECT i FROM connect_tx_t ORDER BY i')
+----
+42
+44
+
+statement ok con2
+CALL postgres_execute('observer', 'DROP TABLE connect_tx_t')

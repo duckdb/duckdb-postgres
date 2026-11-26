@@ -398,13 +398,39 @@ unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, uniq
 	return std::move(func_ref);
 }
 
+uint64_t PostgresCatalog::GetConnectSessionConnection(ClientContext &context) {
+	return connect_sessions->GetConnection(context, GetAttached(), [this](ClientContext &client) {
+		PostgresPoolConnection connection;
+		{
+			auto oauth_token_holder = SetThreadLocalOAuthTokenFromSessionOption(client);
+			// like postgres_pin_connection, the session does not wait for a free slot in the pool
+			connection = connection_pool->ForceAcquire();
+		}
+		if (access_mode == AccessMode::READ_ONLY && version.type_v != PostgresInstanceType::REDSHIFT) {
+			// the statements of the session used to run in read-only transactions - keep the transactions of the
+			// session read-only (DISCARD ALL resets this when the connection is returned to the pool). Postgres 14+
+			// reports this setting to the client, so poolers in the transaction mode (PgBouncer) keep it for the
+			// session. The isolation level of the database is not applied to the session: the setting is not
+			// reported, so behind such a pooler it would be lost and leak into the sessions of other clients
+			connection.GetConnection().Execute(client, "SET default_transaction_read_only = on");
+		}
+		return connection;
+	});
+}
+
 unique_ptr<TableRef> PostgresCatalog::RemoteExecute(ClientContext &context, const string &sql) {
+	// the statements issued while CONNECT-ed run on the connection of the CONNECT session as written, outside of the
+	// transaction DuckDB runs them in - the client controls the transactions of the session
+	auto connection_id = GetConnectSessionConnection(context);
 	vector<unique_ptr<ParsedExpression>> args;
 	args.push_back(ConstantExpression::FromValue(Value(GetName())));
 	args.push_back(ConstantExpression::FromValue(Value(sql)));
 	args.push_back(make_uniq<ComparisonExpression>(ExpressionType::COMPARE_EQUAL,
 	                                               make_uniq<ColumnRefExpression>("suppress_dml_output"),
 	                                               ConstantExpression::FromValue(Value::BOOLEAN(true))));
+	args.push_back(make_uniq<ComparisonExpression>(ExpressionType::COMPARE_EQUAL,
+	                                               make_uniq<ColumnRefExpression>("connection"),
+	                                               ConstantExpression::FromValue(Value::UBIGINT(connection_id))));
 	auto func_ref = make_uniq<TableFunctionRef>();
 	func_ref->function = make_uniq<FunctionExpression>("postgres_query", std::move(args));
 	return func_ref;
@@ -466,7 +492,9 @@ PostgresCatalog::PostgresCatalog(ClientContext &ctx, AttachedDatabase &db_p, str
       text_protocol_mode(text_protocol_mode), schemas(*this, schemas_to_load),
       connection_pool(make_shared_ptr<PostgresConnectionPool>(*this, ctx)),
       default_schema(schemas_to_load.size() > 0 ? Identifier(schemas_to_load[0]) : Identifier()),
-      secret_storage_table(std::move(secret_storage_table_p)), connect_display(std::move(connect_display_p)) {
+      secret_storage_table(std::move(secret_storage_table_p)), connect_display(std::move(connect_display_p)),
+      connect_sessions(std::make_shared<dbconnector::connect::ConnectSessions<PostgresConnection>>(
+          *connection_pool, "postgres_connect_session")) {
 	auto secret_entry = GetSecretEntry(ctx, secret_name);
 	this->rds_token_config = PostgresAws::ExtractTokenConfigFromSecret(ctx, secret_entry);
 	if (!rds_token_config.Enabled()) {
