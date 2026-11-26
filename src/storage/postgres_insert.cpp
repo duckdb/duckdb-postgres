@@ -472,13 +472,8 @@ InsertionOrderPreservingMap<string> PostgresInsert::ParamsToString() const {
 }
 
 bool PostgresInsert::UsePlainInserts(PostgresCatalog &pg_catalog, ClientContext &context) {
-	bool use_text_proto_user_option = false;
-	Value value;
-	if (context.TryGetCurrentSetting("pg_use_text_protocol", value) && !value.IsNull()) {
-		use_text_proto_user_option = BooleanValue::Get(value);
-	}
-	PostgresQueryMode query_mode = PostgresUtils::ExtractQueryMode(context);
-	return pg_catalog.UseTextProtocol(query_mode, use_text_proto_user_option);
+	return pg_catalog.UseTextProtocol(PostgresUtils::ExtractQueryMode(context),
+	                                  PostgresUtils::ExtractUseTextProtocol(context));
 }
 
 //===--------------------------------------------------------------------===//

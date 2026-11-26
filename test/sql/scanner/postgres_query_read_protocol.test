@@ -1,0 +1,189 @@
+# name: test/sql/scanner/postgres_query_read_protocol.test
+# description: Test the read protocol of Aurora and Redshift: Aurora reads with COPY like Postgres, Redshift never does
+# group: [scanner]
+
+require postgres_scanner
+
+require-env POSTGRES_TEST_DATABASE_AVAILABLE
+
+statement ok
+ATTACH 'dbname=postgresscanner' AS s (TYPE POSTGRES)
+
+# the server type is detected with an unqualified "version()" and "pg_settings": a schema in front of pg_catalog in
+# the search_path makes the local server look like Aurora (an "rds.*" setting) or Redshift (the version string)
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS read_protocol_aurora CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA IF EXISTS read_protocol_redshift CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA read_protocol_aurora')
+
+statement ok
+CALL postgres_execute('s', 'CREATE VIEW read_protocol_aurora.pg_settings AS SELECT ''rds.read_protocol_test''::text AS name')
+
+statement ok
+CALL postgres_execute('s', 'CREATE SCHEMA read_protocol_redshift')
+
+statement ok
+CALL postgres_execute('s', 'CREATE FUNCTION read_protocol_redshift.version() RETURNS text LANGUAGE sql AS $$SELECT ''PostgreSQL 8.0.2 on i686-pc-linux-gnu, compiled by GCC gcc (GCC) 3.4.2 20041017 (Red Hat 3.4.2-6.fc3), Redshift 1.0.77467''$$')
+
+# Aurora: COPY reads describe the query with the unnamed statement, no named statement is left on the connection
+
+statement ok
+ATTACH 'dbname=postgresscanner options=''-c search_path=read_protocol_aurora,pg_catalog,public''' AS aurora (TYPE POSTGRES)
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('aurora')
+
+query II
+FROM postgres_query('aurora', 'SELECT 42 AS a, 43 AS b', connection=getvariable('conn'))
+----
+42	43
+
+query I
+SELECT b FROM postgres_query('aurora', 'SELECT 44 AS a, 45 AS b', connection=getvariable('conn'))
+----
+45
+
+query I
+FROM postgres_query('aurora', 'SELECT 46 AS a', query_mode='COPY_BINARY', connection=getvariable('conn'))
+----
+46
+
+statement error
+FROM postgres_query('aurora', 'SELECT nosuchcol FROM pg_class', connection=getvariable('conn'))
+----
+Failed to prepare query: ERROR:  column "nosuchcol" does not exist
+
+# a prepared DuckDB statement keeps its bind data: a COPY read holds no named statement, like on Postgres
+
+statement ok
+PREPARE copy_read AS FROM postgres_query('aurora', 'SELECT 48 AS a', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('aurora', 'SELECT count(*) FROM pg_catalog.pg_prepared_statements', connection=getvariable('conn'))
+----
+0
+
+query I
+EXECUTE copy_read
+----
+48
+
+# a plain query holds a named statement until it is executed
+
+statement ok
+PREPARE plain_read AS FROM postgres_query('aurora', 'SELECT 47 AS a', query_mode='PLAIN_QUERY_TEXT', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('aurora', 'SELECT count(*) FROM pg_catalog.pg_prepared_statements', connection=getvariable('conn'))
+----
+1
+
+query I
+EXECUTE plain_read
+----
+47
+
+statement ok
+DEALLOCATE plain_read
+
+statement ok
+DEALLOCATE copy_read
+
+statement ok
+SELECT postgres_close_pinned_connection('aurora', getvariable('conn'))
+
+statement ok
+SET VARIABLE conn = postgres_pin_connection('s')
+
+statement ok
+PREPARE copy_read AS FROM postgres_query('s', 'SELECT 49 AS a', connection=getvariable('conn'))
+
+query I
+FROM postgres_query('s', 'SELECT count(*) FROM pg_catalog.pg_prepared_statements', connection=getvariable('conn'))
+----
+0
+
+query I
+EXECUTE copy_read
+----
+49
+
+statement ok
+DEALLOCATE copy_read
+
+statement ok
+SELECT postgres_close_pinned_connection('s', getvariable('conn'))
+
+statement ok
+DETACH aurora
+
+# Redshift: AUTO reads with plain queries, the binary COPY protocol is rejected at bind
+
+statement ok
+ATTACH 'dbname=postgresscanner options=''-c search_path=read_protocol_redshift,pg_catalog,public''' AS redshift (TYPE POSTGRES)
+
+query I
+FROM postgres_query('redshift', 'SELECT 47 AS a')
+----
+47
+
+query I
+FROM postgres_query('redshift', 'SELECT 48 AS a', query_mode='PLAIN_QUERY_BINARY')
+----
+48
+
+query I
+FROM postgres_query('redshift', 'SELECT 49 AS a', query_mode='PLAIN_QUERY_TEXT')
+----
+49
+
+statement error
+FROM postgres_query('redshift', 'SELECT 50 AS a', query_mode='COPY_BINARY')
+----
+Redshift does not support the binary COPY protocol
+
+statement ok
+SET pg_query_mode = 'COPY_BINARY'
+
+statement error
+FROM postgres_query('redshift', 'SELECT 51 AS a')
+----
+Redshift does not support the binary COPY protocol
+
+# a command reads no result, it runs in any query mode
+
+statement ok
+CALL postgres_execute('redshift', 'SET application_name = ''read_protocol_test''')
+
+statement ok
+RESET pg_query_mode
+
+statement ok
+DETACH redshift
+
+statement ok
+ATTACH 'dbname=postgresscanner options=''-c search_path=read_protocol_redshift,pg_catalog,public''' AS redshift (TYPE POSTGRES, USE_TEXT_PROTOCOL FALSE)
+
+statement error
+FROM postgres_query('redshift', 'SELECT 52 AS a')
+----
+Redshift does not support the binary COPY protocol
+
+query I
+FROM postgres_query('redshift', 'SELECT 53 AS a', query_mode='PLAIN_QUERY_BINARY')
+----
+53
+
+statement ok
+DETACH redshift
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA read_protocol_aurora CASCADE')
+
+statement ok
+CALL postgres_execute('s', 'DROP SCHEMA read_protocol_redshift CASCADE')

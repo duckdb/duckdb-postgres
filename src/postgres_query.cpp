@@ -102,9 +102,7 @@ static PostgresQueryMode ResolveQueryMode(ClientContext &context, TableFunctionB
 	if (mode != PostgresQueryMode::AUTO) {
 		return mode;
 	}
-	Value text_proto_val;
-	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_proto_val) && !text_proto_val.IsNull() &&
-	    BooleanValue::Get(text_proto_val)) {
+	if (PostgresUtils::ExtractUseTextProtocol(context)) {
 		return PostgresQueryMode::PLAIN_QUERY_TEXT;
 	}
 	if (params.size() > 0) {
@@ -175,21 +173,12 @@ static uint64_t ExtractPinnedConnId(TableFunctionBindInput &input) {
 }
 
 //! Whether the result will be read with a binary COPY, which runs the query text and never executes the prepared
-//! statement. Mirrors the protocol choice in PostgresScanFunction::PrepareBind and PostgresBinaryReader.
+//! statement. PostgresScanFunction::PrepareBind resolves the protocol of the scan from the same inputs.
 static bool ReadsWithBinaryCopy(ClientContext &context, PostgresCatalog &catalog, PostgresQueryMode query_mode,
                                 const vector<Value> &params) {
-	if (!params.empty() || catalog.GetPostgresVersion().type_v != PostgresInstanceType::POSTGRES) {
-		return false;
-	}
-	if (query_mode != PostgresQueryMode::AUTO && query_mode != PostgresQueryMode::COPY_BINARY) {
-		return false;
-	}
-	bool use_text_protocol_setting = false;
-	Value text_protocol;
-	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_protocol) && !text_protocol.IsNull()) {
-		use_text_protocol_setting = BooleanValue::Get(text_protocol);
-	}
-	return !catalog.UseTextProtocol(query_mode, use_text_protocol_setting);
+	// a COPY cannot pass parameters, a read with parameters executes the prepared statement
+	return params.empty() && catalog.GetReadProtocol(query_mode, PostgresUtils::ExtractUseTextProtocol(context)) ==
+	                             PostgresReadProtocol::COPY_BINARY;
 }
 
 //! Parses and describes the query as the unnamed statement behind a single Sync, in libpq pipeline mode: one round
@@ -309,12 +298,13 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		               std::move(sql), use_transaction, pinned_connection_id, PostgresParameters(), nullptr);
 	}
 
+	auto query_mode = ResolveQueryMode(context, input, param_values);
 	auto conn_lock = con.Lock();
 	auto conn = con.GetConn();
 	// prepare execution of the query to figure out the result types and names
 	unique_ptr<PostgresPreparedStatement> prepared;
 	PGresult *describe_prepared = nullptr;
-	if (ReadsWithBinaryCopy(context, catalog, ResolveQueryMode(context, input, param_values), param_values)) {
+	if (ReadsWithBinaryCopy(context, catalog, query_mode, param_values)) {
 		// COPY does not execute the statement, so it is only needed for the description: use the unnamed statement,
 		// which needs no Close, and send Parse and Describe together
 		if (PostgresConnection::DebugPrintQueries()) {
@@ -393,7 +383,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	result->read_only = false;
 	result->preliminary_queries = std::move(preliminary_queries);
 	result->sql = std::move(sql);
-	result->query_mode = ResolveQueryMode(context, input, param_values);
+	result->query_mode = query_mode;
 	result->params = PostgresParameters(std::move(param_types), std::move(param_values));
 	result->use_transaction = use_transaction;
 	result->prepared_statement = std::move(prepared);

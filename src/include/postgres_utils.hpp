@@ -23,6 +23,21 @@ class PostgresTransaction;
 
 enum class PostgresQueryMode { AUTO, COPY_BINARY, PLAIN_QUERY_BINARY, PLAIN_QUERY_TEXT };
 
+//! How a scan of an attached database reads its result, resolved by PostgresCatalog::GetReadProtocol
+enum class PostgresReadProtocol {
+	//! COPY (...) TO STDOUT (FORMAT "binary")
+	COPY_BINARY,
+	//! a plain query with results in the binary format
+	PLAIN_QUERY_BINARY,
+	//! a plain query with results in the binary format, scans that read a column that can only be read with the
+	//! text protocol use the text format (Redshift, which does not support the binary COPY protocol)
+	PLAIN_QUERY_BINARY_WITH_TEXT_FALLBACK,
+	//! a plain query with results in the text format
+	PLAIN_QUERY_TEXT,
+	//! the binary COPY protocol was requested, but the server does not support it (Redshift)
+	COPY_BINARY_UNSUPPORTED
+};
+
 struct PostgresTypeData {
 	int64_t type_modifier = 0;
 	string type_name;
@@ -119,6 +134,8 @@ public:
 
 	static PostgresQueryMode ExtractQueryMode(ClientContext &ctx);
 	static PostgresQueryMode ExtractQueryMode(Value &value);
+	//! The value of the pg_use_text_protocol setting
+	static bool ExtractUseTextProtocol(ClientContext &ctx);
 	static PostgresCatalog &GetCatalogByName(ClientContext &context, const std::string &name);
 
 	static void DeduplicateColumns(vector<Identifier> &names);

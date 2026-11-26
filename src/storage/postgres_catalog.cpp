@@ -60,12 +60,9 @@ void PostgresCatalog::InitializeRemotePushdown(ClientContext &context, PostgresC
 	if (context.TryGetCurrentSetting("pg_use_ctid_scan", ctid_scan_val) && !ctid_scan_val.IsNull()) {
 		use_ctid_scan = BooleanValue::Get(ctid_scan_val);
 	}
-	Value text_protocol_val;
-	bool text_protocol_setting = false;
-	if (context.TryGetCurrentSetting("pg_use_text_protocol", text_protocol_val) && !text_protocol_val.IsNull()) {
-		text_protocol_setting = BooleanValue::Get(text_protocol_val);
-	}
-	bool use_text_protocol = UseTextProtocol(PostgresUtils::ExtractQueryMode(context), text_protocol_setting);
+	auto read_protocol =
+	    GetReadProtocol(PostgresUtils::ExtractQueryMode(context), PostgresUtils::ExtractUseTextProtocol(context));
+	bool use_text_protocol = read_protocol == PostgresReadProtocol::PLAIN_QUERY_TEXT;
 	parallel_scans_supported = use_ctid_scan && !use_text_protocol && version.major_v >= 14;
 	PostgresPushdownInfo info;
 	info.version = version;
@@ -762,13 +759,36 @@ dbconnector::attached::AttachedCatalog PostgresCatalog::Lookup(ClientContext &ct
 	}
 	return attached_catalog;
 }
-//! Resolve whether scans against this database must use the text protocol instead of the binary COPY
-//! protocol. This is the single place where that decision is made for an attached database, so every
-//! scan path (table scans, postgres_query/CONNECT, ...) agrees.
-bool PostgresCatalog::UseBinaryPlainQueryWithTextFallback(PostgresQueryMode query_mode,
-                                                          bool use_text_protocol_setting) const {
-	return query_mode == PostgresQueryMode::AUTO && text_protocol_mode == PostgresTextProtocolMode::AUTO &&
-	       !use_text_protocol_setting && version.type_v == PostgresInstanceType::REDSHIFT;
+
+PostgresReadProtocol PostgresCatalog::GetReadProtocol(PostgresQueryMode query_mode,
+                                                      bool use_text_protocol_setting) const {
+	// Redshift does not support the binary COPY protocol, every other server (Postgres, Aurora/RDS) does
+	bool copy_supported = version.type_v != PostgresInstanceType::REDSHIFT;
+	auto copy_binary =
+	    copy_supported ? PostgresReadProtocol::COPY_BINARY : PostgresReadProtocol::COPY_BINARY_UNSUPPORTED;
+	switch (query_mode) {
+	case PostgresQueryMode::COPY_BINARY:
+		return copy_binary;
+	case PostgresQueryMode::PLAIN_QUERY_BINARY:
+		return PostgresReadProtocol::PLAIN_QUERY_BINARY;
+	case PostgresQueryMode::PLAIN_QUERY_TEXT:
+		return PostgresReadProtocol::PLAIN_QUERY_TEXT;
+	default:
+		// AUTO: the mode set at ATTACH time decides
+		switch (text_protocol_mode) {
+		case PostgresTextProtocolMode::TEXT:
+			return PostgresReadProtocol::PLAIN_QUERY_TEXT;
+		case PostgresTextProtocolMode::BINARY:
+			return copy_binary;
+		default:
+			if (use_text_protocol_setting) {
+				return PostgresReadProtocol::PLAIN_QUERY_TEXT;
+			}
+			// plain query results in the binary format are faster to transfer than the text ones
+			return copy_supported ? PostgresReadProtocol::COPY_BINARY
+			                      : PostgresReadProtocol::PLAIN_QUERY_BINARY_WITH_TEXT_FALLBACK;
+		}
+	}
 }
 
 bool PostgresCatalog::UseTextProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const {

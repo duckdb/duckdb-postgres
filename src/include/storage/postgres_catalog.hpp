@@ -88,11 +88,13 @@ public:
 		return version;
 	}
 
+	//! How scans of this database read their results, given the query mode of the scan and the value of the
+	//! pg_use_text_protocol setting. This is the single place where that decision is made for an attached
+	//! database, so every scan path (table scans, postgres_query/CONNECT, ...) agrees.
+	PostgresReadProtocol GetReadProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
+	//! Whether writes to this database use plain INSERT statements with text values instead of the binary
+	//! COPY FROM protocol
 	bool UseTextProtocol(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
-	//! Whether scans should use plain queries with binary results, falling back to the text protocol for queries
-	//! that read columns that can only be read using the text protocol. Used for Redshift, which does not support
-	//! the binary COPY protocol.
-	bool UseBinaryPlainQueryWithTextFallback(PostgresQueryMode query_mode, bool use_text_protocol_setting) const;
 
 	//! Label all postgres scans in the sub-tree as requiring materialization
 	//! This is used for e.g. insert queries that have both (1) a scan from a postgres table, and (2) a sink into one
