@@ -67,7 +67,8 @@ void PostgresConnection::BeginCopyTo(ClientContext &context, PostgresCopyState &
 		auto result = pg_res.res;
 		if (!result || PQresultStatus(result) != PGRES_COPY_IN) {
 			auto error = PostgresUtils::GetErrorMessage(result, GetConn());
-			throw std::runtime_error("Failed to prepare COPY: " + string(error));
+			throw Exception(PostgresUtils::GetErrorInfo(result), ExceptionType::INVALID,
+			                "Failed to prepare COPY: " + string(error));
 		}
 	}
 	if (state.format == PostgresCopyFormat::BINARY) {
@@ -120,7 +121,8 @@ void PostgresConnection::FinishCopyTo(PostgresCopyState &state) {
 	auto result = pg_res.res;
 	if (!result || PQresultStatus(result) != PGRES_COMMAND_OK) {
 		auto error = PostgresUtils::GetErrorMessage(result, GetConn());
-		throw std::runtime_error("Failed to copy data: " + string(error));
+		throw Exception(PostgresUtils::GetErrorInfo(result), ExceptionType::INVALID,
+		                "Failed to copy data: " + string(error));
 	}
 }
 
