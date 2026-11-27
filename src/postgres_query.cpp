@@ -277,12 +277,12 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 		pool_connection_id = transaction.GetPoolConnectionId();
 	}
 
-	auto deferred_pin = dbconnector::Defer([&pinned_connection, &catalog] {
+	auto deferred_pin = dbconnector::Defer([&pinned_connection] {
 		if (!pinned_connection) {
 			return;
 		}
 		try {
-			catalog.GetConnectionPool().PinConnection(std::move(pinned_connection));
+			pinned_connection.PinBack();
 		} catch (...) {
 			// suppress
 		}

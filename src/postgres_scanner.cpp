@@ -563,8 +563,8 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 PostgresGlobalState::~PostgresGlobalState() {
 	if (pinned_connection) {
 		try {
-			PostgresCatalog &catalog = attached_catalog.Get<PostgresCatalog>();
-			catalog.GetConnectionPool().PinConnection(std::move(pinned_connection));
+			// attached_catalog keeps the pool of the connection alive
+			pinned_connection.PinBack();
 		} catch (...) {
 			// suppress
 		}
